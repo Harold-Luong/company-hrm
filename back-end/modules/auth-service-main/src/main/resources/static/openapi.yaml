@@ -64,7 +64,7 @@ paths:
                 Email được loại bỏ khoảng trắng ở hai đầu và chuyển thành chữ thường.
                 Yêu cầu có ít nhất một role HR hoặc ADMIN. Tài khoản mới có roles mặc định [EMPLOYEE] và active = true.
                 Role hợp lệ: EMPLOYEE, MANAGER, HR hoặc ADMIN.
-                employeeId bắt buộc, là ID nhân viên nguyên dương và chưa được liên kết với tài khoản khác.
+                employeeId bắt buộc, là UUID nhân viên hợp lệ và chưa được liên kết với tài khoản khác.
             security:
                 - bearerAuth: []
             requestBody:
@@ -347,11 +347,10 @@ components:
                   required: [employeeId]
                   properties:
                       employeeId:
-                          type: integer
-                          format: int64
-                          minimum: 1
+                          type: string
+                          format: uuid
                           description: ID nhân viên bắt buộc cho mọi tài khoản, kể cả HR/ADMIN; mỗi nhân viên chỉ liên kết một tài khoản.
-                          example: 1001
+                          example: "550e8400-e29b-41d4-a716-000000001001"
                       roles:
                           type: array
                           nullable: true
@@ -398,7 +397,7 @@ components:
                     example: Bearer
                 accessToken:
                     type: string
-                    description: JWT dùng cho Authorization header; sub là ID tài khoản, employee_id là ID nhân viên, roles là mảng tên role, ví dụ [EMPLOYEE, HR].
+                    description: JWT dùng cho Authorization header; sub là ID tài khoản, employee_id là UUID nhân viên dạng chuỗi, roles là mảng tên role, ví dụ [EMPLOYEE, HR].
                     example: "<access-token>"
                 refreshToken:
                     type: string
@@ -436,11 +435,10 @@ components:
                     format: int64
                     example: 1
                 employeeId:
-                    type: integer
-                    format: int64
-                    minimum: 1
+                    type: string
+                    format: uuid
                     description: ID nhân viên đang liên kết với tài khoản.
-                    example: 1001
+                    example: "550e8400-e29b-41d4-a716-000000001001"
                 email:
                     type: string
                     format: email

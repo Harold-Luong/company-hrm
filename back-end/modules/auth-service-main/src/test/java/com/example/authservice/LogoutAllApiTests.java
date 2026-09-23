@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -49,10 +50,10 @@ class LogoutAllApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        user = createUser("logout@example.com", 1001L);
+        user = createUser("logout@example.com", UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         firstSession = createSession(user);
         secondSession = createSession(user);
-        otherUserSession = createSession(createUser("other@example.com", 1002L));
+        otherUserSession = createSession(createUser("other@example.com", UUID.fromString("550e8400-e29b-41d4-a716-000000001002")));
     }
 
     @Test
@@ -106,7 +107,7 @@ class LogoutAllApiTests {
         assertNoSessionsRevoked();
     }
 
-    private User createUser(String email, Long employeeId) {
+    private User createUser(String email, UUID employeeId) {
         User result = new User();
         result.setEmployeeId(employeeId);
         result.setEmail(email);

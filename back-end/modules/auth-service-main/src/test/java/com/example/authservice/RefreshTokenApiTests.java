@@ -83,7 +83,7 @@ class RefreshTokenApiTests {
         sessions.deleteAll();
         users.deleteAll();
         user = new User();
-        user.setEmployeeId(1001L);
+        user.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         user.setEmail("refresh@example.com");
         user.setPasswordHash(passwordEncoder.encode("password123"));
         user.setActive(true);
@@ -235,7 +235,7 @@ class RefreshTokenApiTests {
             case "wrong-hash" -> session.setTokenHash("0".repeat(64));
             case "wrong-user" -> {
                 User other = new User();
-                other.setEmployeeId(1002L);
+                other.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001002"));
                 other.setEmail("other@example.com");
                 other.setPasswordHash(user.getPasswordHash());
                 other.setActive(true);

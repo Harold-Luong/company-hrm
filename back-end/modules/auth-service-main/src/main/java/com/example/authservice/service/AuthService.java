@@ -164,7 +164,8 @@ public class AuthService {
         if (!user.get().isActive()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
-        return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(), user.get().isActive(),
+        return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(),
+                user.get().isActive(),
                 user.get().getRoles(), user.get().getLastLoginAt(),
                 user.get().getCreatedAt(), user.get().getUpdatedAt());
     }

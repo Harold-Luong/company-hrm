@@ -1,3 +1,4 @@
+-- Replace sample employee UUIDs with the corresponding IDs from Employee.
 INSERT INTO
     users (
         employee_id,
@@ -6,25 +7,25 @@ INSERT INTO
         is_active
     )
 VALUES (
-        1,
+        '550e8400-e29b-41d4-a716-000000000001',
         'hr@company.com',
         '$2a$12$RdwvI6YlZMi0cO81rnOdgOPt9IpMr/oW47LkrLmdTaBXooyiNente',
         true
     ),
     (
-        2,
+        '550e8400-e29b-41d4-a716-000000000002',
         'manager@company.com',
         '$2a$12$RdwvI6YlZMi0cO81rnOdgOPt9IpMr/oW47LkrLmdTaBXooyiNente',
         true
     ),
     (
-        3,
+        '550e8400-e29b-41d4-a716-000000000003',
         'employee@company.com',
         '$2a$12$RdwvI6YlZMi0cO81rnOdgOPt9IpMr/oW47LkrLmdTaBXooyiNente',
         true
     ),
     (
-        4,
+        '550e8400-e29b-41d4-a716-000000000004',
         'admin@company.com',
         '$2a$12$RdwvI6YlZMi0cO81rnOdgOPt9IpMr/oW47LkrLmdTaBXooyiNente',
         true

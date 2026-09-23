@@ -5,11 +5,12 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 
 @JsonPropertyOrder({ "id", "employeeId", "email", "active", "roles", "lastLoginAt", "createdAt", "updatedAt" })
 public record UserResponse(
         Long id,
-        Long employeeId,
+        UUID employeeId,
         String email,
         boolean active,
         Set<UserRole> roles,
