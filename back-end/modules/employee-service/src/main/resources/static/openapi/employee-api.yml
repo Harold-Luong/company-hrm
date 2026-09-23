@@ -1,0 +1,887 @@
+openapi: 3.0.3
+info:
+    title: Employee Service API
+    version: v1
+    description: API quản lý nhân viên, phòng ban, chức danh, thông tin cá nhân và trạng thái làm việc.
+servers:
+    - url: /
+      description: Server đang phục vụ Swagger UI
+security:
+    - bearerAuth: []
+tags:
+    - name: Health
+      description: Giám sát trạng thái service
+    - name: Employees
+      description: Quản lý thông tin nhân viên
+    - name: Departments
+      description: Quản lý phòng ban
+
+    - name: Positions
+      description: Quản lý chức danh
+
+paths:
+    /api/v1/employees/health-check:
+        get:
+            tags: [Health]
+            operationId: healthCheck
+            summary: Kiểm tra kết nối database
+            description: Không cần token hoặc query parameter. Kiểm tra kết nối, không kiểm tra schema database.
+            security: []
+            responses:
+                "200":
+                    description: Kết nối database hoạt động
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/HealthCheckResponse"
+                            example:
+                                status: UP
+                                database: UP
+                "503":
+                    description: Không thể kết nối hoặc kết nối database không hợp lệ
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/HealthCheckResponse"
+                            example:
+                                status: DOWN
+                                database: DOWN
+
+
+    /api/v1/departments:
+        post:
+            tags: [Departments]
+            operationId: createDepartment
+            summary: Tạo phòng ban
+            description: Mã phòng ban phải duy nhất (phân biệt hoa/thường). Chuỗi được bỏ khoảng trắng đầu/cuối. Phòng ban mới mặc định active=true.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/DepartmentRequest"
+                        example:
+                            code: IT
+                            name: Information Technology
+                            description: Quản lý hệ thống công nghệ thông tin
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "201":
+                    description: Đã tạo phòng ban
+                    headers:
+                        Location:
+                            description: Đường dẫn chi tiết phòng ban vừa tạo
+                            schema:
+                                type: string
+                                example: /api/v1/departments/22222222-2222-2222-2222-222222222222
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/DepartmentResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+        get:
+            tags: [Departments]
+            operationId: listDepartments
+            summary: Danh sách phòng ban
+            description: Phân trang, sắp xếp theo mã phòng ban tăng dần.
+            parameters:
+                - name: page
+                  in: query
+                  description: Số trang, bắt đầu từ 0
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      default: 0
+                - name: size
+                  in: query
+                  description: Số phòng ban mỗi trang
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      maximum: 100
+                      default: 20
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Danh sách phòng ban và thông tin phân trang
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/DepartmentPage"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+
+    /api/v1/departments/{id}:
+        get:
+            tags: [Departments]
+            operationId: getDepartment
+            summary: Chi tiết phòng ban
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  description: UUID của phòng ban
+                  schema:
+                      type: string
+                      format: uuid
+                  example: 22222222-2222-2222-2222-222222222222
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Thông tin phòng ban
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/DepartmentResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+
+        put:
+            tags: [Departments]
+            operationId: updateDepartment
+            summary: Cập nhật phòng ban
+            description: >-
+                Thay thế code, name và description. Phải gửi đủ code và name;
+                description bị bỏ qua hoặc gửi null sẽ được xóa. Mã phải duy nhất
+                giữa các phòng ban, được phép giữ mã hiện tại. Chuỗi được bỏ khoảng
+                trắng đầu/cuối. Giữ nguyên id, createdAt và active; tự cập nhật
+                updatedAt khi dữ liệu thay đổi.
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  description: UUID của phòng ban
+                  schema:
+                      type: string
+                      format: uuid
+                  example: 22222222-2222-2222-2222-222222222222
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/DepartmentRequest"
+                        example:
+                            code: IT
+                            name: Information Technology
+                            description: Phòng công nghệ thông tin
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Thông tin phòng ban sau cập nhật
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/DepartmentResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+
+    /api/v1/positions:
+        post:
+            tags: [Positions]
+            operationId: createPosition
+            summary: Tạo chức danh
+            description: Mã chức danh phải duy nhất (phân biệt hoa/thường). Chuỗi được bỏ khoảng trắng đầu/cuối. Chức danh mới mặc định active=true.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/PositionRequest"
+                        example:
+                            code: SOFTWARE_ENGINEER
+                            name: Software Engineer
+                            description: Phát triển phần mềm
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "201":
+                    description: Đã tạo chức danh
+                    headers:
+                        Location:
+                            description: Đường dẫn chi tiết chức danh vừa tạo
+                            schema:
+                                type: string
+                                example: /api/v1/positions/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PositionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+        get:
+            tags: [Positions]
+            operationId: listPositions
+            summary: Danh sách chức danh
+            description: Phân trang, sắp xếp theo mã chức danh tăng dần.
+            parameters:
+                - name: page
+                  in: query
+                  description: Số trang, bắt đầu từ 0
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      default: 0
+                - name: size
+                  in: query
+                  description: Số chức danh mỗi trang
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      maximum: 100
+                      default: 20
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Danh sách chức danh và thông tin phân trang
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PositionPage"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+
+    /api/v1/positions/{id}:
+        get:
+            tags: [Positions]
+            operationId: getPosition
+            summary: Chi tiết chức danh
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  description: UUID của chức danh
+                  schema:
+                      type: string
+                      format: uuid
+                  example: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Thông tin chức danh
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PositionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+
+        put:
+            tags: [Positions]
+            operationId: updatePosition
+            summary: Cập nhật chức danh
+            description: >-
+                Thay thế code, name và description. Phải gửi đủ code và name;
+                description bị bỏ qua hoặc gửi null sẽ được xóa. Mã phải duy nhất
+                giữa các chức danh, được phép giữ mã hiện tại. Chuỗi được bỏ khoảng
+                trắng đầu/cuối. Giữ nguyên id, createdAt và active; tự cập nhật
+                updatedAt khi dữ liệu thay đổi.
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  description: UUID của chức danh
+                  schema:
+                      type: string
+                      format: uuid
+                  example: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/PositionRequest"
+                        example:
+                            code: SOFTWARE_ENGINEER
+                            name: Software Engineer
+                            description: Kỹ sư phần mềm
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Thông tin chức danh sau cập nhật
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PositionResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+
+
+    /api/v1/employees:
+        post:
+            tags: [Employees]
+            operationId: createEmployee
+            summary: Tạo nhân viên
+            description: Mã nhân viên và email phải duy nhất. Các ID tham chiếu phải tồn tại.
+            requestBody:
+                $ref: "#/components/requestBodies/EmployeeRequest"
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "201":
+                    description: Đã tạo nhân viên
+                    headers:
+                        Location:
+                            description: Đường dẫn chi tiết nhân viên vừa tạo
+                            schema:
+                                type: string
+                                example: /api/v1/employees/10000000-0000-0000-0000-000000000007
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/EmployeeResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+        get:
+            tags: [Employees]
+            operationId: listEmployees
+            summary: Danh sách nhân viên
+            description: Phân trang, sắp xếp theo mã nhân viên tăng dần.
+            parameters:
+                - name: page
+                  in: query
+                  description: Số trang, bắt đầu từ 0
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      default: 0
+                  example: 0
+                - name: size
+                  in: query
+                  description: Số nhân viên mỗi trang
+                  schema:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      maximum: 100
+                      default: 20
+                  example: 20
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    description: Danh sách nhân viên và thông tin phân trang
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/EmployeePage"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+
+    /api/v1/employees/{id}:
+        parameters:
+            - $ref: "#/components/parameters/EmployeeId"
+        get:
+            tags: [Employees]
+            operationId: getEmployee
+            summary: Chi tiết nhân viên
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    $ref: "#/components/responses/Employee"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+        put:
+            tags: [Employees]
+            operationId: updateEmployee
+            summary: Cập nhật nhân viên
+            description: >-
+                Thay thế toàn bộ thông tin có thể chỉnh sửa. Phải gửi đủ trường bắt buộc;
+                trường tùy chọn bị bỏ qua hoặc gửi null sẽ được xóa, bao gồm các quan hệ.
+                Giữ nguyên id và createdAt. Không được tạo vòng lặp quản lý.
+            requestBody:
+                $ref: "#/components/requestBodies/EmployeeRequest"
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    $ref: "#/components/responses/Employee"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+
+    /api/v1/employees/{id}/status:
+        parameters:
+            - $ref: "#/components/parameters/EmployeeId"
+        patch:
+            tags: [Employees]
+            operationId: updateEmployeeStatus
+            summary: Đổi trạng thái nhân viên
+            description: Chỉ cập nhật trạng thái, giữ nguyên các thông tin khác.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/EmployeeStatusRequest"
+                        example:
+                            status: ACTIVE
+            responses:
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "200":
+                    $ref: "#/components/responses/Employee"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+
+components:
+    securitySchemes:
+        bearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+            description: Access token RS256 từ Auth; không dùng refresh token.
+    parameters:
+        EmployeeId:
+            name: id
+            in: path
+            required: true
+            description: UUID của nhân viên
+            schema:
+                type: string
+                format: uuid
+            example: 10000000-0000-0000-0000-000000000003
+
+    requestBodies:
+        EmployeeRequest:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/EmployeeRequest"
+
+    responses:
+        Unauthorized:
+            description: Thiếu access token hoặc token sai chữ ký, issuer, audience, thời hạn hay claim bắt buộc.
+            headers:
+                WWW-Authenticate:
+                    schema:
+                        type: string
+                    example: Bearer
+            content:
+                application/problem+json:
+                    schema:
+                        type: object
+                        properties:
+                            type:
+                                type: string
+                            title:
+                                type: string
+                            status:
+                                type: integer
+                            detail:
+                                type: string
+                    example:
+                        type: about:blank
+                        title: Unauthorized
+                        status: 401
+                        detail: A valid access token is required
+        Employee:
+            description: Thông tin nhân viên
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/EmployeeResponse"
+        BadRequest:
+            description: Dữ liệu không hợp lệ, sai UUID/phân trang hoặc tạo vòng lặp quản lý
+            content:
+                application/problem+json:
+                    schema:
+                        $ref: "#/components/schemas/ProblemDetail"
+                    example:
+                        type: about:blank
+                        title: Bad Request
+                        status: 400
+                        detail: Request validation failed
+                        instance: /api/v1/employees
+                        errors:
+                            employeeCode: must not be blank
+        NotFound:
+            description: Nhân viên, phòng ban, chức danh hoặc department/position/manager được tham chiếu không tồn tại
+            content:
+                application/problem+json:
+                    schema:
+                        $ref: "#/components/schemas/ProblemDetail"
+        Conflict:
+            description: Trùng mã chức danh, mã phòng ban, mã nhân viên/email hoặc xung đột ràng buộc dữ liệu
+            content:
+                application/problem+json:
+                    schema:
+                        $ref: "#/components/schemas/ProblemDetail"
+
+    schemas:
+        DepartmentRequest:
+            type: object
+            required: [code, name]
+            properties:
+                code:
+                    type: string
+                    minLength: 1
+                    maxLength: 50
+                    description: Mã phòng ban duy nhất, không được chỉ chứa khoảng trắng
+                    example: IT
+                name:
+                    type: string
+                    minLength: 1
+                    maxLength: 150
+                    description: Tên phòng ban, không được chỉ chứa khoảng trắng
+                    example: Information Technology
+                description:
+                    type: string
+                    nullable: true
+                    description: Mô tả tùy chọn
+
+        DepartmentResponse:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                code:
+                    type: string
+                    example: IT
+                name:
+                    type: string
+                    example: Information Technology
+                description:
+                    type: string
+                    nullable: true
+
+        DepartmentPage:
+            type: object
+            properties:
+                content:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/DepartmentResponse"
+                page:
+                    type: integer
+                    format: int32
+                    example: 0
+                size:
+                    type: integer
+                    format: int32
+                    example: 20
+                totalElements:
+                    type: integer
+                    format: int64
+                totalPages:
+                    type: integer
+                    format: int32
+
+        PositionRequest:
+            type: object
+            required: [code, name]
+            properties:
+                code:
+                    type: string
+                    minLength: 1
+                    maxLength: 50
+                    description: Mã chức danh duy nhất, không được chỉ chứa khoảng trắng
+                    example: SOFTWARE_ENGINEER
+                name:
+                    type: string
+                    minLength: 1
+                    maxLength: 150
+                    description: Tên chức danh, không được chỉ chứa khoảng trắng
+                    example: Software Engineer
+                description:
+                    type: string
+                    nullable: true
+                    description: Mô tả tùy chọn
+
+        PositionResponse:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                code:
+                    type: string
+                    example: SOFTWARE_ENGINEER
+                name:
+                    type: string
+                    example: Software Engineer
+                description:
+                    type: string
+                    nullable: true
+
+        PositionPage:
+            type: object
+            properties:
+                content:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/PositionResponse"
+                page:
+                    type: integer
+                    format: int32
+                    example: 0
+                size:
+                    type: integer
+                    format: int32
+                    example: 20
+                totalElements:
+                    type: integer
+                    format: int64
+                totalPages:
+                    type: integer
+                    format: int32
+
+        HealthCheckResponse:
+            type: object
+            required: [status, database]
+            properties:
+                status:
+                    type: string
+                    enum: [UP, DOWN]
+                database:
+                    type: string
+                    enum: [UP, DOWN]
+
+        EmployeeStatus:
+            type: string
+            enum: [ACTIVE, INACTIVE, PROBATION, RESIGNED, TERMINATED]
+            example: PROBATION
+
+        EmployeeRequest:
+            type: object
+            required:
+                [employeeCode, firstName, lastName, email, hireDate, status]
+            properties:
+                employeeCode:
+                    type: string
+                    minLength: 1
+                    maxLength: 50
+                    description: Mã nhân viên duy nhất, không được chỉ chứa khoảng trắng
+                    example: EMP007
+                firstName:
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                    description: Tên nhân viên, không được chỉ chứa khoảng trắng
+                    example: Minh
+                lastName:
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                    description: Họ nhân viên, không được chỉ chứa khoảng trắng
+                    example: Nguyen
+                email:
+                    type: string
+                    format: email
+                    minLength: 1
+                    maxLength: 255
+                    description: Email duy nhất
+                    example: minh.nguyen@company.com
+                phone:
+                    type: string
+                    nullable: true
+                    maxLength: 30
+                    example: "0901000007"
+                dateOfBirth:
+                    type: string
+                    format: date
+                    nullable: true
+                    description: Ngày sinh trong quá khứ và trước ngày vào làm
+                    example: "1999-05-20"
+                hireDate:
+                    type: string
+                    format: date
+                    description: Ngày vào làm
+                    example: "2026-09-01"
+                status:
+                    $ref: "#/components/schemas/EmployeeStatus"
+                departmentId:
+                    type: string
+                    format: uuid
+                    nullable: true
+                    description: ID phòng ban đã tồn tại; có thể bỏ qua
+                    example: 22222222-2222-2222-2222-222222222222
+                positionId:
+                    type: string
+                    format: uuid
+                    nullable: true
+                    description: ID chức danh đã tồn tại; có thể bỏ qua
+                    example: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2
+                managerId:
+                    type: string
+                    format: uuid
+                    nullable: true
+                    description: ID quản lý trực tiếp đã tồn tại; không được tạo vòng lặp quản lý; có thể bỏ qua
+                    example: 10000000-0000-0000-0000-000000000002
+
+        EmployeeStatusRequest:
+            type: object
+            required: [status]
+            properties:
+                status:
+                    $ref: "#/components/schemas/EmployeeStatus"
+
+        EmployeeResponse:
+            type: object
+            properties:
+                accountStatus:
+                    type: string
+                    enum: [UNKNOWN, NOT_CREATED, PENDING_ACTIVATION, ACTIVE, DISABLED]
+                    readOnly: true
+                    description: Trạng thái tài khoản đã ghi nhận từ Auth, chỉ phục vụ hiển thị. Nhân viên mới mặc định NOT_CREATED; dữ liệu cũ chưa đối soát là UNKNOWN. Cơ chế nhận cập nhật từ Auth chưa được triển khai.
+                    example: NOT_CREATED
+                id:
+                    type: string
+                    format: uuid
+                employeeCode:
+                    type: string
+                    example: EMP007
+                firstName:
+                    type: string
+                    example: Minh
+                lastName:
+                    type: string
+                    example: Nguyen
+                email:
+                    type: string
+                    format: email
+                    example: minh.nguyen@company.com
+                phone:
+                    type: string
+                    nullable: true
+                dateOfBirth:
+                    type: string
+                    format: date
+                    nullable: true
+                hireDate:
+                    type: string
+                    format: date
+                status:
+                    $ref: "#/components/schemas/EmployeeStatus"
+                department:
+                    $ref: "#/components/schemas/Reference"
+                position:
+                    $ref: "#/components/schemas/Reference"
+                manager:
+                    $ref: "#/components/schemas/Manager"
+                createdAt:
+                    type: string
+                    format: date-time
+                    readOnly: true
+                updatedAt:
+                    type: string
+                    format: date-time
+                    readOnly: true
+
+        Reference:
+            type: object
+            nullable: true
+            description: Tóm tắt phòng ban hoặc chức danh; null nếu chưa được gán
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                code:
+                    type: string
+                name:
+                    type: string
+
+        Manager:
+            type: object
+            nullable: true
+            description: Tóm tắt quản lý trực tiếp; null nếu chưa được gán
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                employeeCode:
+                    type: string
+                firstName:
+                    type: string
+                lastName:
+                    type: string
+
+        EmployeePage:
+            type: object
+            properties:
+                content:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/EmployeeResponse"
+                page:
+                    type: integer
+                    format: int32
+                    example: 0
+                size:
+                    type: integer
+                    format: int32
+                    example: 20
+                totalElements:
+                    type: integer
+                    format: int64
+                totalPages:
+                    type: integer
+                    format: int32
+
+        ProblemDetail:
+            type: object
+            properties:
+                type:
+                    type: string
+                    format: uri-reference
+                    example: about:blank
+                title:
+                    type: string
+                status:
+                    type: integer
+                    format: int32
+                detail:
+                    type: string
+                instance:
+                    type: string
+                    format: uri-reference
+                errors:
+                    type: object
+                    description: Thông báo theo tên trường khi validation body thất bại
+                    additionalProperties:
+                        type: string

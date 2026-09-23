@@ -1,0 +1,52 @@
+spring:
+    application:
+        name: employee-service
+    jackson:
+        datatype:
+            enum:
+                fail-on-numbers-for-enums: true
+    datasource:
+        url: jdbc:postgresql://localhost:5432/employee_db
+        username: employee_user
+        password: employee_password
+        driver-class-name: org.postgresql.Driver
+
+    jpa:
+        open-in-view: false
+        hibernate:
+            ddl-auto: validate
+        show-sql: true
+
+jwt:
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
+    access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
+    access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
+
+server:
+    port: 8082
+    forward-headers-strategy: none
+
+management:
+    endpoints:
+        web:
+            exposure:
+                include: health
+    endpoint:
+        health:
+            show-components: always
+            show-details: never
+    health:
+        db:
+            enabled: true
+
+springdoc:
+    enable-default-api-docs: false
+    api-docs:
+        enabled: true
+        path: /v3/api-docs
+    swagger-ui:
+        enabled: true
+        path: /swagger-ui.html
+        url: /openapi/employee-api.yml
+        disable-swagger-default-url: true
+        operations-sorter: method

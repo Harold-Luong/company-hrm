@@ -239,7 +239,7 @@ Employee
 
 Một Employee có thể có hoặc chưa có User account.
 
-v0.1: mỗi Employee liên kết tối đa một User và mỗi User liên kết tối đa một Employee; tài khoản quản trị có thể không có Employee. Check-in trực tiếp yêu cầu User liên kết với Employee đang active. HR có thể ghi nhận thủ công cho Employee không có tài khoản, với phân quyền và audit tương ứng.
+v0.1: mỗi Employee liên kết tối đa một User; mỗi User bắt buộc liên kết một Employee qua `users.employee_id` duy nhất, kể cả tài khoản quản trị. Auth nhận/trả `employeeId` qua API và đưa `employee_id` vào access JWT; `sub` vẫn là ID tài khoản. Check-in trực tiếp yêu cầu User liên kết với Employee đang active. HR có thể ghi nhận thủ công cho Employee không có tài khoản, với phân quyền và audit tương ứng.
 
 Employee MVP chỉ cần mã nhân viên duy nhất, họ tên, trạng thái làm việc, ngày vào/nghỉ, phòng ban, quản lý trực tiếp và liên kết tài khoản. Contract, hồ sơ mở rộng và cơ cấu tổ chức nhiều cấp thuộc release sau.
 
