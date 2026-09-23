@@ -58,6 +58,7 @@ class HrmRolesApiTests {
         sessions.deleteAll();
         users.deleteAll();
         admin = new User();
+        admin.setEmployeeId(9000L);
         admin.setEmail("admin-roles@example.com");
         admin.setPasswordHash("unused-in-token-authentication-tests");
         admin.setActive(true);
@@ -93,7 +94,7 @@ class HrmRolesApiTests {
                 admin.getId().toString(), null, List.of(new SimpleGrantedAuthority("ROLE_" + role.name()))));
         try {
             assertThrows(AccessDeniedException.class, () -> authService.register(
-                    new RegisterRequest("employee@example.com", "password123", Set.of(UserRole.EMPLOYEE))));
+                    new RegisterRequest("employee@example.com", "password123", Set.of(UserRole.EMPLOYEE), 1001L)));
             assertEquals(1, users.count());
         } finally {
             SecurityContextHolder.clearContext();
@@ -147,7 +148,7 @@ class HrmRolesApiTests {
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"roles\":null}"})
     void omittedOrNullRolesDefaultToEmployee(String fields) throws Exception {
-        var body = mapper.createObjectNode().put("email", "employee@example.com").put("password", "password123");
+        var body = mapper.createObjectNode().put("employeeId", 1001L).put("email", "employee@example.com").put("password", "password123");
         if (fields.contains("roles")) {
             body.putNull("roles");
         }
@@ -169,7 +170,7 @@ class HrmRolesApiTests {
     void rejectsEmptyOrMalformedRoleSets(String roles) throws Exception {
         mvc.perform(post("/api/v1/auth/register").header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"employee@example.com\",\"password\":\"password123\",\"roles\":" + roles + "}"))
+                        .content("{\"employeeId\":1001,\"email\":\"employee@example.com\",\"password\":\"password123\",\"roles\":" + roles + "}"))
                 .andExpect(status().isBadRequest());
         assertEquals(1, users.count());
     }
@@ -252,7 +253,64 @@ class HrmRolesApiTests {
     }
 
     private String registrationBody(String... roles) {
-        return mapper.writeValueAsString(Map.of("email", "employee@example.com", "password", "password123", "roles", roles));
+        return mapper.writeValueAsString(Map.of("email", "employee@example.com", "password", "password123", "roles", roles, "employeeId", 1001L));
+    }
+
+    @Test
+    void employeeLinkFlowsThroughRegistrationLoginMeAndRefresh() throws Exception {
+        register(registrationBody("EMPLOYEE"));
+        User user = users.findByEmail("employee@example.com").orElseThrow();
+        assertEquals(1001L, user.getEmployeeId());
+        String login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", "password123"))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String access = mapper.readTree(login).path("data").path("accessToken").asText();
+        String refresh = mapper.readTree(login).path("data").path("refreshToken").asText();
+        assertEquals(user.getId().toString(), jwtService.parseToken(access).getSubject());
+        assertEquals(1001L, jwtService.parseToken(access).get("employee_id", Long.class));
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.employeeId").value(1001));
+
+        user.setEmployeeId(1002L);
+        users.saveAndFlush(user);
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.employeeId").value(1002));
+        String rotated = mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("refreshToken", refresh))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertEquals(1002L, jwtService.parseToken(mapper.readTree(rotated).path("accessToken").asText())
+                .get("employee_id", Long.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "0", "-1", "\"invalid\"", "{}"})
+    void rejectsInvalidEmployeeId(String employeeId) throws Exception {
+        mvc.perform(post("/api/v1/auth/register").header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"employee@example.com\",\"password\":\"password123\",\"employeeId\":" + employeeId + "}"))
+                .andExpect(status().isBadRequest());
+        assertEquals(1, users.count());
+    }
+
+    @Test
+    void requiresEmployeeIdEvenForAdminAccounts() throws Exception {
+        mvc.perform(post("/api/v1/auth/register").header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"employee@example.com\",\"password\":\"password123\",\"roles\":[\"ADMIN\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("employeeId: Employee ID is required"));
+        assertEquals(1, users.count());
+    }
+
+    @Test
+    void rejectsAnotherAccountForTheSameEmployee() throws Exception {
+        var body = mapper.createObjectNode().put("email", "employee@example.com")
+                .put("password", "password123").put("employeeId", admin.getEmployeeId());
+        mvc.perform(post("/api/v1/auth/register").header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Employee already has an account"));
+        assertEquals(1, users.count());
     }
 
     private void register(String body) throws Exception {

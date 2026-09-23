@@ -50,7 +50,11 @@ public class AuthService {
         if (userRepository.existsByEmail(email)) {
             throw new GlobalException("Email already exists", HttpStatus.BAD_REQUEST);
         }
+        if (request.employeeId() != null && userRepository.existsByEmployeeId(request.employeeId())) {
+            throw new GlobalException("Employee already has an account", HttpStatus.BAD_REQUEST);
+        }
         User user = new User();
+        user.setEmployeeId(request.employeeId());
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setActive(true);
@@ -160,7 +164,7 @@ public class AuthService {
         if (!user.get().isActive()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
-        return new UserResponse(user.get().getId(), user.get().getEmail(), user.get().isActive(),
+        return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(), user.get().isActive(),
                 user.get().getRoles(), user.get().getLastLoginAt(),
                 user.get().getCreatedAt(), user.get().getUpdatedAt());
     }

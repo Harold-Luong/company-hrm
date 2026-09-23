@@ -49,10 +49,10 @@ class LogoutAllApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        user = createUser("logout@example.com");
+        user = createUser("logout@example.com", 1001L);
         firstSession = createSession(user);
         secondSession = createSession(user);
-        otherUserSession = createSession(createUser("other@example.com"));
+        otherUserSession = createSession(createUser("other@example.com", 1002L));
     }
 
     @Test
@@ -106,8 +106,9 @@ class LogoutAllApiTests {
         assertNoSessionsRevoked();
     }
 
-    private User createUser(String email) {
+    private User createUser(String email, Long employeeId) {
         User result = new User();
+        result.setEmployeeId(employeeId);
         result.setEmail(email);
         result.setPasswordHash("unused-in-token-authentication-tests");
         result.setActive(true);

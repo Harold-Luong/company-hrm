@@ -64,6 +64,7 @@ paths:
                 Email được loại bỏ khoảng trắng ở hai đầu và chuyển thành chữ thường.
                 Yêu cầu có ít nhất một role HR hoặc ADMIN. Tài khoản mới có roles mặc định [EMPLOYEE] và active = true.
                 Role hợp lệ: EMPLOYEE, MANAGER, HR hoặc ADMIN.
+                employeeId bắt buộc, là ID nhân viên nguyên dương và chưa được liên kết với tài khoản khác.
             security:
                 - bearerAuth: []
             requestBody:
@@ -82,7 +83,7 @@ paths:
                             example:
                                 message: User registered successfully!
                 "400":
-                    description: Dữ liệu không hợp lệ, JSON lỗi hoặc email đã tồn tại
+                    description: Dữ liệu không hợp lệ, JSON lỗi, email đã tồn tại hoặc nhân viên đã có tài khoản
                     content:
                         application/json:
                             schema:
@@ -343,7 +344,14 @@ components:
             allOf:
                 - $ref: "#/components/schemas/LoginRequest"
                 - type: object
+                  required: [employeeId]
                   properties:
+                      employeeId:
+                          type: integer
+                          format: int64
+                          minimum: 1
+                          description: ID nhân viên bắt buộc cho mọi tài khoản, kể cả HR/ADMIN; mỗi nhân viên chỉ liên kết một tài khoản.
+                          example: 1001
                       roles:
                           type: array
                           nullable: true
@@ -390,7 +398,7 @@ components:
                     example: Bearer
                 accessToken:
                     type: string
-                    description: JWT dùng cho Authorization header; claim roles là mảng tên role, ví dụ [EMPLOYEE, HR].
+                    description: JWT dùng cho Authorization header; sub là ID tài khoản, employee_id là ID nhân viên, roles là mảng tên role, ví dụ [EMPLOYEE, HR].
                     example: "<access-token>"
                 refreshToken:
                     type: string
@@ -412,7 +420,7 @@ components:
             properties:
                 accessToken:
                     type: string
-                    description: JWT chứa claim roles dạng mảng, lấy từ roles hiện tại trong database.
+                    description: JWT chứa employee_id và roles hiện tại trong database; sub vẫn là ID tài khoản.
                     example: "<access-token-moi>"
                 refreshToken:
                     type: string
@@ -421,12 +429,18 @@ components:
         UserResponse:
             type: object
             required:
-                [id, email, active, roles, lastLoginAt, createdAt, updatedAt]
+                [id, employeeId, email, active, roles, lastLoginAt, createdAt, updatedAt]
             properties:
                 id:
                     type: integer
                     format: int64
                     example: 1
+                employeeId:
+                    type: integer
+                    format: int64
+                    minimum: 1
+                    description: ID nhân viên đang liên kết với tài khoản.
+                    example: 1001
                 email:
                     type: string
                     format: email

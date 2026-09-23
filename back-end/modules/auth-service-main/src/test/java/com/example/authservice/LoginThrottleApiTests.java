@@ -55,6 +55,7 @@ class LoginThrottleApiTests {
         int id = sequence.incrementAndGet();
         ip = "192.0.2." + id;
         user = new User();
+        user.setEmployeeId((long) id);
         user.setEmail("throttle" + id + "@example.com");
         user.setPasswordHash(encoder.encode("correct-secret"));
         user.setActive(true);

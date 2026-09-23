@@ -37,6 +37,7 @@ public class JwtService {
 
         return Jwts.builder()
                 .subject(user.getId().toString())
+                .claim("employee_id", user.getEmployeeId())
                 .claim("email", user.getEmail())
                 .claim("roles", user.getRoles().stream().map(Enum::name).sorted().toList())
                 .issuer(jwtProperties.getAccessIssuer())
