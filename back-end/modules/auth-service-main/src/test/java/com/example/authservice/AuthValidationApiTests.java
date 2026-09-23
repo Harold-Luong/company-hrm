@@ -47,6 +47,7 @@ class AuthValidationApiTests {
         sessions.deleteAll();
         users.deleteAll();
         User admin = new User();
+        admin.setEmployeeId(9000L);
         admin.setEmail("admin-validation@example.com");
         admin.setPasswordHash("unused-in-token-authentication-tests");
         admin.setActive(true);
@@ -57,6 +58,10 @@ class AuthValidationApiTests {
     @ParameterizedTest
     @MethodSource("invalidCredentials")
     void rejectsInvalidCredentialsBeforeWritingToDatabase(String endpoint, String body, String message) throws Exception {
+        if ("register".equals(endpoint)) {
+            var fields = (tools.jackson.databind.node.ObjectNode) mapper.readTree(body);
+            body = mapper.writeValueAsString(fields.put("employeeId", 1001L));
+        }
         mvc.perform(authPost(endpoint).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -118,7 +123,7 @@ class AuthValidationApiTests {
 
     @Test
     void validRegistrationAndLoginStillWorkWithTrimmedEmailAndUnmodifiedPassword() throws Exception {
-        String body = mapper.writeValueAsString(Map.of("email", "  valid@example.com  ", "password", " password123 "));
+        String body = mapper.writeValueAsString(Map.of("email", "  valid@example.com  ", "password", " password123 ", "employeeId", 1001L));
         mvc.perform(authPost("register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))

@@ -1,7 +1,7 @@
 # Auth cho Attendance MVP
 
 Module giữ JWT access token và refresh session hiện có. User chứa thông tin tài khoản;
-Employee sau này sở hữu `user_id` nullable/unique để liên kết một-một. Không đưa mã nhân viên,
+User lưu `employee_id` bắt buộc/unique để liên kết một-một với Employee, kể cả tài khoản HR/ADMIN. Không đưa mã nhân viên,
 phòng ban, trạng thái lao động hoặc ngày vào/nghỉ việc vào User.
 
 ## Role và field
@@ -28,7 +28,10 @@ Trạng thái account `active` độc lập với trạng thái lao động củ
 
 `POST /api/v1/auth/register` yêu cầu access token của tài khoản có HR hoặc ADMIN, được kiểm tra ở HTTP và service
 (`@PreAuthorize`). Tham khảo [Spring method security](https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html).
-Request gồm `email`, `password`, `roles` tùy chọn dưới dạng mảng. Bỏ qua/null `roles` sẽ dùng `["EMPLOYEE"]`.
+Request gồm `email`, `password`, `employeeId` bắt buộc và `roles` tùy chọn dưới dạng mảng. Bỏ qua/null `roles` sẽ dùng `["EMPLOYEE"]`.
+`employeeId` là số nguyên dương; thiếu/null/không dương trả 400. Nhân viên đã có tài khoản trả 400.
+Database áp dụng NOT NULL và UNIQUE cho `users.employee_id`. Đây là ID tham chiếu tới Employee;
+auth chưa có module Employee để kiểm tra nhân viên tồn tại hoặc đang active và chưa có foreign key liên dịch vụ.
 Mảng rỗng, phần tử null, role không hợp lệ hoặc truyền chuỗi thay mảng trả 400; role trùng được gộp.
 Chỉ chấp nhận bốn role: EMPLOYEE, MANAGER, HR, ADMIN. Không truyền token trả 401;
 không có HR/ADMIN hoặc account inactive trả 403; role không hợp lệ trả 400.
@@ -38,6 +41,8 @@ Chưa có API thay đổi role, khóa account hoặc quản trị Employee.
 
 Access JWT có claim `roles` dạng mảng chuỗi, ví dụ `["EMPLOYEE", "HR"]`.
 `/me` cũng trả `roles` dạng mảng; không còn field `role`.
+Access JWT có claim `employee_id`; `/me` trả `employeeId` từ database. JWT `sub` vẫn là User ID.
+Login/refresh lấy liên kết nhân viên hiện tại; JWT đã cấp không tự đổi payload khi liên kết thay đổi.
 JWT filter xác minh token rồi đọc tập roles và trạng thái account
 hiện tại trong DB để tạo các Spring Security authority. Vì vậy token ADMIN cũ không giữ được quyền
 sau khi đổi role; account inactive không sử dụng được access/refresh token. Account đã xóa trả 401.
@@ -72,7 +77,7 @@ cấu hình datasource phải dùng đúng credential hiện tại. Không xóa 
 
 Schema gồm:
 
-* `users`: email unique, password hash, active, `last_login_at`, audit timestamps.
+* `users`: email unique, `employee_id` bắt buộc/unique, password hash, active, `last_login_at`, audit timestamps.
 * `user_roles`: `user_id`, `role`; khóa chính ghép ngăn role trùng trên cùng account.
 * `refresh_sessions`: UUID session, foreign key tới User, token hash, thời gian tạo/hết hạn/thu hồi.
 * Check constraint chỉ chấp nhận EMPLOYEE, MANAGER, HR, ADMIN; index session theo `user_id`.
@@ -119,7 +124,8 @@ token đã phát hành không nên tái sử dụng vì User ID có thể đư�
 `mvn test` kiểm tra một/nhiều role qua register/login/refresh/me, mặc định EMPLOYEE, role trùng,
 từ chối tập rỗng/null element/role ngoài enum, quyền HR hoặc ADMIN ở HTTP/service,
 token cũ sau đổi role, account inactive/deleted và thời điểm
-đăng nhập. Các regression test validation, throttling, logout và refresh rotation vẫn được chạy.
+đăng nhập; kiểm tra employeeId bắt buộc/không trùng và truyền qua register/login/me/refresh.
+Các regression test validation, throttling, logout và refresh rotation vẫn được chạy.
 Các API test dùng H2; SQL khởi tạo/reset cần được kiểm tra riêng trên PostgreSQL tạm.
 
 Nếu môi trường chặn Mockito tự attach agent, chạy với agent có sẵn trong Maven cache:

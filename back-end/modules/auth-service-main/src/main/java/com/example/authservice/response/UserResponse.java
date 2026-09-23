@@ -6,9 +6,10 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.time.Instant;
 import java.util.Set;
 
-@JsonPropertyOrder({ "id", "email", "active", "roles", "lastLoginAt", "createdAt", "updatedAt" })
+@JsonPropertyOrder({ "id", "employeeId", "email", "active", "roles", "lastLoginAt", "createdAt", "updatedAt" })
 public record UserResponse(
         Long id,
+        Long employeeId,
         String email,
         boolean active,
         Set<UserRole> roles,
