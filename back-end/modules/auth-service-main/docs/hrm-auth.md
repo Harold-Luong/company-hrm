@@ -52,6 +52,12 @@ token cấp sau login/refresh mang role mới. Mỗi request xác thực cần �
 Logout vẫn chỉ thu hồi refresh session. Khi account active trở lại, access token chưa hết hạn
 có thể dùng lại; việc thu hồi vĩnh viễn access token không thuộc thay đổi này.
 
+Tạo refresh session, refresh, logout và logout-all phối hợp bằng khóa ghi trên hàng User
+trong cùng transaction, theo thứ tự User trước rồi refresh session. Nếu refresh lấy khóa trước,
+logout-all chờ và thu hồi cả phiên mới; nếu logout-all lấy khóa trước, refresh chờ rồi bị từ chối.
+Logout-all cập nhật trực tiếp các phiên chưa thu hồi của user đó. Login mới lấy khóa sau
+logout-all vẫn có thể tạo phiên mới; logout-all không khóa tài khoản và không cấm đăng nhập lại.
+
 ## Khởi tạo database từ đầu
 
 Auth được thiết lập như project mới, không có migration hoặc lớp tương thích dữ liệu cũ.
@@ -115,10 +121,10 @@ File `001_init_auth_db.sql` vẫn dùng terminal `psql` như bước 1.
 
 ### 3. Chạy ứng dụng
 
-Cấu hình `JWT_SECRET_ACCESS`, `JWT_SECRET_REFRESH`, chạy Spring Boot, đăng nhập Admin và gọi
+Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md), chạy Spring Boot, đăng nhập Admin và gọi
 `/api/v1/auth/register` để tạo các tài khoản còn lại. Sau khi reset database, cần đăng nhập lại;
 token đã phát hành không nên tái sử dụng vì User ID có thể được cấp lại. Với môi trường reset
-đã từng phát hành token, thay cả hai JWT signing secret trước khi khởi động lại ứng dụng.
+đã từng phát hành token, thay cả hai cặp khóa RSA trước khi khởi động lại ứng dụng.
 
 ## Kiểm thử
 

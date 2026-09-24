@@ -4,6 +4,7 @@ import com.example.authservice.entity.RefreshSessions;
 import com.example.authservice.entity.User;
 import com.example.authservice.exception.GlobalException;
 import com.example.authservice.repository.RefreshSessionsRepository;
+import com.example.authservice.repository.UserRepository;
 
 import jakarta.transaction.Transactional;
 import lombok.AllArgsConstructor;
@@ -18,10 +19,13 @@ import java.util.UUID;
 public class RefreshSessionsService {
 
     private final RefreshSessionsRepository refreshSessionsRepository;
+    private final UserRepository userRepository;
 
     @Transactional(Transactional.TxType.MANDATORY)
     public User validateRefreshSession(UUID sessionId, Long userId, String tokenHash) {
-        // Keep the row locked through validation, revocation and replacement in the caller's transaction.
+        // Always lock the user before the session, including creation and logout-all.
+        // The caller holds both locks until rotation/revocation commits or rolls back.
+        User user = lockUser(userId);
         RefreshSessions session = refreshSessionsRepository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED));
         if (session.getRevokedAt() != null
@@ -30,13 +34,15 @@ public class RefreshSessionsService {
                 || session.getUser() == null || !userId.equals(session.getUser().getId())) {
             throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
         }
-        return session.getUser();
+        return user;
     }
 
+    @Transactional
     public void createRefreshSession(UUID id, User user, String tokenHash, Instant expiresAt) {
+        User owner = lockUser(user.getId());
         RefreshSessions session = new RefreshSessions();
         session.setUuid(id);
-        session.setUser(user);
+        session.setUser(owner);
         session.setTokenHash(tokenHash);
         session.setExpiresAt(expiresAt);
         session.setCreatedAt(Instant.now());
@@ -52,12 +58,12 @@ public class RefreshSessionsService {
 
     @Transactional
     public void revokeAllRefreshSessionsByUserId(Long userId) {
-        refreshSessionsRepository.findAll().stream()
-                .filter(session -> session.getUser() != null && userId.equals(session.getUser().getId()))
-                .forEach(session -> {
-                    if (session.getRevokedAt() == null) {
-                        session.setRevokedAt(Instant.now());
-                    }
-                });
+        lockUser(userId);
+        refreshSessionsRepository.revokeAllByUserId(userId, Instant.now());
+    }
+
+    private User lockUser(Long userId) {
+        return userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED));
     }
 }

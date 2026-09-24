@@ -44,9 +44,11 @@ jwt:
     type: Bearer
     access-token-expiration: 15m
     refresh-token-expiration: 7d
-    access-secret: ${JWT_SECRET_ACCESS}
-    refresh-secret: ${JWT_SECRET_REFRESH}
+    access-private-key: ${JWT_ACCESS_PRIVATE_KEY:file:./keys/access-private.pem}
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
+    refresh-private-key: ${JWT_REFRESH_PRIVATE_KEY:file:./keys/refresh-private.pem}
+    refresh-public-key: ${JWT_REFRESH_PUBLIC_KEY:file:./keys/refresh-public.pem}
     access-issuer: auth-service
     refresh-issuer: auth-service
-    access-audience: ecommerce-api-access
-    refresh-audience: ecommerce-api-refresh
+    access-audience: hrm-api-access
+    refresh-audience: hrm-api-refresh

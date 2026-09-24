@@ -1,6 +1,7 @@
 package com.example.authservice;
 
 import com.example.authservice.config.JwtProperties;
+import com.example.authservice.config.JwtKeys;
 import com.example.authservice.entity.User;
 import com.example.authservice.enums.UserRole;
 import com.example.authservice.repository.RefreshSessionsRepository;
@@ -40,6 +41,8 @@ class LogoutAllApiTests {
     @Autowired private AuthService authService;
     @Autowired private JwtService jwtService;
     @Autowired private JwtProperties properties;
+
+    @Autowired private JwtKeys jwtKeys;
 
     private User user;
     private JwtService.RefreshTokenResult firstSession;
@@ -96,7 +99,7 @@ class LogoutAllApiTests {
             case "expired" -> Jwts.builder().subject(user.getId().toString()).claim("roles", Set.of("EMPLOYEE"))
                     .issuer(properties.getAccessIssuer()).audience().add(properties.getAccessAudience()).and()
                     .expiration(Date.from(Instant.now().minusSeconds(60)))
-                    .signWith(jwtService.getAccessSecretKey()).compact();
+                    .signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256).compact();
             case "refresh-token" -> firstSession.getToken();
             default -> "invalid-token";
         };
