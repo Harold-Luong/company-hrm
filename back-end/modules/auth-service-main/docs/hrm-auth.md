@@ -29,8 +29,8 @@ Trạng thái account `active` độc lập với trạng thái lao động củ
 `POST /api/v1/auth/register` yêu cầu access token của tài khoản có HR hoặc ADMIN, được kiểm tra ở HTTP và service
 (`@PreAuthorize`). Tham khảo [Spring method security](https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html).
 Request gồm `email`, `password`, `employeeId` bắt buộc và `roles` tùy chọn dưới dạng mảng. Bỏ qua/null `roles` sẽ dùng `["EMPLOYEE"]`.
-`employeeId` là số nguyên dương; thiếu/null/không dương trả 400. Nhân viên đã có tài khoản trả 400.
-Database áp dụng NOT NULL và UNIQUE cho `users.employee_id`. Đây là ID tham chiếu tới Employee;
+`employeeId` là chuỗi UUID (ví dụ `550e8400-e29b-41d4-a716-000000001001`); thiếu/null/sai định dạng trả 400. Nhân viên đã có tài khoản trả 400.
+Cột `users.employee_id` có kiểu PostgreSQL `uuid`. Database áp dụng NOT NULL và UNIQUE cho `users.employee_id`. Đây là ID tham chiếu tới Employee;
 auth chưa có module Employee để kiểm tra nhân viên tồn tại hoặc đang active và chưa có foreign key liên dịch vụ.
 Mảng rỗng, phần tử null, role không hợp lệ hoặc truyền chuỗi thay mảng trả 400; role trùng được gộp.
 Chỉ chấp nhận bốn role: EMPLOYEE, MANAGER, HR, ADMIN. Không truyền token trả 401;
@@ -41,7 +41,7 @@ Chưa có API thay đổi role, khóa account hoặc quản trị Employee.
 
 Access JWT có claim `roles` dạng mảng chuỗi, ví dụ `["EMPLOYEE", "HR"]`.
 `/me` cũng trả `roles` dạng mảng; không còn field `role`.
-Access JWT có claim `employee_id`; `/me` trả `employeeId` từ database. JWT `sub` vẫn là User ID.
+Access JWT có claim `employee_id` dạng chuỗi UUID; `/me` trả `employeeId` dạng chuỗi UUID từ database. JWT `sub` vẫn là User ID.
 Login/refresh lấy liên kết nhân viên hiện tại; JWT đã cấp không tự đổi payload khi liên kết thay đổi.
 JWT filter xác minh token rồi đọc tập roles và trạng thái account
 hiện tại trong DB để tạo các Spring Security authority. Vì vậy token ADMIN cũ không giữ được quyền
@@ -51,6 +51,12 @@ token cấp sau login/refresh mang role mới. Mỗi request xác thực cần �
 
 Logout vẫn chỉ thu hồi refresh session. Khi account active trở lại, access token chưa hết hạn
 có thể dùng lại; việc thu hồi vĩnh viễn access token không thuộc thay đổi này.
+
+Tạo refresh session, refresh, logout và logout-all phối hợp bằng khóa ghi trên hàng User
+trong cùng transaction, theo thứ tự User trước rồi refresh session. Nếu refresh lấy khóa trước,
+logout-all chờ và thu hồi cả phiên mới; nếu logout-all lấy khóa trước, refresh chờ rồi bị từ chối.
+Logout-all cập nhật trực tiếp các phiên chưa thu hồi của user đó. Login mới lấy khóa sau
+logout-all vẫn có thể tạo phiên mới; logout-all không khóa tài khoản và không cấm đăng nhập lại.
 
 ## Khởi tạo database từ đầu
 
@@ -97,6 +103,7 @@ Tài khoản mẫu cho local:
 * Mật khẩu: `Admin@123456`
 * Role: `ADMIN`
 
+Các UUID nhân viên trong file là dữ liệu mẫu; thay bằng UUID tương ứng từ Employee.
 File lưu BCrypt hash cost 12 của mật khẩu này. Để tạo tài khoản khác, thay email và password hash;
 tạo hash bằng `new BCryptPasswordEncoder(12).encode(password)`. Thay thông tin mẫu trước khi dùng
 ngoài môi trường local. ID do database sinh, `last_login_at` là null cho tới lần đăng nhập đầu tiên.
@@ -114,10 +121,10 @@ File `001_init_auth_db.sql` vẫn dùng terminal `psql` như bước 1.
 
 ### 3. Chạy ứng dụng
 
-Cấu hình `JWT_SECRET_ACCESS`, `JWT_SECRET_REFRESH`, chạy Spring Boot, đăng nhập Admin và gọi
+Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md), chạy Spring Boot, đăng nhập Admin và gọi
 `/api/v1/auth/register` để tạo các tài khoản còn lại. Sau khi reset database, cần đăng nhập lại;
 token đã phát hành không nên tái sử dụng vì User ID có thể được cấp lại. Với môi trường reset
-đã từng phát hành token, thay cả hai JWT signing secret trước khi khởi động lại ứng dụng.
+đã từng phát hành token, thay cả hai cặp khóa RSA trước khi khởi động lại ứng dụng.
 
 ## Kiểm thử
 

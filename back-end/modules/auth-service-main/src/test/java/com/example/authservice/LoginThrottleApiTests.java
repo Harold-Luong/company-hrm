@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.Set;
+import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -36,11 +37,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class LoginThrottleApiTests {
-    @Autowired private MockMvc mvc;
-    @Autowired private ObjectMapper mapper;
-    @Autowired private UserRepository users;
-    @Autowired private RefreshSessionsRepository sessions;
-    @Autowired private PasswordEncoder encoder;
+    @Autowired
+    private MockMvc mvc;
+    @Autowired
+    private ObjectMapper mapper;
+    @Autowired
+    private UserRepository users;
+    @Autowired
+    private RefreshSessionsRepository sessions;
+    @Autowired
+    private PasswordEncoder encoder;
 
     private static final AtomicInteger sequence = new AtomicInteger();
     private final Logger auditLogger = (Logger) LoggerFactory.getLogger("auth.login.audit");
@@ -55,7 +61,7 @@ class LoginThrottleApiTests {
         int id = sequence.incrementAndGet();
         ip = "192.0.2." + id;
         user = new User();
-        user.setEmployeeId((long) id);
+        user.setEmployeeId(UUID.randomUUID());
         user.setEmail("throttle" + id + "@example.com");
         user.setPasswordHash(encoder.encode("correct-secret"));
         user.setActive(true);
@@ -84,7 +90,8 @@ class LoginThrottleApiTests {
                 .andExpect(jsonPath("$.code").value("429"))
                 .andExpect(jsonPath("$.message").value("Too many login attempts. Please try again later."));
         assertEquals(0, sessions.count());
-        assertEquals(3, audit.list.stream().filter(e -> e.getFormattedMessage().contains("event=login_failed")).count());
+        assertEquals(3,
+                audit.list.stream().filter(e -> e.getFormattedMessage().contains("event=login_failed")).count());
         assertTrue(audit.list.getLast().getFormattedMessage().contains("event=login_throttled"));
     }
 
@@ -95,11 +102,14 @@ class LoginThrottleApiTests {
                     .andExpect(status().isUnauthorized());
         }
         mvc.perform(post("/api/v1/auth/login")
-                        .with(request -> { request.setRemoteAddr(ip); return request; })
-                        .header("X-Forwarded-For", "203.0.113.99")
-                        .header("Forwarded", "for=203.0.113.99")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", "correct-secret"))))
+                .with(request -> {
+                    request.setRemoteAddr(ip);
+                    return request;
+                })
+                .header("X-Forwarded-For", "203.0.113.99")
+                .header("Forwarded", "for=203.0.113.99")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", "correct-secret"))))
                 .andExpect(status().isTooManyRequests());
         assertEquals(0, sessions.count());
         assertTrue(audit.list.getLast().getFormattedMessage().contains("ip=" + ip));
@@ -124,7 +134,8 @@ class LoginThrottleApiTests {
         users.saveAndFlush(user);
         login(user.getEmail(), "correct-secret", ip).andExpect(status().isForbidden());
         assertEquals(3, audit.list.size());
-        String messages = audit.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+        String messages = audit.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("",
+                (a, b) -> a + "\n" + b);
         assertTrue(messages.contains("reason=UNKNOWN_ACCOUNT"));
         assertTrue(messages.contains("reason=INVALID_PASSWORD"));
         assertTrue(messages.contains("reason=INACTIVE_ACCOUNT"));
@@ -137,7 +148,10 @@ class LoginThrottleApiTests {
 
     private ResultActions login(String email, String password, String remoteIp) throws Exception {
         return mvc.perform(post("/api/v1/auth/login")
-                .with(request -> { request.setRemoteAddr(remoteIp); return request; })
+                .with(request -> {
+                    request.setRemoteAddr(remoteIp);
+                    return request;
+                })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(Map.of("email", email, "password", password))));
     }

@@ -1,6 +1,7 @@
 package com.example.authservice;
 
 import com.example.authservice.config.JwtProperties;
+import com.example.authservice.config.JwtKeys;
 import com.example.authservice.entity.RefreshSessions;
 import com.example.authservice.entity.User;
 import com.example.authservice.enums.UserRole;
@@ -10,11 +11,10 @@ import com.example.authservice.repository.RefreshSessionsRepository;
 import com.example.authservice.repository.UserRepository;
 import com.example.authservice.service.AuthService;
 import com.example.authservice.service.JwtService;
+import com.example.authservice.service.RefreshSessionsService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -67,12 +69,16 @@ class RefreshTokenApiTests {
     private RefreshSessionsRepository sessions;
     @MockitoSpyBean
     private JwtService jwtService;
+    @MockitoSpyBean
+    private RefreshSessionsService sessionsService;
     @Autowired
     private AuthService authService;
     @Autowired
     private JwtProperties properties;
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired private JwtKeys jwtKeys;
 
     private User user;
     private RefreshSessions session;
@@ -83,7 +89,7 @@ class RefreshTokenApiTests {
         sessions.deleteAll();
         users.deleteAll();
         user = new User();
-        user.setEmployeeId(1001L);
+        user.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         user.setEmail("refresh@example.com");
         user.setPasswordHash(passwordEncoder.encode("password123"));
         user.setActive(true);
@@ -205,11 +211,83 @@ class RefreshTokenApiTests {
     }
 
     @Test
+    void logoutAllWaitsForRotationAndRevokesTheReplacement() throws Exception {
+        var rotating = new CountDownLatch(1);
+        var releaseRotation = new CountDownLatch(1);
+        var logoutStarted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            rotating.countDown();
+            assertTrue(releaseRotation.await(10, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(jwtService).generateRefreshToken(any(User.class));
+        doAnswer(invocation -> {
+            logoutStarted.countDown();
+            return invocation.callRealMethod();
+        }).when(sessionsService).revokeAllRefreshSessionsByUserId(user.getId());
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(user.getId().toString(), null, List.of());
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var rotation = executor.submit(() -> authService.refresh(refreshToken));
+            try {
+                assertTrue(rotating.await(10, TimeUnit.SECONDS));
+                var logout = executor.submit(() -> authService.logoutAll(authentication));
+                assertTrue(logoutStarted.await(10, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> logout.get(200, TimeUnit.MILLISECONDS));
+                releaseRotation.countDown();
+                var replacement = rotation.get(10, TimeUnit.SECONDS);
+                logout.get(10, TimeUnit.SECONDS);
+
+                assertUnauthorized(refreshToken);
+                assertUnauthorized(replacement.refreshToken());
+                assertEquals(2, sessions.count());
+                assertTrue(sessions.findAll().stream().allMatch(s -> s.getRevokedAt() != null));
+            } finally {
+                releaseRotation.countDown();
+            }
+        }
+    }
+
+    @Test
+    void rotationWaitsForLogoutAllAndCannotCreateAnotherSession() throws Exception {
+        var revoked = new CountDownLatch(1);
+        var releaseLogout = new CountDownLatch(1);
+        var refreshStarted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            revoked.countDown();
+            assertTrue(releaseLogout.await(10, TimeUnit.SECONDS));
+            return result;
+        }).when(sessionsService).revokeAllRefreshSessionsByUserId(user.getId());
+        doAnswer(invocation -> {
+            refreshStarted.countDown();
+            return invocation.callRealMethod();
+        }).when(jwtService).verifyRefreshToken(refreshToken);
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(user.getId().toString(), null, List.of());
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var logout = executor.submit(() -> authService.logoutAll(authentication));
+            try {
+                assertTrue(revoked.await(10, TimeUnit.SECONDS));
+                var rotation = executor.submit(() -> refreshStatus(refreshToken));
+                assertTrue(refreshStarted.await(10, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> rotation.get(200, TimeUnit.MILLISECONDS));
+                releaseLogout.countDown();
+                logout.get(10, TimeUnit.SECONDS);
+                assertEquals(401, rotation.get(10, TimeUnit.SECONDS));
+                assertEquals(1, sessions.count());
+                assertNotNull(sessions.findById(session.getUuid()).orElseThrow().getRevokedAt());
+            } finally {
+                releaseLogout.countDown();
+            }
+        }
+    }
+
+    @Test
     void refreshWorksWithExpiredAccessTokenHeader() throws Exception {
         String expiredAccess = Jwts.builder().subject(user.getId().toString())
                 .issuer(properties.getAccessIssuer()).audience().add(properties.getAccessAudience()).and()
                 .expiration(Date.from(Instant.now().minusSeconds(60)))
-                .signWith(jwtService.getAccessSecretKey()).compact();
+                .signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256).compact();
         mvc.perform(post("/api/v1/auth/refresh").header("Authorization", "Bearer " + expiredAccess)
                 .contentType(MediaType.APPLICATION_JSON).content(body(refreshToken)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").isNotEmpty());
@@ -235,7 +313,7 @@ class RefreshTokenApiTests {
             case "wrong-hash" -> session.setTokenHash("0".repeat(64));
             case "wrong-user" -> {
                 User other = new User();
-                other.setEmployeeId(1002L);
+                other.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001002"));
                 other.setEmail("other@example.com");
                 other.setPasswordHash(user.getPasswordHash());
                 other.setActive(true);
@@ -279,8 +357,8 @@ class RefreshTokenApiTests {
         String token = switch (scenario) {
             case "malformed" -> "not-a-jwt";
             case "access-token" -> jwtService.generateAccessToken(user);
-            case "signature" -> builder.signWith(jwtService.getAccessSecretKey()).compact();
-            default -> builder.signWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(properties.getRefreshSecret())))
+            case "signature" -> builder.signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256).compact();
+            default -> builder.signWith(jwtKeys.getRefresh().getPrivate(), Jwts.SIG.RS256)
                     .compact();
         };
         // Match the stored hash so a bad JWT cannot pass just because its session

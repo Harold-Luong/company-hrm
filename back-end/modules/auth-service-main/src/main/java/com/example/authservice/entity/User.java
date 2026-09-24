@@ -10,6 +10,7 @@ import org.hibernate.annotations.DynamicUpdate;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @DynamicUpdate
@@ -23,7 +24,7 @@ public class User extends AuditableEntity {
     private Long id;
 
     @Column(name = "employee_id", nullable = false, unique = true)
-    private Long employeeId;
+    private UUID employeeId;
 
     @Column(nullable = false, unique = true)
     private String email;

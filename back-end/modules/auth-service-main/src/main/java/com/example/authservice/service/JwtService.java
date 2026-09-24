@@ -1,19 +1,19 @@
 package com.example.authservice.service;
 
 import com.example.authservice.config.JwtProperties;
+import com.example.authservice.config.JwtKeys;
 import com.example.authservice.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.SecretKey;
 import java.time.Instant;
+import java.security.PublicKey;
 import java.util.Date;
 import java.util.UUID;
 
@@ -22,14 +22,7 @@ import java.util.UUID;
 public class JwtService {
 
     private final JwtProperties jwtProperties;
-
-    public SecretKey getAccessSecretKey() {
-        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtProperties.getAccessSecret()));
-    }
-
-    private SecretKey getRefreshSecretKey() {
-        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtProperties.getRefreshSecret()));
-    }
+    private final JwtKeys jwtKeys;
 
     public String generateAccessToken(User user) {
         Instant now = Instant.now();
@@ -45,7 +38,7 @@ public class JwtService {
                 .add(jwtProperties.getAccessAudience()).and()
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expirationAccess))
-                .signWith(getAccessSecretKey())
+                .signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256)
                 .compact();
     }
 
@@ -63,18 +56,15 @@ public class JwtService {
                 .and()
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiration))
-                .signWith(getRefreshSecretKey())
+                .signWith(jwtKeys.getRefresh().getPrivate(), Jwts.SIG.RS256)
                 .compact();
 
         return new RefreshTokenResult(token, sessionId);
     }
 
     public Claims verifyRefreshToken(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(getRefreshSecretKey())
-                .requireIssuer(jwtProperties.getRefreshIssuer())
-                .requireAudience(jwtProperties.getRefreshAudience())
-                .build()
+        Claims claims = parser(jwtKeys.getRefresh().getPublic(),
+                jwtProperties.getRefreshIssuer(), jwtProperties.getRefreshAudience())
                 .parseSignedClaims(token)
                 .getPayload();
 
@@ -97,13 +87,22 @@ public class JwtService {
     }
 
     public Claims parseToken(String token) {
-        return Jwts.parser()
-                .verifyWith(getAccessSecretKey())
-                .requireIssuer(jwtProperties.getAccessIssuer())
-                .requireAudience(jwtProperties.getAccessAudience())
-                .build()
+        return parser(jwtKeys.getAccess().getPublic(),
+                jwtProperties.getAccessIssuer(), jwtProperties.getAccessAudience())
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    private JwtParser parser(PublicKey key, String issuer, String audience) {
+        var builder = Jwts.parser().verifyWith(key).requireIssuer(issuer).requireAudience(audience);
+        var algorithms = builder.sig();
+        // JJWT 0.12.6 rejects an empty registry, so retain RS256 while removing the others.
+        for (var algorithm : Jwts.SIG.get().values()) {
+            if (!Jwts.SIG.RS256.getId().equals(algorithm.getId())) {
+                algorithms.remove(algorithm);
+            }
+        }
+        return algorithms.and().build();
     }
 
     @Getter

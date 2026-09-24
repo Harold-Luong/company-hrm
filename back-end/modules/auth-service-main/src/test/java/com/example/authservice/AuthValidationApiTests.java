@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.Set;
+import java.util.UUID;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -34,11 +35,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class AuthValidationApiTests {
-    @Autowired private MockMvc mvc;
-    @Autowired private ObjectMapper mapper;
-    @Autowired private UserRepository users;
-    @Autowired private RefreshSessionsRepository sessions;
-    @Autowired private JwtService jwtService;
+    @Autowired
+    private MockMvc mvc;
+    @Autowired
+    private ObjectMapper mapper;
+    @Autowired
+    private UserRepository users;
+    @Autowired
+    private RefreshSessionsRepository sessions;
+    @Autowired
+    private JwtService jwtService;
 
     private String adminToken;
 
@@ -47,7 +53,7 @@ class AuthValidationApiTests {
         sessions.deleteAll();
         users.deleteAll();
         User admin = new User();
-        admin.setEmployeeId(9000L);
+        admin.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000009000"));
         admin.setEmail("admin-validation@example.com");
         admin.setPasswordHash("unused-in-token-authentication-tests");
         admin.setActive(true);
@@ -57,10 +63,11 @@ class AuthValidationApiTests {
 
     @ParameterizedTest
     @MethodSource("invalidCredentials")
-    void rejectsInvalidCredentialsBeforeWritingToDatabase(String endpoint, String body, String message) throws Exception {
+    void rejectsInvalidCredentialsBeforeWritingToDatabase(String endpoint, String body, String message)
+            throws Exception {
         if ("register".equals(endpoint)) {
             var fields = (tools.jackson.databind.node.ObjectNode) mapper.readTree(body);
-            body = mapper.writeValueAsString(fields.put("employeeId", 1001L));
+            body = mapper.writeValueAsString(fields.put("employeeId", "550e8400-e29b-41d4-a716-000000001001"));
         }
         mvc.perform(authPost(endpoint).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
@@ -77,15 +84,20 @@ class AuthValidationApiTests {
                 Arguments.of(endpoint, "{}", "email: Email is required; password: Password is required"),
                 Arguments.of(endpoint, "{\"password\":\"secret-password\"}", "email: Email is required"),
                 Arguments.of(endpoint, "{\"email\":null,\"password\":\"secret-password\"}", "email: Email is required"),
-                Arguments.of(endpoint, "{\"email\":\"   \",\"password\":\"secret-password\"}", "email: Email is required"),
-                Arguments.of(endpoint, "{\"email\":\"invalid-email\",\"password\":\"secret-password\"}", "email: Email must be valid"),
-                Arguments.of(endpoint, "{\"email\":\"" + "a".repeat(256) + "@example.com\",\"password\":\"secret-password\"}",
+                Arguments.of(endpoint, "{\"email\":\"   \",\"password\":\"secret-password\"}",
+                        "email: Email is required"),
+                Arguments.of(endpoint, "{\"email\":\"invalid-email\",\"password\":\"secret-password\"}",
+                        "email: Email must be valid"),
+                Arguments.of(endpoint,
+                        "{\"email\":\"" + "a".repeat(256) + "@example.com\",\"password\":\"secret-password\"}",
                         "email: Email must not exceed 255 characters"),
                 Arguments.of(endpoint, "{\"email\":\"user@example.com\"}", "password: Password is required"),
-                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":null}", "password: Password is required"),
-                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":\"\"}", "password: Password is required"),
-                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":\"   \"}", "password: Password is required")
-        ));
+                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":null}",
+                        "password: Password is required"),
+                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":\"\"}",
+                        "password: Password is required"),
+                Arguments.of(endpoint, "{\"email\":\"user@example.com\",\"password\":\"   \"}",
+                        "password: Password is required")));
     }
 
     @ParameterizedTest
@@ -123,7 +135,8 @@ class AuthValidationApiTests {
 
     @Test
     void validRegistrationAndLoginStillWorkWithTrimmedEmailAndUnmodifiedPassword() throws Exception {
-        String body = mapper.writeValueAsString(Map.of("email", "  valid@example.com  ", "password", " password123 ", "employeeId", 1001L));
+        String body = mapper.writeValueAsString(
+                Map.of("email", "  valid@example.com  ", "password", " password123 ", "employeeId", "550e8400-e29b-41d4-a716-000000001001"));
         mvc.perform(authPost("register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -133,7 +146,7 @@ class AuthValidationApiTests {
         assertEquals(1, sessions.count());
 
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(Map.of("email", "valid@example.com", "password", "password123"))))
+                .content(mapper.writeValueAsString(Map.of("email", "valid@example.com", "password", "password123"))))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("401"));
         mvc.perform(authPost("register").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -143,10 +156,10 @@ class AuthValidationApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"refresh", "logout"})
+    @ValueSource(strings = { "refresh", "logout" })
     void invalidJwtRemainsAnAuthenticationError(String endpoint) throws Exception {
         mvc.perform(post("/api/v1/auth/" + endpoint).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"invalid-token\"}"))
+                .content("{\"refreshToken\":\"invalid-token\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("401"));
     }

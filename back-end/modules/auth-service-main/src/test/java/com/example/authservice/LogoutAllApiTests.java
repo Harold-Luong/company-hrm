@@ -1,6 +1,7 @@
 package com.example.authservice;
 
 import com.example.authservice.config.JwtProperties;
+import com.example.authservice.config.JwtKeys;
 import com.example.authservice.entity.User;
 import com.example.authservice.enums.UserRole;
 import com.example.authservice.repository.RefreshSessionsRepository;
@@ -21,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -40,6 +42,8 @@ class LogoutAllApiTests {
     @Autowired private JwtService jwtService;
     @Autowired private JwtProperties properties;
 
+    @Autowired private JwtKeys jwtKeys;
+
     private User user;
     private JwtService.RefreshTokenResult firstSession;
     private JwtService.RefreshTokenResult secondSession;
@@ -49,10 +53,10 @@ class LogoutAllApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        user = createUser("logout@example.com", 1001L);
+        user = createUser("logout@example.com", UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         firstSession = createSession(user);
         secondSession = createSession(user);
-        otherUserSession = createSession(createUser("other@example.com", 1002L));
+        otherUserSession = createSession(createUser("other@example.com", UUID.fromString("550e8400-e29b-41d4-a716-000000001002")));
     }
 
     @Test
@@ -95,7 +99,7 @@ class LogoutAllApiTests {
             case "expired" -> Jwts.builder().subject(user.getId().toString()).claim("roles", Set.of("EMPLOYEE"))
                     .issuer(properties.getAccessIssuer()).audience().add(properties.getAccessAudience()).and()
                     .expiration(Date.from(Instant.now().minusSeconds(60)))
-                    .signWith(jwtService.getAccessSecretKey()).compact();
+                    .signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256).compact();
             case "refresh-token" -> firstSession.getToken();
             default -> "invalid-token";
         };
@@ -106,7 +110,7 @@ class LogoutAllApiTests {
         assertNoSessionsRevoked();
     }
 
-    private User createUser(String email, Long employeeId) {
+    private User createUser(String email, UUID employeeId) {
         User result = new User();
         result.setEmployeeId(employeeId);
         result.setEmail(email);

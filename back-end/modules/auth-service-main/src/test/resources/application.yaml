@@ -13,8 +13,10 @@ jwt:
   type: Bearer
   access-token-expiration: 15m
   refresh-token-expiration: 30d
-  access-secret: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
-  refresh-secret: YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI=
+  access-private-key: classpath:jwt/access-private.pem
+  access-public-key: classpath:jwt/access-public.pem
+  refresh-private-key: classpath:jwt/refresh-private.pem
+  refresh-public-key: classpath:jwt/refresh-public.pem
   access-issuer: auth-service
   access-audience: ecommerce-api
   refresh-issuer: auth-service
