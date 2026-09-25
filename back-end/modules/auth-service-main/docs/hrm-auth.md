@@ -91,40 +91,76 @@ Schema gồm:
 Database khởi tạo rỗng, không có tài khoản demo hoặc ID seed cố định. Chạy lại script sẽ reset
 dữ liệu và identity sequence về trạng thái mới. Script dành cho môi trường phát triển local.
 
-### 2. Tạo Admin đầu tiên
+### 2. Tạo Admin và dữ liệu demo
 
-`002_create_admin.sql` là một câu `INSERT` PostgreSQL thông thường. Trong SQL console của IDE,
-chọn database `auth_db`, mở file và chạy toàn bộ câu lệnh. Nếu auto-commit đang tắt thì commit
-sau khi insert thành công.
-
-Tài khoản mẫu cho local:
-
-* Email: `admin@company.com`
-* Mật khẩu: `Admin@123456`
-* Role: `ADMIN`
-
-Các UUID nhân viên trong file là dữ liệu mẫu; thay bằng UUID tương ứng từ Employee.
-File lưu BCrypt hash cost 12 của mật khẩu này. Để tạo tài khoản khác, thay email và password hash;
-tạo hash bằng `new BCryptPasswordEncoder(12).encode(password)`. Thay thông tin mẫu trước khi dùng
-ngoài môi trường local. ID do database sinh, `last_login_at` là null cho tới lần đăng nhập đầu tiên.
-
-Hoặc chạy qua terminal:
+Chạy từ thư mục `auth-service-main`, sau bước tạo schema:
 
 ```sh
 psql -X -v ON_ERROR_STOP=1 -h localhost -p 5432 -U auth_user -d auth_db -f docs/sql/002_create_admin.sql
+psql -X -v ON_ERROR_STOP=1 -h localhost -p 5432 -U auth_user -d auth_db -f docs/sql/003_seed_demo_accounts.sql
 ```
 
-Chạy một lần để tạo Admin; chạy lại cùng email sẽ báo lỗi unique constraint, không sửa account
-đã tồn tại. Nếu console báo `current transaction is aborted` do lần chạy lỗi trước, chạy
-`ROLLBACK;` rồi chạy lại câu insert. Không cần chạy lại script reset database để tạo Admin.
-File `001_init_auth_db.sql` vẫn dùng terminal `psql` như bước 1.
+Hai file seed là SQL PostgreSQL thông thường, có transaction; cũng có thể chạy toàn bộ file
+trong SQL console của IDE đã kết nối `auth_db`. File `001` có lệnh riêng của `psql`, cần chạy
+qua terminal. Nếu console đang ở transaction lỗi, chạy `ROLLBACK;` trước khi chạy seed.
+
+Mật khẩu local của các tài khoản mới: **`Admin@123456`**, được lưu dưới dạng BCrypt cost 12.
+Hash đã được tạo và xác minh bằng `BCryptPasswordEncoder` của service. Tất cả tài khoản mẫu
+chỉ dùng cho phát triển local.
+
+| File | Email đăng nhập | Employee | Roles | Active |
+|---|---|---|---|---|
+| `002` | `admin@company.com` | EMP005 | EMPLOYEE, ADMIN | true |
+| `003` | `hr@company.com` | EMP001 | EMPLOYEE, HR | true |
+| `003` | `manager@company.com` | EMP002 | EMPLOYEE, MANAGER | true |
+| `003` | `employee@company.com` | EMP003 | EMPLOYEE | true |
+| `003` | `disabled@company.com` | EMP006 | EMPLOYEE | false |
+
+UUID có dạng `10000000-0000-0000-0000-00000000000N`, khớp chính xác với dữ liệu trong
+`employee-service/src/main/resources/static/sql/seed_employee_data.sql`.
+EMP004 được để chưa có tài khoản, phục vụ thử API `/register`. Quyền ADMIN trên EMP005
+là quyền tài khoản mẫu, không suy ra từ chức danh Accountant. Email đăng nhập ở Auth
+có thể khác email liên hệ trong hồ sơ Employee.
+
+Seed dùng `INSERT ... RETURNING id` để gán role cho đúng tài khoản, không giả định ID
+bắt đầu từ 1. Chạy lại cùng email và employeeId không tạo trùng, không reset mật khẩu,
+không bật lại tài khoản hoặc khôi phục role đã bị thay đổi. Nếu email/employeeId thuộc
+liên kết khác, script báo lỗi và rollback toàn bộ lượt seed; cần kiểm tra dữ liệu trước
+khi thử lại, không tự gắn sang tài khoản khác. Vì vậy mật khẩu mẫu chỉ được bảo đảm
+cho tài khoản vừa được tạo bởi script, không phải tài khoản có sẵn được bỏ qua.
+
+Seed không tạo refresh session hoặc JWT. Chúng được sinh khi đăng nhập thật.
+Auth dùng `users.is_active`, không có cột enum `account_status`. Không có foreign key
+xuyên database. Để thử liên kết đầy đủ, tạo schema và seed Employee trước.
+
+Các script Auth không ghi vào database Employee và chưa phát sự kiện đồng bộ.
+`Employee.accountStatus` có thể vẫn là `NOT_CREATED`/`UNKNOWN` dù đã có Account;
+cần cơ chế đồng bộ/đối soát riêng, không dùng trạng thái mẫu đó để kết luận Account chưa tồn tại.
 
 ### 3. Chạy ứng dụng
 
-Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md), chạy Spring Boot, đăng nhập Admin và gọi
-`/api/v1/auth/register` để tạo các tài khoản còn lại. Sau khi reset database, cần đăng nhập lại;
-token đã phát hành không nên tái sử dụng vì User ID có thể được cấp lại. Với môi trường reset
-đã từng phát hành token, thay cả hai cặp khóa RSA trước khi khởi động lại ứng dụng.
+Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md), rồi chạy:
+
+```sh
+./mvnw spring-boot:run
+```
+
+Đăng nhập Admin qua Swagger hoặc gọi:
+
+```sh
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@company.com","password":"Admin@123456"}'
+```
+
+Lấy `data.accessToken` để gọi Employee hoặc `/api/v1/auth/register` của Auth.
+Đăng nhập `disabled@company.com` trả `403` vì tài khoản bị vô hiệu hóa.
+
+Ứng dụng giữ `ddl-auto: validate`, nên script phải chạy trước khi khởi động; SQL không
+tự chạy khi ứng dụng start. Không chạy `001` chỉ để thêm dữ liệu mẫu: nó xóa toàn bộ
+`auth_db`. Sau khi reset database, đăng nhập lại; token cũ có thể mang User ID được cấp
+lại. Với môi trường reset đã từng phát hành token, thay hai cặp khóa RSA và cập nhật
+access public key tại Employee trước khi khởi động lại.
 
 ## Kiểm thử
 
