@@ -1,0 +1,62 @@
+name: hrm-kafka
+
+services:
+    kafka:
+        image: apache/kafka:4.1.2
+        hostname: kafka
+        ports:
+            - "127.0.0.1:9092:9092"
+        environment:
+            CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+            KAFKA_NODE_ID: 1
+            KAFKA_PROCESS_ROLES: broker,controller
+            KAFKA_LISTENERS: HOST://:9092,INTERNAL://:19092,CONTROLLER://:9093
+            KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,INTERNAL://kafka:19092
+            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+            KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+            KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+            KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+            KAFKA_LOG_DIRS: /var/lib/kafka/data
+            KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+            KAFKA_NUM_PARTITIONS: 1
+            KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+            KAFKA_MIN_INSYNC_REPLICAS: 1
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+            KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+            KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+            KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+            KAFKA_LOG_RETENTION_HOURS: 168
+            KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+        volumes:
+            - kafka-data:/var/lib/kafka/data
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list >/dev/null 2>&1",
+                ]
+            interval: 10s
+            timeout: 10s
+            start_period: 30s
+            retries: 12
+        restart: unless-stopped
+
+    kafka-init:
+        image: apache/kafka:4.1.2
+        depends_on:
+            kafka:
+                condition: service_healthy
+        entrypoint: ["/bin/bash", "-ec"]
+        command:
+            - |
+                for topic in hrm.employee.account-requests.v1 hrm.auth.account-results.v1 hrm.employee.lifecycle.v1 hrm.auth.account-lifecycle.v1 hrm.local.smoke.v1; do
+                  /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+                    --create --if-not-exists --topic "$$topic" \
+                    --partitions 1 --replication-factor 1 \
+                    --config min.insync.replicas=1 --config retention.ms=604800000
+                done
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
+        restart: "no"
+
+volumes:
+    kafka-data:
