@@ -1,0 +1,87 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE and editor files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.springBeans
+.sts4-cache/
+nbproject/private/
+
+# Java / Maven / Gradle generated files
+target/
+build/
+.gradle/
+.nb-gradle/
+nbbuild/
+nbdist/
+*.class
+.attach_pid*
+hs_err_pid*
+replay_pid*
+# Preserve source directories that happen to use these names.
+!**/src/main/**/target/
+!**/src/test/**/target/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Frontend dependencies, build output and tool caches
+node_modules/
+dist/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.angular/cache/
+.vite/
+.parcel-cache/
+.turbo/
+.cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.vercel/
+.netlify/
+
+# Test output and coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# Logs
+*.log
+logs/
+
+# Local environment configuration; keep documented templates
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+!.env.*.sample
+!.env.*.template
+
+# Backend runtime JWT keys (test fixtures remain tracked)
+/back-end/**/keys/
+
+# Local Java upgrade assistant output; retain other GitHub configuration
+**/.github/modernize/
+
+# Keep dependency lockfiles, Maven wrappers, source code and SQL scripts tracked.
