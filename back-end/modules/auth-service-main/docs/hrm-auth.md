@@ -1,4 +1,4 @@
-# Auth cho Attendance MVP
+# Auth cho HRM
 
 Module giữ JWT access token và refresh session hiện có. User chứa thông tin tài khoản;
 User lưu `employee_id` bắt buộc/unique để liên kết một-một với Employee, kể cả tài khoản HR/ADMIN. Không đưa mã nhân viên,
@@ -19,12 +19,15 @@ Không có role hierarchy tự động. Các API tự phục vụ trong module E
 cần kiểm tra Employee liên kết và phạm vi dữ liệu, không chỉ `hasRole('EMPLOYEE')` vì Manager/HR
 cũng có thể là nhân viên. Việc khai báo role chưa triển khai quyền nghiệp vụ của các module đó.
 
-User có `active`, password hash, `createdAt`, `updatedAt` và `lastLoginAt` nullable:
+User có `active`, `activationPending`, password hash, `createdAt`, `updatedAt` và `lastLoginAt` nullable:
 chỉ cập nhật khi đăng nhập thành công, trong cùng transaction tạo refresh session. Login thất bại
 hoặc refresh không cập nhật. `/me` trả các timestamp này, không trả password hash.
 Trạng thái account `active` độc lập với trạng thái lao động của Employee.
 
-## API
+## API hiện có
+
+Phần `/register` dưới đây áp dụng khi `HRM_EVENTS_ENABLED=false` (mặc định).
+Khi bật cờ, API này trả `409` và UI gửi yêu cầu qua Employee; xem phần Kafka bên dưới.
 
 `POST /api/v1/auth/register` yêu cầu access token của tài khoản có HR hoặc ADMIN, được kiểm tra ở HTTP và service
 (`@PreAuthorize`). Tham khảo [Spring method security](https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html).
@@ -58,9 +61,58 @@ logout-all chờ và thu hồi cả phiên mới; nếu logout-all lấy khóa t
 Logout-all cập nhật trực tiếp các phiên chưa thu hồi của user đó. Login mới lấy khóa sau
 logout-all vẫn có thể tạo phiên mới; logout-all không khóa tài khoản và không cấm đăng nhập lại.
 
+## Cấp tài khoản qua Employee
+
+```text
+Employee xác minh nhân viên và quyền yêu cầu
+    → EmployeeAccountRequested → Kafka → Auth tạo Account(employeeId)
+Auth → AccountCreated / AccountCreationFailed → Kafka → Employee theo dõi kết quả
+```
+
+UI tạo hồ sơ trước rồi yêu cầu cấp tài khoản tại Employee. Auth nhận yêu cầu từ
+producer nội bộ được xác thực, không cần đợi `EmployeeCreated`, bảng
+`employee_references` hoặc gọi lại Employee chỉ để kiểm tra ID.
+`EMPLOYEE_NOT_SYNCED` không còn là lỗi của flow này.
+
+Auth kiểm tra payload, chính sách role và unique employee/email. MVP cấp role
+`EMPLOYEE` theo chính sách Auth, không tin role tùy ý do client gửi. `requestedBy`
+dùng audit, không thay thế xác thực producer/ACL. Consumer gọi service nghiệp vụ
+nội bộ, không gọi HTTP `/register`.
+
+Phần đã triển khai (cần migration `004` và bật `HRM_EVENTS_ENABLED=true`):
+
+- Consumer `EmployeeAccountRequested` trên `hrm.employee.account-requests.v1`,
+  group `auth-account-requests-v1`; Compose đã tạo topic yêu cầu/kết quả.
+- Chống trùng `eventId`/`requestId`, lưu kết quả yêu cầu. Cùng yêu cầu giao lại dùng
+  kết quả đã lưu; yêu cầu mới cho nhân viên đã có Account trả
+  `ACCOUNT_ALREADY_EXISTS`, không tự mở khóa hoặc gắn sang Account khác.
+- Transaction Account + kết quả + Outbox `AccountCreated`; từ chối nghiệp vụ ghi
+  `AccountCreationFailed` với mã như `EMAIL_ALREADY_USED`. Lỗi hạ tầng rollback/retry.
+- Kết quả gửi qua `hrm.auth.account-results.v1`: `eventId` mới, cùng `requestId`,
+  `employeeId`, `correlationId`. Thành công có `accountStatus` và `accountVersion`,
+  không cần trả `accountId` cho Employee.
+- Account ban đầu chờ kích hoạt, chưa được đăng nhập; Auth quản lý lời mời và
+  thiết lập mật khẩu. Không gửi mật khẩu/hash/token kích hoạt trong message.
+  Đã bổ sung `activation_pending`, phân biệt chờ kích hoạt với bị khóa. Account
+  có hash từ bí mật ngẫu nhiên riêng không được giữ lại/phát ra ngoài, không có
+  mật khẩu chung; chưa có API/lời mời đặt mật khẩu và hoàn tất kích hoạt.
+
+Còn cần triển khai: thiết lập mật khẩu/kích hoạt, `AccountStatusChanged` sau
+kích hoạt/khóa/mở, DLT, đối soát và vận hành production.
+
+Employee theo dõi `PENDING/SUCCEEDED/FAILED` riêng với bản sao `accountStatus`.
+Auth không cập nhật trạng thái lao động `EmployeeStatus`.
+
+Khi bật sự kiện, `/register` cũ trả `409` để không tạo Account thiếu Outbox.
+Khi cờ tắt (mặc định), API cũ vẫn dùng được như mô tả ở trên. Login/refresh/filter
+đều từ chối Account chờ kích hoạt. Auth phải chạy migration `004` trước khi start
+bản mới để thêm cột `activation_pending`, kể cả khi chưa bật cờ.
+Xem [hướng dẫn chạy](../../infra/kafka/ACCOUNT-PROVISIONING.md) và
+[hợp đồng/các phase](../../EVENT-DRIVEN-GUIDE.md).
+
 ## Khởi tạo database từ đầu
 
-Auth được thiết lập như project mới, không có migration hoặc lớp tương thích dữ liệu cũ.
+Script `001` dùng để tạo mới/reset local; migration bổ sung `004` dùng cho database đã có.
 Hibernate dùng `ddl-auto=validate`; SQL là nguồn khởi tạo schema, ứng dụng không tự tạo bảng.
 Các file SQL nằm trong `docs/sql`, không nằm trong thư mục web `static`.
 
@@ -104,7 +156,8 @@ Hai file seed là SQL PostgreSQL thông thường, có transaction; cũng có th
 trong SQL console của IDE đã kết nối `auth_db`. File `001` có lệnh riêng của `psql`, cần chạy
 qua terminal. Nếu console đang ở transaction lỗi, chạy `ROLLBACK;` trước khi chạy seed.
 
-Mật khẩu local của các tài khoản mới: **`Admin@123456`**, được lưu dưới dạng BCrypt cost 12.
+Mật khẩu local của admin mới tạo bởi `002`: **`password123`**. Các tài khoản demo
+trong `003` vẫn dùng **`Admin@123456`**. Mật khẩu được lưu dưới dạng BCrypt cost 12.
 Hash đã được tạo và xác minh bằng `BCryptPasswordEncoder` của service. Tất cả tài khoản mẫu
 chỉ dùng cho phát triển local.
 
@@ -129,12 +182,25 @@ liên kết khác, script báo lỗi và rollback toàn bộ lượt seed; cần
 khi thử lại, không tự gắn sang tài khoản khác. Vì vậy mật khẩu mẫu chỉ được bảo đảm
 cho tài khoản vừa được tạo bởi script, không phải tài khoản có sẵn được bỏ qua.
 
+Nếu `admin@company.com` đã tồn tại, chạy lại `002` không đổi mật khẩu. Để đặt mật khẩu
+admin local thành `password123`, chạy riêng câu SQL sau trong `auth_db`:
+
+```sql
+UPDATE users
+SET password_hash = '$2a$12$tDvgLx2K7fnWU.Z9SAKQkOPzTEKUkAbbj7lyXweeRHzAgrcyHDAMe',
+    updated_at = CURRENT_TIMESTAMP
+WHERE email = 'admin@company.com';
+```
+
+Câu lệnh này chỉ đổi mật khẩu và thời điểm cập nhật, không thay đổi roles, trạng thái
+active hoặc Employee liên kết; không thu hồi các phiên đã cấp.
+
 Seed không tạo refresh session hoặc JWT. Chúng được sinh khi đăng nhập thật.
-Auth dùng `users.is_active`, không có cột enum `account_status`. Không có foreign key
+Auth dùng `users.is_active` và `activation_pending`, không có cột enum `account_status`. Không có foreign key
 xuyên database. Để thử liên kết đầy đủ, tạo schema và seed Employee trước.
 
 Các script Auth không ghi vào database Employee và chưa phát sự kiện đồng bộ.
-`Employee.accountStatus` có thể vẫn là `NOT_CREATED`/`UNKNOWN` dù đã có Account;
+`Employee.accountStatus` có thể vẫn là `NOT_CREATED` dù đã có Account;
 cần cơ chế đồng bộ/đối soát riêng, không dùng trạng thái mẫu đó để kết luận Account chưa tồn tại.
 
 ### 3. Chạy ứng dụng
@@ -150,7 +216,7 @@ Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md
 ```sh
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@company.com","password":"Admin@123456"}'
+  -d '{"email":"admin@company.com","password":"password123"}'
 ```
 
 Lấy `data.accessToken` để gọi Employee hoặc `/api/v1/auth/register` của Auth.

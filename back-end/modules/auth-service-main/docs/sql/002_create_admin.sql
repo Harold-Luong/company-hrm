@@ -1,6 +1,6 @@
 -- Active: 1790151670461@@127.0.0.1@5432@auth_db@public
 -- LOCAL DEVELOPMENT ONLY. Run in auth_db as auth_user after 001.
--- Login: admin@company.com / Admin@123456 (BCrypt cost 12).
+-- Login: admin@company.com / password123 (BCrypt cost 12).
 -- Links to EMP005 in Employee's seed; login email need not equal contact email.
 -- Run Employee's seed first when testing the full HRM flow.
 -- Repeat runs preserve existing password, active flag and roles.
@@ -25,7 +25,7 @@ WITH inserted AS (
     VALUES (
         '10000000-0000-0000-0000-000000000005',
         'admin@company.com',
-        '$2a$12$.7Frn6Kx70AP8HNU1BvPz.iP617VcpK.K0iZ35t1.OWcT3by7HSZG',
+        '$2a$12$tDvgLx2K7fnWU.Z9SAKQkOPzTEKUkAbbj7lyXweeRHzAgrcyHDAMe',
         TRUE
     )
     ON CONFLICT (email) DO NOTHING

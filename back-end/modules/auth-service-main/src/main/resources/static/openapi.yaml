@@ -61,10 +61,12 @@ paths:
             operationId: register
             summary: HR hoặc Admin tạo tài khoản
             description: |
+                API cũ chỉ tạo tài khoản khi HRM_EVENTS_ENABLED=false (mặc định).
+                Khi bật luồng Kafka, API trả 409; gửi yêu cầu cấp tài khoản qua Employee.
                 Email được loại bỏ khoảng trắng ở hai đầu và chuyển thành chữ thường.
                 Yêu cầu có ít nhất một role HR hoặc ADMIN. Tài khoản mới có roles mặc định [EMPLOYEE] và active = true.
                 Role hợp lệ: EMPLOYEE, MANAGER, HR hoặc ADMIN.
-                employeeId bắt buộc, là UUID nhân viên hợp lệ và chưa được liên kết với tài khoản khác.
+                employeeId bắt buộc là UUID và chưa được liên kết với tài khoản khác; đường API cũ chưa xác minh ID tại Employee.
             security:
                 - bearerAuth: []
             requestBody:
@@ -97,6 +99,12 @@ paths:
                                     value:
                                         code: "400"
                                         message: Email already exists
+                "409":
+                    description: Luồng cấp tài khoản qua Employee đã bật; không dùng register trực tiếp
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
                 "401":
                     $ref: "#/components/responses/Unauthorized"
                 "403":
@@ -115,6 +123,7 @@ paths:
             summary: Đăng nhập
             description: |
                 Xác thực email và mật khẩu, tạo refresh session và trả cặp token.
+                Account chưa kích hoạt hoặc đã vô hiệu hóa bị từ chối với 403.
                 Mặc định giới hạn 10 lượt/tài khoản và 50 lượt/IP trong cửa sổ 15 phút,
                 tính cả lượt thành công. Các giới hạn có thể thay đổi qua cấu hình.
                 Vượt giới hạn trả 429 kèm header Retry-After (số giây cần chờ).

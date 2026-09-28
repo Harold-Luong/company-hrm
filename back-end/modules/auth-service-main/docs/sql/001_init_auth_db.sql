@@ -58,4 +58,5 @@ CREATE TABLE refresh_sessions (
 CREATE INDEX refresh_sessions_user_id_idx ON refresh_sessions (user_id);
 
 COMMIT;
+\ir 004_account_provisioning.sql
 RESET ROLE;

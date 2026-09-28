@@ -35,6 +35,9 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AuthService {
 
+    @org.springframework.beans.factory.annotation.Value("${hrm.events.enabled:false}")
+    private boolean provisioningEnabled;
+
     private final UserRepository userRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
@@ -46,6 +49,9 @@ public class AuthService {
     @Transactional
     @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public void register(RegisterRequest request) {
+        if (provisioningEnabled) {
+            throw new GlobalException("Request account provisioning through Employee", HttpStatus.CONFLICT);
+        }
         String email = request.email().toLowerCase(Locale.ROOT).trim();
         if (userRepository.existsByEmail(email)) {
             throw new GlobalException("Email already exists", HttpStatus.BAD_REQUEST);
@@ -78,7 +84,7 @@ public class AuthService {
             throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
 
-        if (!user.get().isActive()) {
+        if (!user.get().isActive() || user.get().isActivationPending()) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.INACTIVE_ACCOUNT);
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
@@ -143,7 +149,7 @@ public class AuthService {
         }
 
         User user = sessionsService.validateRefreshSession(sessionId, userId, hashToken(refreshToken));
-        if (!user.isActive()) {
+        if (!user.isActive() || user.isActivationPending()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
         sessionsService.revokeRefreshSession(sessionId);
@@ -161,7 +167,7 @@ public class AuthService {
         if (user.isEmpty()) {
             throw new GlobalException("User not found", HttpStatus.NOT_FOUND);
         }
-        if (!user.get().isActive()) {
+        if (!user.get().isActive() || user.get().isActivationPending()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
         return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(),

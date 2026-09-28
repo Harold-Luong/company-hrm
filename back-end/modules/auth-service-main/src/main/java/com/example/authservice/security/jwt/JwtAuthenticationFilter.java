@@ -54,7 +54,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String userId = claims.getSubject();
             User user = userRepository.findById(Long.valueOf(userId))
                     .orElseThrow(() -> new IllegalArgumentException("Account no longer exists"));
-            if (!user.isActive()) {
+            if (!user.isActive() || user.isActivationPending()) {
                 SecurityContextHolder.clearContext();
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");

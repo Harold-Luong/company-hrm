@@ -1,6 +1,29 @@
 spring:
     application:
         name: auth-service
+    kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        client-id: ${spring.application.name}
+        producer:
+            key-serializer: org.apache.kafka.common.serialization.StringSerializer
+            value-serializer: org.apache.kafka.common.serialization.StringSerializer
+            acks: all
+            properties:
+                "[enable.idempotence]": true
+                "[max.block.ms]": 3000
+                "[delivery.timeout.ms]": 10000
+                "[request.timeout.ms]": 5000
+        consumer:
+            group-id: ${KAFKA_CONSUMER_GROUP:auth-account-requests-v1}
+            key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+            value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+            enable-auto-commit: false
+            auto-offset-reset: earliest
+            properties:
+                "[allow.auto.create.topics]": false
+        listener:
+            ack-mode: record
+            missing-topics-fatal: true
     datasource:
         url: jdbc:postgresql://localhost:5432/auth_db
         username: auth_user
@@ -52,3 +75,12 @@ jwt:
     refresh-issuer: auth-service
     access-audience: hrm-api-access
     refresh-audience: hrm-api-refresh
+
+# Enable after SQL migration 004 and Kafka topics are ready.
+hrm:
+    events:
+        enabled: ${HRM_EVENTS_ENABLED:false}
+        request-topic: hrm.employee.account-requests.v1
+        result-topic: hrm.auth.account-results.v1
+        request-group: auth-account-requests-v1
+        result-group: employee-account-results-v1
