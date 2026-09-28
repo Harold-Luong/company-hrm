@@ -35,6 +35,9 @@ public class User extends AuditableEntity {
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
+    @Column(name = "activation_pending", nullable = false)
+    private boolean activationPending;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
     @Enumerated(EnumType.STRING)
