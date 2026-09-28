@@ -1,0 +1,84 @@
+spring:
+    application:
+        name: employee-service
+    jackson:
+        datatype:
+            enum:
+                fail-on-numbers-for-enums: true
+    kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        client-id: ${spring.application.name}
+        producer:
+            key-serializer: org.apache.kafka.common.serialization.StringSerializer
+            value-serializer: org.apache.kafka.common.serialization.StringSerializer
+            acks: all
+            properties:
+                "[enable.idempotence]": true
+                "[max.block.ms]": 3000
+                "[delivery.timeout.ms]": 10000
+                "[request.timeout.ms]": 5000
+        consumer:
+            group-id: ${KAFKA_CONSUMER_GROUP:employee-account-results-v1}
+            key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+            value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+            enable-auto-commit: false
+            auto-offset-reset: earliest
+            properties:
+                "[allow.auto.create.topics]": false
+        listener:
+            ack-mode: record
+            missing-topics-fatal: true
+    datasource:
+        url: jdbc:postgresql://localhost:5432/employee_db
+        username: employee_user
+        password: employee_password
+        driver-class-name: org.postgresql.Driver
+
+    jpa:
+        open-in-view: false
+        hibernate:
+            ddl-auto: validate
+        show-sql: true
+
+jwt:
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
+    access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
+    access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
+
+server:
+    port: 8082
+    forward-headers-strategy: none
+
+management:
+    endpoints:
+        web:
+            exposure:
+                include: health
+    endpoint:
+        health:
+            show-components: always
+            show-details: never
+    health:
+        db:
+            enabled: true
+
+springdoc:
+    enable-default-api-docs: false
+    api-docs:
+        enabled: true
+        path: /v3/api-docs
+    swagger-ui:
+        enabled: true
+        path: /swagger-ui.html
+        url: /openapi/employee-api.yml
+        disable-swagger-default-url: true
+        operations-sorter: method
+
+# Enable after SQL migration 004 and Kafka topics are ready.
+hrm:
+    events:
+        enabled: ${HRM_EVENTS_ENABLED:false}
+        request-topic: hrm.employee.account-requests.v1
+        result-topic: hrm.auth.account-results.v1
+        request-group: auth-account-requests-v1
+        result-group: employee-account-results-v1
