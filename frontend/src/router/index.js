@@ -38,6 +38,44 @@ export const routes = [
         component: () => import('@/views/CreateAccountView.vue'),
         meta: { title: 'Tạo tài khoản', roles: accountCreationRoles },
       },
+      ...['employees', 'departments', 'positions'].flatMap((resource) => {
+        const title = { employees: 'Nhân viên', departments: 'Phòng ban', positions: 'Chức danh' }[
+          resource
+        ]
+        const component =
+          resource === 'employees'
+            ? () => import('@/views/EmployeeFormView.vue')
+            : () => import('@/views/CatalogFormView.vue')
+        return [
+          {
+            path: resource,
+            name: resource,
+            component: () => import('@/views/DirectoryView.vue'),
+            props: { resource },
+            meta: { title },
+          },
+          {
+            path: `${resource}/new`,
+            name: `${resource}-new`,
+            component,
+            props: { resource },
+            meta: { title: `Thêm ${title.toLowerCase()}` },
+          },
+          {
+            path: `${resource}/:id([0-9a-fA-F-]{36})`,
+            name: `${resource}-detail`,
+            component,
+            props: (route) => ({ resource, id: route.params.id }),
+            meta: { title: `Chi tiết ${title.toLowerCase()}` },
+          },
+        ]
+      }),
+      {
+        path: 'services',
+        name: 'services',
+        component: () => import('@/views/ServiceStatusView.vue'),
+        meta: { title: 'Kết nối dịch vụ' },
+      },
       {
         path: 'forbidden',
         name: 'forbidden',

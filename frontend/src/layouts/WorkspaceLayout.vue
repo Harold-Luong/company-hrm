@@ -54,6 +54,25 @@ async function signOut() {
                 <RouterLink to="/account" class="nav-item" active-class="is-active">
                     <AppIcon name="user" />Tài khoản của tôi
                 </RouterLink>
+                <p class="nav-section management-label">QUẢN LÝ NHÂN SỰ</p>
+                <RouterLink to="/employees" class="nav-item" :class="{
+                    'is-active': route.path === '/employees' || route.path.startsWith('/employees/'),
+                }">
+                    <AppIcon name="user" />Nhân viên
+                </RouterLink>
+                <RouterLink to="/departments" class="nav-item" :class="{
+                    'is-active': route.path === '/departments' || route.path.startsWith('/departments/'),
+                }">
+                    <AppIcon name="grid" />Phòng ban
+                </RouterLink>
+                <RouterLink to="/positions" class="nav-item" :class="{
+                    'is-active': route.path === '/positions' || route.path.startsWith('/positions/'),
+                }">
+                    <AppIcon name="shield" />Chức danh
+                </RouterLink>
+                <RouterLink to="/services" class="nav-item" active-class="is-active">
+                    <AppIcon name="info" />Kết nối dịch vụ
+                </RouterLink>
                 <template v-if="auth.hasRole(accountCreationRoles)">
                     <p class="nav-section management-label">QUẢN TRỊ TRUY CẬP</p>
                     <RouterLink to="/accounts/new" class="nav-item" active-class="is-active">
@@ -85,7 +104,7 @@ async function signOut() {
                             auth.state.user.email }}</span><span class="avatar">{{ initials }}</span></RouterLink>
             </header>
             <main id="main-content" class="page-content" tabindex="-1">
-                <RouterView />
+                <RouterView :key="route.path" />
             </main>
             <footer class="workspace-footer">
                 <span>© {{ new Date().getFullYear() }} Company HRM</span><span>Không gian làm việc nội bộ</span>

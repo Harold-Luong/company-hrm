@@ -205,3 +205,52 @@ describe('Auth contract and session lifecycle', () => {
     expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('new-refresh')
   })
 })
+
+describe('Employee API uses the shared authenticated session', () => {
+  it('refreshes once across Auth and Employee and retains the idempotency key on retry', async () => {
+    const auth = await login()
+    let refreshCount = 0
+    const writes = []
+    fetchMock.mockImplementation(async (url, init) => {
+      if (url.endsWith('/refresh')) {
+        refreshCount++
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return response({ accessToken: 'access-2', refreshToken: 'refresh-2' })
+      }
+      if (url.includes('/account-requests')) writes.push(init)
+      if (init.headers.Authorization === 'Bearer access-1') return response({}, 401)
+      return response(
+        url.endsWith('/me') ? user : { requestId: 'request', provisioningStatus: 'PENDING' },
+      )
+    })
+    await Promise.all([
+      auth.loadUser(),
+      auth.request('/api/v1/employees/employee/account-requests', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': 'same-key' },
+        body: JSON.stringify({ email: 'employee@company.com' }),
+      }),
+    ])
+    expect(refreshCount).toBe(1)
+    expect(writes).toHaveLength(2)
+    expect(writes[1].headers).toMatchObject({
+      Authorization: 'Bearer access-2',
+      'Idempotency-Key': 'same-key',
+    })
+    expect(writes[1].body).toBe(writes[0].body)
+  })
+  it('reads Employee problem details and does not retry writes on a network failure', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(response({ detail: 'Department code already exists' }, 409))
+    await expect(auth.request('/api/v1/departments')).rejects.toMatchObject({
+      message: 'Department code already exists',
+      status: 409,
+    })
+    fetchMock.mockClear()
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'))
+    await expect(
+      auth.request('/api/v1/employees', { method: 'POST', body: '{}' }),
+    ).rejects.toMatchObject({ status: 0 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})

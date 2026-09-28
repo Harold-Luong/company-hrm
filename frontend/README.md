@@ -1,7 +1,7 @@
 # Company HRM — Frontend
 
 Vue 3 + JavaScript + Vite, Vue Router, ESLint và Prettier. Giao diện doanh nghiệp
-bằng tiếng Việt, responsive cho desktop/mobile, kết nối module Auth của backend.
+bằng tiếng Việt, responsive cho desktop/mobile, kết nối Auth, Employee và luồng cấp tài khoản bất đồng bộ qua Kafka.
 
 ## Chạy local
 
@@ -21,24 +21,31 @@ Backend Auth phải đang chạy để đăng nhập. Cấu hình database, RSA 
 local và cách khởi động nằm trong [hướng dẫn Auth](../back-end/modules/auth-service-main/docs/hrm-auth.md).
 Frontend không tự seed tài khoản hoặc thay đổi database.
 
-Vite chuyển `/api/*` tới `http://localhost:8080`, giữ nguyên path. Đổi backend nếu cần:
+Vite chuyển `/api/v1/auth/*` tới `http://localhost:8080`; `/api/v1/employees`,
+`/api/v1/departments`, `/api/v1/positions` (và các đường dẫn con) tới
+`http://localhost:8082`. Các prefix API được giữ nguyên. Đổi backend nếu cần:
 
 ```sh
 cp .env.example .env.local
 ```
 
-Sửa `API_PROXY_TARGET` rồi khởi động lại dev server. `.env.local` không được commit.
+Sửa `API_PROXY_TARGET` (Auth) và `EMPLOYEE_API_PROXY_TARGET` (Employee) rồi khởi động lại dev server. `.env.local` không được commit.
 Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã phía browser.
 
 ## Trang và quyền truy cập
 
-| Trang             | Đường dẫn       | Quyền                     |
-| ----------------- | --------------- | ------------------------- |
-| Đăng nhập         | `/login`        | Chưa đăng nhập            |
-| Tổng quan         | `/`             | Mọi tài khoản đã xác thực |
-| Tài khoản của tôi | `/account`      | Mọi tài khoản đã xác thực |
-| Tạo tài khoản     | `/accounts/new` | HR **hoặc** ADMIN         |
-| Từ chối truy cập  | `/forbidden`    | Tài khoản đã xác thực     |
+| Trang                   | Đường dẫn                                              | Quyền                     |
+| ----------------------- | ------------------------------------------------------ | ------------------------- |
+| Đăng nhập               | `/login`                                               | Chưa đăng nhập            |
+| Tổng quan               | `/`                                                    | Mọi tài khoản đã xác thực |
+| Tài khoản của tôi       | `/account`                                             | Mọi tài khoản đã xác thực |
+| Tạo tài khoản           | `/accounts/new`                                        | HR **hoặc** ADMIN         |
+| Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`       | Mọi tài khoản đã xác thực |
+| Phòng ban               | `/departments`, `/departments/new`, `/departments/:id` | Mọi tài khoản đã xác thực |
+| Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | Mọi tài khoản đã xác thực |
+| Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | HR **hoặc** ADMIN         |
+| Kết nối dịch vụ         | `/services`                                            | Mọi tài khoản đã xác thực |
+| Từ chối truy cập        | `/forbidden`                                           | Tài khoản đã xác thực     |
 
 - Bảo vệ cả điều hướng từ menu và truy cập URL trực tiếp; chưa đăng nhập được đưa
   về login rồi quay lại trang hợp lệ sau khi xác thực.
@@ -48,7 +55,7 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
   suy thành HR. Quyền phía frontend phục vụ UX; backend vẫn kiểm tra từng API.
 - Không có đăng ký công khai. Form cấp tài khoản yêu cầu Employee UUID hiện có theo
   contract của Auth, chỉ gọi `/auth/register`, không tạo/sửa/tìm kiếm Employee.
-- Chưa triển khai module Employee, chấm công, danh sách tài khoản, sửa vai trò,
+- Chưa triển khai chấm công, danh sách tài khoản, sửa vai trò,
   khóa tài khoản hay quên mật khẩu. UI không giả lập các API chưa có.
 
 ## API Auth được tích hợp
@@ -69,6 +76,33 @@ trùng email/UUID, 403, giới hạn đăng nhập (429 + Retry-After) và lỗi
 Request 401 chỉ được thử lại một lần sau refresh. Các request đồng thời dùng chung
 một lần refresh để tránh sử dụng lại refresh token đã xoay vòng. Không tự retry
 register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server xử lý.
+
+## Employee và cấp tài khoản qua Kafka
+
+- Nhân viên: danh sách phân trang, xem chi tiết, tạo mới, sửa hồ sơ (`GET`, `POST`,
+  `PUT /api/v1/employees` và `/:id`), cập nhật riêng trạng thái công việc
+  (`PATCH /api/v1/employees/:id/status`).
+- Phòng ban/chức danh: danh sách phân trang, chi tiết, tạo, sửa qua
+  `/api/v1/departments` và `/api/v1/positions`. Không có thao tác xóa vì backend chưa hỗ trợ.
+- Biểu mẫu nhân viên cho chọn phòng ban, chức danh, người quản lý; lựa chọn tải theo
+  từng trang 100 bản ghi, có nút tải thêm. Trường tùy chọn gửi `null` khi để trống.
+- Quyền CRUD nhân sự hiện là mọi tài khoản đã xác thực, đúng SecurityConfig của
+  Employee. Riêng yêu cầu cấp tài khoản giới hạn HR/ADMIN theo AccountRequestService.
+- Trong hồ sơ nhân viên, `POST /api/v1/employees/:id/account-requests` gửi email và
+  UUID `Idempotency-Key`. Yêu cầu nhận `202` được theo dõi bằng
+  `GET /api/v1/employees/:id/account-requests/:requestId` mỗi 3 giây, tối đa 30 lần.
+  Dừng theo dõi khi có kết quả, gặp lỗi hoặc rời trang; có nút kiểm tra thủ công.
+- Khi mất phản hồi POST, nút thử lại giữ nguyên email và mã gửi. Metadata yêu cầu
+  lưu trong sessionStorage theo tài khoản và nhân viên để tiếp tục khi reload cùng tab;
+  không tự gửi lại POST khi reload. Có thể tra cứu UUID yêu cầu đã biết từ bên ngoài.
+- Hiển thị PENDING/SUCCEEDED/FAILED, lỗi trùng email/tài khoản, trạng thái tài khoản
+  NOT_CREATED/PENDING_ACTIVATION/ACTIVE/DISABLED. Backend chưa có API liệt kê lịch sử
+  yêu cầu, đặt mật khẩu/kích hoạt hoặc quản trị Kafka Connect riêng.
+- Trang `/services` dùng hai endpoint `/api/v1/auth/health-check` và
+  `/api/v1/employees/health-check`. Kết quả không khẳng định Kafka healthy.
+- Cần chạy Kafka, migration và bật `HRM_EVENTS_ENABLED=true` ở cả hai service theo
+  [hướng dẫn provisioning](../back-end/modules/infra/kafka/ACCOUNT-PROVISIONING.md).
+  Không đặt địa chỉ broker trong frontend; browser chỉ gọi API Employee.
 
 ## Phiên đăng nhập
 
@@ -122,7 +156,9 @@ npm run test:e2e
 
 - `npm run build` biên dịch Vue SFC và JavaScript thành bản production trong `dist/`.
 - `npm run test` dùng Vitest; `npm run test:watch` để phát triển.
-- E2E mặc định giả lập đúng contract Auth, không ghi vào database. Playwright chạy
+- E2E mặc định giả lập contract Auth, Employee và provisioning, không ghi vào database.
+  Bao gồm tạo/sửa hồ sơ, đổi trạng thái, danh mục, phân trang, lỗi kết nối, phân quyền,
+  retry cùng idempotency key, tiếp tục theo dõi sau reload và responsive mobile. Playwright chạy
   Vite riêng trên cổng 5174, không dùng dev server 5173.
 - Live Auth test mặc định bỏ qua. Để thử với backend thật, đặt `HRM_LIVE_AUTH=1`,
   `HRM_TEST_EMAIL`, `HRM_TEST_PASSWORD` của tài khoản local, rồi chạy
@@ -135,8 +171,8 @@ npm run test:e2e
 ## Triển khai
 
 Phục vụ `dist/` bằng web server. Vue Router dùng HTML5 history: fallback về
-`index.html` cho route frontend. Cấu hình reverse proxy `/api/*` tới backend
-riêng, không fallback API về `index.html`. Dùng HTTPS khi triển khai thực tế.
+`index.html` cho route frontend. Cấu hình reverse proxy `/api/v1/auth/*` tới Auth và các prefix
+`/api/v1/employees`, `/api/v1/departments`, `/api/v1/positions` tới Employee, không fallback API về `index.html`. Dùng HTTPS khi triển khai thực tế.
 Vite dev proxy không thay thế reverse proxy production; `npm run preview` chỉ để
 xem thử build local.
 

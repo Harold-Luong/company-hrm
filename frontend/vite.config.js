@@ -12,6 +12,18 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
       proxy: {
+        '/api/v1/employees': {
+          target: env.EMPLOYEE_API_PROXY_TARGET || 'http://localhost:8082',
+          changeOrigin: true,
+        },
+        '/api/v1/departments': {
+          target: env.EMPLOYEE_API_PROXY_TARGET || 'http://localhost:8082',
+          changeOrigin: true,
+        },
+        '/api/v1/positions': {
+          target: env.EMPLOYEE_API_PROXY_TARGET || 'http://localhost:8082',
+          changeOrigin: true,
+        },
         '/api': {
           target: env.API_PROXY_TARGET || 'http://localhost:8080',
           changeOrigin: true,

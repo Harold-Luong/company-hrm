@@ -6,16 +6,25 @@ describe('post-login destinations', () => {
     '//evil.example',
     '/\\evil.example',
     '/login',
+    '/employees/../../login',
+    '/employees/not-a-uuid',
+    '/departments/new?redirect=https://evil.example',
     '/accounts/new?redirect=https://evil.example',
     undefined,
     ['/account'],
   ])('rejects untrusted redirect %s', (value) => {
     expect(safeDestination(value)).toBe('/')
   })
-  it.each(['/account', '/accounts/new', '/forbidden', '/'])(
-    'allows known application page %s',
-    (value) => {
-      expect(safeDestination(value)).toBe(value)
-    },
-  )
+  it.each([
+    '/account',
+    '/accounts/new',
+    '/forbidden',
+    '/',
+    '/employees',
+    '/positions/new',
+    '/departments/550e8400-e29b-41d4-a716-446655440000',
+    '/services',
+  ])('allows known application page %s', (value) => {
+    expect(safeDestination(value)).toBe(value)
+  })
 })
