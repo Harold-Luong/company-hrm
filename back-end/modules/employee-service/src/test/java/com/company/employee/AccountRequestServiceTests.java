@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.*;
 @WithMockUser(username = "42", roles = "HR")
 class AccountRequestServiceTests extends JwtTestSupport {
     @Autowired AccountRequestService service;
+    @Autowired AccountLifecycleService lifecycle;
     @Autowired EmployeeRepository employees;
     @Autowired JdbcTemplate jdbc;
     @Autowired DataSource dataSource;
@@ -161,6 +162,24 @@ class AccountRequestServiceTests extends JwtTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE sent_at IS NOT NULL", Integer.class)).isZero();
         outbox.sent(second);
         assertThat(outbox.claim()).isNull();
+    }
+
+    @Test
+    void activationBeforeProvisioningResultKeepsActiveStatusAndDuplicateLifecycleIsHarmless() {
+        var response = service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("login@example.com"));
+        var active = new AccountLifecycleService.Event(UUID.randomUUID(), "AccountStatusChanged", 1, Instant.now(),
+                "auth-service", new AccountLifecycleService.Data(employeeId, "ACTIVE", 2L));
+        lifecycle.apply(active);
+        lifecycle.apply(active);
+        service.apply(AccountProvisioningResult.of(requestEvent(), null, 1L));
+        assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("ACTIVE");
+        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo("SUCCEEDED");
+        lifecycle.apply(new AccountLifecycleService.Event(UUID.randomUUID(), "AccountStatusChanged", 1, Instant.now(),
+                "auth-service", new AccountLifecycleService.Data(employeeId, "PENDING_ACTIVATION", 1L)));
+        assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("ACTIVE");
+        assertThatThrownBy(() -> lifecycle.apply(new AccountLifecycleService.Event(UUID.randomUUID(), "AccountStatusChanged", 1, Instant.now(),
+                "other-service", new AccountLifecycleService.Data(employeeId, "DISABLED", 3L)))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("ACTIVE");
     }
 
     private EmployeeAccountRequested requestEvent() {

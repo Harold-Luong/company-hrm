@@ -57,6 +57,14 @@ springdoc:
         - /api/v1/auth/**
 
 auth:
+    activation:
+        enabled: ${AUTH_ACTIVATION_ENABLED:false}
+        token-secret: ${AUTH_ACTIVATION_TOKEN_SECRET:}
+        token-ttl: ${AUTH_ACTIVATION_TOKEN_TTL:24h}
+        resend-cooldown: 60s
+        frontend-url: ${AUTH_ACTIVATION_FRONTEND_URL:http://localhost:8080/activate}
+        mail-from: ${RESEND_FROM:}
+        resend-api-key: ${RESEND_API_KEY:}
     login-throttle:
         account-max-attempts: 10
         ip-max-attempts: 50
@@ -65,7 +73,7 @@ auth:
 
 jwt:
     type: Bearer
-    access-token-expiration: 15m
+    access-token-expiration: 1d
     refresh-token-expiration: 7d
     access-private-key: ${JWT_ACCESS_PRIVATE_KEY:file:./keys/access-private.pem}
     access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
@@ -76,7 +84,7 @@ jwt:
     access-audience: hrm-api-access
     refresh-audience: hrm-api-refresh
 
-# Enable after SQL migration 004 and Kafka topics are ready.
+# Enable after docs/sql/001_auth_schema.sql and Kafka topics are ready.
 hrm:
     events:
         enabled: ${HRM_EVENTS_ENABLED:false}

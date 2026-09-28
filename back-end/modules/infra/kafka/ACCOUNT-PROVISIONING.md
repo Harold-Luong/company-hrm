@@ -5,8 +5,8 @@ trả lỗi → Outbox → Kafka → Employee cập nhật kết quả. Tạo h�
 
 Account tạo qua luồng này có `activation_pending=true`, `is_active=false`, role
 `EMPLOYEE`, hash từ bí mật ngẫu nhiên riêng từng tài khoản không được giữ lại hoặc
-phát ra ngoài. **Chưa có API/lời mời thiết lập mật khẩu và kích hoạt**, nên tài khoản
-mới chưa thể đăng nhập. Không bật thủ công `is_active` hoặc dùng mật khẩu chung để
+phát ra ngoài. Đã có [email Resend, token hết hạn và API đặt mật khẩu/kích hoạt](../../auth-service-main/docs/ACCOUNT-ACTIVATION.md).
+Tài khoản mới chỉ đăng nhập được sau khi hoàn tất kích hoạt. Không bật thủ công `is_active` hoặc dùng mật khẩu chung để
 thay thế luồng kích hoạt; database không cho Account chờ kích hoạt trở thành active.
 
 ## 1. Database và Kafka
@@ -112,7 +112,8 @@ có thể trùng. Consumer hiện retry vô hạn với khoảng chờ 5 giây, 
 lỗi. **Chưa có DLT**, nên payload lỗi có thể chặn partition: cần kiểm tra log/Outbox
 và triển khai DLT/đối soát trước production. Không xóa/reset offset tùy tiện.
 
-Còn thiếu: kích hoạt/đặt mật khẩu, consumer thay đổi trạng thái vòng đời,
+Đã có kích hoạt/đặt mật khẩu và consumer `AccountStatusChanged` sau kích hoạt.
+Còn thiếu: API khóa/mở tài khoản và phát sự kiện tương ứng,
 đối soát dữ liệu cũ/yêu cầu treo, metric/cảnh báo, DLT và TLS/SASL/ACL production.
 `producer` trong JSON và key Kafka không thay thế xác thực broker. Kafka local
 PLAINTEXT chỉ dành cho phát triển; không coi đây là bản production hoàn chỉnh.

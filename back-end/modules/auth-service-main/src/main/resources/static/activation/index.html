@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Kích hoạt tài khoản | Company HRM</title>
+  <link rel="stylesheet" href="/activation/style.css">
+  <script src="/activation/activate.js" defer></script>
+</head>
+<body>
+  <main>
+    <div class="brand">Company <span>HRM</span></div>
+    <p class="eyebrow">CHÀO MỪNG BẠN</p>
+    <h1>Kích hoạt tài khoản</h1>
+    <p class="intro">Đặt mật khẩu để bắt đầu sử dụng tài khoản nội bộ của bạn.</p>
+    <p id="error" role="alert" hidden></p>
+    <p id="success" role="status" hidden></p>
+    <form id="activation-form">
+      <fieldset id="fields">
+        <label for="password">Mật khẩu mới</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required aria-describedby="password-help">
+        <p id="password-help">Ít nhất 12 ký tự, tối đa 72 byte UTF-8. Ký tự có dấu có thể chiếm nhiều byte.</p>
+        <label for="confirm-password">Nhập lại mật khẩu</label>
+        <input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required>
+        <button id="submit" type="submit">Đặt mật khẩu và kích hoạt</button>
+      </fieldset>
+    </form>
+    <p class="help">Liên kết chỉ dùng một lần. Nếu đã hết hạn hoặc bị thu hồi, hãy liên hệ HR để nhận lời mời mới.</p>
+  </main>
+</body>
+</html>

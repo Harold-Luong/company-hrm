@@ -32,7 +32,7 @@ kế đích; mục 2 phân biệt với code đã có.
 | Kafka local và cấu hình hai service | Đã bổ sung topic yêu cầu/kết quả, group và smoke test; xem [hướng dẫn](infra/kafka/README.md) |
 | API yêu cầu cấp tài khoản, bảng yêu cầu, `EmployeeAccountRequested` | Đã triển khai; bật bằng `HRM_EVENTS_ENABLED=true` sau migration `004` |
 | Outbox hai phía, claim/lease, producer/consumer, chống trùng và kết quả | Đã triển khai cho cấp tài khoản; chưa có DLT/đối soát và consumer vòng đời |
-| Auth tạo tài khoản chờ kích hoạt | Đã có `activation_pending=true`, `is_active=false`, role `EMPLOYEE`; chưa có API thiết lập mật khẩu/lời mời/kích hoạt |
+| Auth tạo tài khoản chờ kích hoạt | Đã có `activation_pending=true`, `is_active=false`, role `EMPLOYEE`; đã có email Resend, token một lần/hết hạn và API kích hoạt |
 | Đồng bộ trạng thái và đối soát tài khoản cũ | Chưa triển khai |
 
 Flow này không cần `employee_references` tại Auth hoặc lỗi `EMPLOYEE_NOT_SYNCED`.
@@ -127,7 +127,8 @@ role phía mình. `requestedBy` chỉ dùng audit, không tự cấp quyền d�
 Không gửi mật khẩu, hash mật khẩu hoặc token kích hoạt qua Kafka. Thiết kế đích
 là Auth tạo Account chờ kích hoạt, quản lý việc gửi lời mời và thiết lập mật khẩu
 qua kênh riêng. Đã bổ sung `activation_pending` và chặn đăng nhập trước kích hoạt.
-API thiết lập mật khẩu, token một lần/hết hạn và gửi lời mời vẫn cần triển khai.
+Đã có API thiết lập mật khẩu, token một lần/hết hạn và mail outbox gửi qua Resend.
+Xem [cấu hình và API kích hoạt](auth-service-main/docs/ACCOUNT-ACTIVATION.md).
 `activation_pending=true` phân biệt tài khoản chờ kích hoạt với tài khoản bị khóa. Không dùng mật khẩu mặc định chung để lấp phần còn thiếu.
 
 Khi `hrm.events.enabled=true` tại Auth, `/api/v1/auth/register` trả `409`, hướng
@@ -175,7 +176,7 @@ có version cao hơn đã nhận trước đó.
 
 Auth đã có `User.activationPending`: true ứng với `PENDING_ACTIVATION` và bắt buộc
 inactive. Với tài khoản không chờ kích hoạt, `User.active` true/false ứng với
-`ACTIVE`/`DISABLED`. API hoàn tất kích hoạt chưa có. Trong development, dùng mặc định `NOT_CREATED`, không
+`ACTIVE`/`DISABLED`. API hoàn tất kích hoạt đã có. Trong development, dùng mặc định `NOT_CREATED`, không
 có trạng thái `UNKNOWN`. Migration `003` bỏ `has_account`; chạy lại sẽ chuyển giá
 trị `UNKNOWN` của bản cũ thành `NOT_CREATED` và cập nhật constraint, giữ các trạng
 thái hợp lệ khác. Không chạy migration `002` sau `003`.
@@ -322,7 +323,7 @@ nếu yêu cầu chặn quyền ngay.
 ## 10. Lộ trình triển khai theo phase
 
 Outbox và chống trùng được triển khai từ lần đầu giao tiếp nghiệp vụ. Hạ tầng local
-và luồng cấp tài khoản chờ kích hoạt đã có. Cần hoàn tất kích hoạt và các phần
+và luồng cấp tài khoản chờ kích hoạt đã có. Đã có kích hoạt tối thiểu; cần hoàn tất các phần
 phục hồi/đối soát còn thiếu trước khi tuyên bố hoàn thành MVP hoặc production. MVP hoàn thành ở phase 3; production cần
 các tiêu chí phase 4–6.
 
@@ -387,7 +388,7 @@ chưa tuyên bố flow cấp tài khoản hoàn thành.
 
 **Đã có phần cấp tài khoản:** Auth tạo Account chờ kích hoạt, ghi kết quả/Outbox;
 Employee nhận và cập nhật yêu cầu/bản sao theo version. **Chưa hoàn thành phase:**
-chưa có luồng đặt mật khẩu/kích hoạt và cập nhật sau kích hoạt.
+đã có luồng đặt mật khẩu/kích hoạt và cập nhật sau kích hoạt qua `AccountStatusChanged`.
 
 | Service | Dữ liệu bổ sung |
 |---|---|
