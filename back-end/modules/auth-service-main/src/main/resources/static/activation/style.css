@@ -1,0 +1,17 @@
+:root { font-family: system-ui, sans-serif; color: #24324a; background: #f6f8fb; line-height: 1.6; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 48px 18px; min-width: 320px; }
+main { max-width: 480px; margin: 5vh auto; padding: 34px; border: 1px solid #e7ebf1; border-radius: 16px; background: white; box-shadow: 0 12px 48px #24324a08; }
+.brand { font-weight: 750; font-size: 22px; margin-bottom: 32px; }.brand span { color: #17796c; }
+.eyebrow { color: #17796c; letter-spacing: 2px; font-size: 11px; font-weight: 700; }
+h1 { font-size: 27px; margin: 0 0 10px; }.intro, .help { color: #657286; font-size: 14px; }
+fieldset { padding: 0; margin: 24px 0; border: 0; min-width: 0; }
+label { display: block; font-size: 14px; font-weight: 600; margin: 18px 0 8px; }
+input, button { width: 100%; font: inherit; padding: 12px; border-radius: 7px; border: 1px solid #cdd6df; }
+input:focus-visible, button:focus-visible { outline: 3px solid #5fc8b5; outline-offset: 3px; }
+button { background: #17796c; color: white; font-weight: 600; border: 0; margin-top: 24px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }#password-help { font-size: 12px; color: #657286; }
+#error, #success { padding: 14px; border-radius: 8px; font-size: 14px; overflow-wrap: anywhere; }
+#error { background: #fff0f0; color: #a72c38; }#success { background: #ecf8f0; color: #1c7155; }
+.help { border-top: 1px solid #e7ebf1; padding-top: 20px; font-size: 12px; }
+@media (max-width: 480px) { body { padding: 18px; }main { padding: 24px; margin: 3vh auto; } }

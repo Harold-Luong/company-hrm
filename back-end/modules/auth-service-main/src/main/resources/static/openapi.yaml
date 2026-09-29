@@ -10,6 +10,12 @@ info:
         chọn Authorize và nhập access token (không thêm tiền tố Bearer).
         Refresh token được gửi trong JSON body của /refresh và /logout.
 
+        Dữ liệu mẫu local từ docs/sql/002_auth_seed.sql có admin@company.com
+        (EMPLOYEE, ADMIN) và hr@company.com (EMPLOYEE, HR), mật khẩu Admin@123456.
+        Chạy docs/sql/001_auth_schema.sql trước, rồi chạy seed để thử đăng nhập.
+        Mật khẩu mẫu chỉ áp dụng cho tài khoản mới do seed tạo; chạy lại seed
+        không đổi mật khẩu hoặc roles của tài khoản đã tồn tại.
+
         /refresh cấp cặp token mới và thu hồi refresh token cũ sau khi sử dụng thành công.
         Logout thu hồi refresh session; access token đã cấp vẫn dùng được đến khi hết hạn.
         Mỗi request dùng access token kiểm tra trạng thái và tập roles hiện tại trong database.
@@ -24,6 +30,100 @@ tags:
 security: []
 
 paths:
+    /api/v1/auth/activate:
+        post:
+            tags: [Authentication]
+            operationId: activateAccount
+            summary: Đặt mật khẩu và kích hoạt bằng token từ email
+            description: Token một lần, có hạn dùng. Mật khẩu ít nhất 12 ký tự và tối đa 72 byte UTF-8. Không trả JWT.
+            security: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [token, password]
+                            properties:
+                                token:
+                                    type: string
+                                    pattern: '^[A-Za-z0-9_-]{43}$'
+                                    writeOnly: true
+                                password:
+                                    type: string
+                                    format: password
+                                    minLength: 12
+                                    maxLength: 72
+                                    writeOnly: true
+            responses:
+                "200":
+                    description: Đã kích hoạt; có thể đăng nhập bằng mật khẩu vừa đặt
+                "400":
+                    description: Token sai/hết hạn/đã dùng/thu hồi hoặc mật khẩu không hợp lệ
+                "503":
+                    description: Tính năng chưa bật
+    /api/v1/auth/activation-invitations/{employeeId}:
+        parameters:
+            - in: path
+              name: employeeId
+              required: true
+              schema:
+                  type: string
+                  format: uuid
+        post:
+            tags: [Authentication]
+            operationId: resendActivationInvitation
+            summary: HR/Admin gửi lại email kích hoạt
+            description: Gửi tới email Account trong Auth; thu hồi token cũ. Cooldown 60 giây/account. 202 chỉ xác nhận đã xếp hàng gửi mail.
+            security:
+                - bearerAuth: []
+            responses:
+                "202":
+                    description: Đã xếp hàng lời mời mới
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    invitationId: { type: string, format: uuid }
+                                    deliveryStatus: { type: string, enum: [PENDING] }
+                                    expiresAt: { type: string, format: date-time }
+                "401": { description: Chưa đăng nhập }
+                "403": { description: Cần HR hoặc ADMIN }
+                "404": { description: Account không tồn tại }
+                "409": { description: Account không chờ kích hoạt }
+                "429":
+                    description: Chưa hết cooldown
+                    headers:
+                        Retry-After:
+                            schema: { type: integer }
+                            description: Số giây cần chờ
+                "503": { description: Tính năng chưa bật }
+        get:
+            tags: [Authentication]
+            operationId: latestActivationInvitation
+            summary: HR/Admin kiểm tra email kích hoạt gần nhất
+            description: SENT nghĩa là Resend đã chấp nhận email, không phải xác nhận inbox đã nhận hoặc account đã kích hoạt.
+            security:
+                - bearerAuth: []
+            responses:
+                "200":
+                    description: Trạng thái gửi email, không chứa token
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    invitationId: { type: string, format: uuid }
+                                    deliveryStatus: { type: string, enum: [PENDING, SENT, FAILED, CANCELLED] }
+                                    expiresAt: { type: string, format: date-time }
+                                    sentAt: { type: string, format: date-time, nullable: true }
+                                    attempts: { type: integer }
+                                    errorCode: { type: string, nullable: true }
+                "401": { description: Chưa đăng nhập }
+                "403": { description: Cần HR hoặc ADMIN }
+                "404": { description: Chưa có lời mời }
+                "503": { description: Tính năng chưa bật }
     /api/v1/auth/health-check:
         get:
             tags: [Authentication]
@@ -123,6 +223,9 @@ paths:
             summary: Đăng nhập
             description: |
                 Xác thực email và mật khẩu, tạo refresh session và trả cặp token.
+                Với dữ liệu seed local, chọn ví dụ Admin hoặc HR bên dưới:
+                admin@company.com hoặc hr@company.com, cùng mật khẩu Admin@123456.
+                Nếu tài khoản đã đổi mật khẩu, dùng mật khẩu hiện tại; chạy lại seed không reset mật khẩu.
                 Account chưa kích hoạt hoặc đã vô hiệu hóa bị từ chối với 403.
                 Mặc định giới hạn 10 lượt/tài khoản và 50 lượt/IP trong cửa sổ 15 phút,
                 tính cả lượt thành công. Các giới hạn có thể thay đổi qua cấu hình.
@@ -134,6 +237,17 @@ paths:
                     application/json:
                         schema:
                             $ref: "#/components/schemas/LoginRequest"
+                        examples:
+                            admin:
+                                summary: Admin từ seed local (EMPLOYEE, ADMIN)
+                                value:
+                                    email: admin@company.com
+                                    password: Admin@123456
+                            hr:
+                                summary: HR từ seed local (EMPLOYEE, HR)
+                                value:
+                                    email: hr@company.com
+                                    password: Admin@123456
             responses:
                 "200":
                     description: Đăng nhập thành công
@@ -348,7 +462,7 @@ components:
                     minLength: 1
                     pattern: '\S'
                     description: Không được rỗng hoặc chỉ gồm khoảng trắng. Password không được trim.
-                    example: password123
+                    example: Admin@123456
         RegisterRequest:
             allOf:
                 - $ref: "#/components/schemas/LoginRequest"
@@ -447,11 +561,11 @@ components:
                     type: string
                     format: uuid
                     description: ID nhân viên đang liên kết với tài khoản.
-                    example: "550e8400-e29b-41d4-a716-000000001001"
+                    example: "10000000-0000-0000-0000-000000000001"
                 email:
                     type: string
                     format: email
-                    example: user@example.com
+                    example: hr@company.com
                 active:
                     type: boolean
                     example: true

@@ -46,11 +46,13 @@ public class SecurityConfig {
                     response.getWriter().write("{\"code\":\"403\",\"message\":\"Access is denied\"}");
                 }))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/activate", "/activation/index.html", "/activation/activate.js", "/activation/style.css").permitAll()
                         .requestMatchers("/openapi.yaml", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs",
                                 "/v3/api-docs/**", "/v3/api-docs.yaml")
                         .permitAll()
                         .requestMatchers("/api/v1/auth/register").hasAnyRole("ADMIN", "HR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/activate").permitAll()
+                        .requestMatchers("/api/v1/auth/activation-invitations/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         .requestMatchers("/api/v1/auth/refresh").permitAll()
                         .requestMatchers("/api/v1/auth/logout-all").authenticated()

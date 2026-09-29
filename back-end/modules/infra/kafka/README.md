@@ -3,7 +3,7 @@
 Kafka local và hai service đã có luồng Employee gửi `EmployeeAccountRequested`,
 Auth tạo Account rồi trả `AccountCreated` / `AccountCreationFailed`.
 Xem [migration, cách bật và ví dụ API](ACCOUNT-PROVISIONING.md).
-Luồng tạo tài khoản chờ kích hoạt đã có; API đặt mật khẩu/kích hoạt chưa triển khai.
+Luồng tạo tài khoản và [email đặt mật khẩu/kích hoạt qua Resend](../../auth-service-main/docs/ACCOUNT-ACTIVATION.md) đã có.
 
 ## 1. Khởi chạy
 
@@ -42,7 +42,7 @@ container trỏ về chính container đó.
 | `hrm.employee.account-requests.v1` | `EmployeeAccountRequested` | Employee | Auth: `auth-account-requests-v1` |
 | `hrm.auth.account-results.v1` | `AccountCreated`, `AccountCreationFailed` | Auth | Employee: `employee-account-results-v1` |
 | `hrm.employee.lifecycle.v1` | Dành cho mở rộng vòng đời nhân viên | Chưa dùng | Chưa có |
-| `hrm.auth.account-lifecycle.v1` | Dành cho mở rộng trạng thái tài khoản | Chưa dùng | Chưa có |
+| `hrm.auth.account-lifecycle.v1` | `AccountStatusChanged` sau kích hoạt | Auth | Employee: `employee-account-lifecycle-v1` |
 | `hrm.local.smoke.v1` | Message thử kết nối | Smoke test | Group thử riêng |
 
 Hai service có `spring-boot-starter-kafka` và cấu hình `application.yaml`:

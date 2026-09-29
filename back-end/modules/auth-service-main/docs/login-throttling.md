@@ -36,6 +36,19 @@ The store contains at most `max-keys` account/IP entries. Expired entries are pr
 on incoming attempts; at capacity, requests needing new keys return `429` until
 space expires. Active entries are not evicted to admit attacker-controlled keys.
 
+## Local setup for testing
+
+Follow the [Auth setup guide](hrm-auth.md#khởi-tạo-database-và-seed): run
+`docs/sql/001_auth_schema.sql`, then `docs/sql/002_auth_seed.sql` in the Auth database.
+New seed accounts use `Admin@123456`; `employee@company.com` is active and
+`disabled@company.com` is inactive. Replaying the seed preserves existing passwords
+and account state, so an older account may still have its previous password.
+
+Prepare RSA keys and load `.env` using the [Auth run instructions](hrm-auth.md#3-chạy-auth).
+Login throttling tests do not require Kafka or email; both feature flags can be
+`false`. There is no additional SQL migration for login throttling because its
+counters are in memory. Use disposable local accounts for repeated login attempts.
+
 ## Client IP and proxies
 
 The controller uses `HttpServletRequest.getRemoteAddr()`. The default configuration

@@ -1,8 +1,10 @@
--- LOCAL DEVELOPMENT ONLY. Run in auth_db as auth_user after 001 and 002.
--- All demo accounts use Admin@123456 (BCrypt cost 12).
--- employee_id values match employee-service/src/main/resources/static/sql/seed_employee_data.sql.
--- EMP004 intentionally has no account; EMP005 is the Admin created by 002.
--- Repeat runs preserve existing password, active flag and roles.
+-- LOCAL DEVELOPMENT ONLY. Run after 001_auth_schema.sql as auth_user.
+-- Newly created accounts all use Admin@123456 (BCrypt cost 12).
+-- Covers ADMIN, HR, MANAGER, EMPLOYEE and an inactive account.
+-- IDs match Employee's seed; EMP004 stays unprovisioned for the Kafka/email flow.
+-- Replays preserve existing passwords, roles, activation flags and versions.
+-- Conflicting email/employee mappings abort the entire seed transaction.
+-- No refresh sessions, activation tokens, email jobs or Kafka events are seeded.
 
 BEGIN;
 
@@ -15,6 +17,7 @@ CREATE TEMP TABLE auth_demo_seed (
 
 INSERT INTO auth_demo_seed (employee_id, email, is_active, roles)
 VALUES
+    ('10000000-0000-0000-0000-000000000005', 'admin@company.com', TRUE, ARRAY['EMPLOYEE', 'ADMIN']),
     ('10000000-0000-0000-0000-000000000001', 'hr@company.com', TRUE, ARRAY['EMPLOYEE', 'HR']),
     ('10000000-0000-0000-0000-000000000002', 'manager@company.com', TRUE, ARRAY['EMPLOYEE', 'MANAGER']),
     ('10000000-0000-0000-0000-000000000003', 'employee@company.com', TRUE, ARRAY['EMPLOYEE']),
@@ -32,12 +35,16 @@ BEGIN
 END $$;
 
 WITH inserted AS (
-    INSERT INTO users (employee_id, email, password_hash, is_active)
+    INSERT INTO users (employee_id, email, password_hash, is_active, activation_pending)
     SELECT employee_id, email,
-        '$2a$12$.7Frn6Kx70AP8HNU1BvPz.iP617VcpK.K0iZ35t1.OWcT3by7HSZG', is_active
+        '$2a$12$.7Frn6Kx70AP8HNU1BvPz.iP617VcpK.K0iZ35t1.OWcT3by7HSZG', is_active, FALSE
     FROM auth_demo_seed
     ON CONFLICT (email) DO NOTHING
-    RETURNING id, email
+    RETURNING id, email, employee_id
+), versions AS (
+    INSERT INTO account_link_versions (employee_id, version)
+    SELECT employee_id, 1 FROM inserted
+    ON CONFLICT (employee_id) DO NOTHING
 )
 INSERT INTO user_roles (user_id, role)
 SELECT inserted.id, role.name

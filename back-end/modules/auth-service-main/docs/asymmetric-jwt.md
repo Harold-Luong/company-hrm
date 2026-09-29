@@ -6,9 +6,14 @@ session được giữ nguyên. Xem [JJWT 0.12.6](https://github.com/jwtk/jjwt/b
 
 ## Tạo khóa cho local
 
-Chạy từ thư mục module, một lần trước khi khởi động ứng dụng:
+Trước khi chạy Auth, chuẩn bị database bằng [hướng dẫn schema và seed mới](hrm-auth.md#khởi-tạo-database-và-seed):
+`001_auth_schema.sql`, sau đó `002_auth_seed.sql` nếu cần tài khoản local.
+Tạo khóa không thay thế bước tạo schema.
+
+Từ thư mục gốc repository, vào module rồi tạo khóa một lần:
 
 ```bash
+cd back-end/modules/auth-service-main
 mkdir -p keys
 chmod 700 keys
 (
@@ -24,7 +29,6 @@ chmod 700 keys
     openssl pkey -in "keys/$purpose-private.pem" -pubout -out "keys/$purpose-public.pem" || exit 1
   done
 )
-./mvnw spring-boot:run
 ```
 
 Private key phải là PEM PKCS#8 (`BEGIN PRIVATE KEY`); public key là PEM X.509
@@ -32,6 +36,29 @@ Private key phải là PEM PKCS#8 (`BEGIN PRIVATE KEY`); public key là PEM X.50
 và báo lỗi nếu thiếu/sai định dạng, hai khóa không khớp, hoặc access/refresh dùng chung cặp khóa.
 Thư mục `keys/` đã được bỏ qua trong Git. Khóa trong `src/test/resources/jwt/` chỉ dành cho test,
 không dùng để chạy ứng dụng thực tế.
+
+## Khởi động sau khi có schema và keys
+
+Trong thư mục `back-end/modules/auth-service-main`, chuẩn bị `.env` nếu chưa có,
+điền cấu hình theo [chế độ chạy Auth](hrm-auth.md#3-chạy-auth), rồi nạp file:
+
+```bash
+test -f .env || cp .env.example .env
+```
+
+Sau khi chỉnh và lưu `.env`:
+
+```bash
+set -a
+. ./.env
+set +a
+./mvnw spring-boot:run
+```
+
+Nếu chỉ kiểm tra JWT bằng tài khoản seed, dùng `HRM_EVENTS_ENABLED=false` và
+`AUTH_ACTIVATION_ENABLED=false`; không cần Kafka hoặc Resend cho chế độ này.
+Account seed mới `admin@company.com` dùng `Admin@123456`. Account đã tồn tại giữ
+nguyên mật khẩu vì seed không ghi đè thông tin đăng nhập.
 
 ## Cấu hình môi trường
 

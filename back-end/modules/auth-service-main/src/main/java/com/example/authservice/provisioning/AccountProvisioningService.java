@@ -25,6 +25,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class AccountProvisioningService {
+    private final com.example.authservice.activation.ActivationService activation;
     private final UserRepository users;
     private final JdbcTemplate jdbc;
     private final EventOutbox outbox;
@@ -79,6 +80,7 @@ public class AccountProvisioningService {
             user.setPasswordHash(passwords.encode(UUID.randomUUID().toString() + UUID.randomUUID().toString().replace("-", "")));
             user.setRoles(Set.of(UserRole.EMPLOYEE));
             users.saveAndFlush(user);
+            activation.inviteNewAccount(user);
             var versions = jdbc.queryForList("SELECT version FROM account_link_versions WHERE employee_id = ? FOR UPDATE", Long.class, employeeId);
             if (versions.isEmpty()) {
                 version = 1L;

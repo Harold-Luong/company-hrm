@@ -4,6 +4,21 @@ Module giữ JWT access token và refresh session hiện có. User chứa thông
 User lưu `employee_id` bắt buộc/unique để liên kết một-một với Employee, kể cả tài khoản HR/ADMIN. Không đưa mã nhân viên,
 phòng ban, trạng thái lao động hoặc ngày vào/nghỉ việc vào User.
 
+## Thứ tự chạy local
+
+Từ thư mục gốc repository, vào `back-end/modules/auth-service-main`; dùng JDK 21
+và PostgreSQL. Làm theo thứ tự:
+
+1. Chuẩn bị role `auth_user` và database `auth_db` nếu chưa có.
+2. Chạy [001_auth_schema.sql](sql/001_auth_schema.sql) để tạo schema đầy đủ.
+3. Chạy [002_auth_seed.sql](sql/002_auth_seed.sql) nếu cần tài khoản local để đăng nhập.
+4. Tạo RSA keys một lần theo [hướng dẫn JWT](asymmetric-jwt.md#tạo-khóa-cho-local).
+5. Chuẩn bị/nạp `.env` rồi khởi động Auth theo [phần chạy Auth](#3-chạy-auth).
+
+Lệnh SQL và danh sách tài khoản nằm ở [phần khởi tạo database và seed](#khởi-tạo-database-và-seed).
+Không cần chạy thêm script migration Auth rời cho Kafka hoặc email: schema mới đã
+bao gồm cả hai. Seed không gửi mail hoặc tạo phiên đăng nhập.
+
 ## Role và field
 
 | Role | Ý nghĩa |
@@ -79,7 +94,7 @@ Auth kiểm tra payload, chính sách role và unique employee/email. MVP cấp 
 dùng audit, không thay thế xác thực producer/ACL. Consumer gọi service nghiệp vụ
 nội bộ, không gọi HTTP `/register`.
 
-Phần đã triển khai (cần migration `004` và bật `HRM_EVENTS_ENABLED=true`):
+Phần đã triển khai (cần schema Auth đầy đủ và bật `HRM_EVENTS_ENABLED=true`):
 
 - Consumer `EmployeeAccountRequested` trên `hrm.employee.account-requests.v1`,
   group `auth-account-requests-v1`; Compose đã tạo topic yêu cầu/kết quả.
@@ -95,150 +110,179 @@ Phần đã triển khai (cần migration `004` và bật `HRM_EVENTS_ENABLED=tr
   thiết lập mật khẩu. Không gửi mật khẩu/hash/token kích hoạt trong message.
   Đã bổ sung `activation_pending`, phân biệt chờ kích hoạt với bị khóa. Account
   có hash từ bí mật ngẫu nhiên riêng không được giữ lại/phát ra ngoài, không có
-  mật khẩu chung; chưa có API/lời mời đặt mật khẩu và hoàn tất kích hoạt.
+  mật khẩu chung. Đã có [email kích hoạt qua Resend](ACCOUNT-ACTIVATION.md), token một lần
+  có hạn dùng, API đặt mật khẩu và API HR/Admin gửi lại lời mời.
 
-Còn cần triển khai: thiết lập mật khẩu/kích hoạt, `AccountStatusChanged` sau
-kích hoạt/khóa/mở, DLT, đối soát và vận hành production.
+Kích hoạt đã phát `AccountStatusChanged` và Employee cập nhật theo version.
+Còn cần triển khai: API khóa/mở và sự kiện tương ứng, DLT, đối soát và vận hành production.
 
 Employee theo dõi `PENDING/SUCCEEDED/FAILED` riêng với bản sao `accountStatus`.
 Auth không cập nhật trạng thái lao động `EmployeeStatus`.
 
 Khi bật sự kiện, `/register` cũ trả `409` để không tạo Account thiếu Outbox.
 Khi cờ tắt (mặc định), API cũ vẫn dùng được như mô tả ở trên. Login/refresh/filter
-đều từ chối Account chờ kích hoạt. Auth phải chạy migration `004` trước khi start
-bản mới để thêm cột `activation_pending`, kể cả khi chưa bật cờ.
+đều từ chối Account chờ kích hoạt. Auth cần schema đầy đủ trong `docs/sql/001_auth_schema.sql` trước khi start,
+kể cả khi chưa bật cờ sự kiện hoặc email.
 Xem [hướng dẫn chạy](../../infra/kafka/ACCOUNT-PROVISIONING.md) và
 [hợp đồng/các phase](../../EVENT-DRIVEN-GUIDE.md).
 
-## Khởi tạo database từ đầu
+## Khởi tạo database và seed
 
-Script `001` dùng để tạo mới/reset local; migration bổ sung `004` dùng cho database đã có.
-Hibernate dùng `ddl-auto=validate`; SQL là nguồn khởi tạo schema, ứng dụng không tự tạo bảng.
-Các file SQL nằm trong `docs/sql`, không nằm trong thư mục web `static`.
+Auth có đúng hai script trong `docs/sql`:
 
-### 1. Tạo lại database local
+- [001_auth_schema.sql](sql/001_auth_schema.sql): schema đầy đủ, bao gồm tài khoản, phiên đăng nhập,
+  provisioning Kafka, activation token và hàng đợi email.
+- [002_auth_seed.sql](sql/002_auth_seed.sql): dữ liệu local có đủ bốn vai trò và account bị khóa.
 
-Dừng ứng dụng và đóng các kết nối tới `auth_db`. Từ thư mục module, chạy bằng PostgreSQL
-superuser trên server local:
+Cả hai là SQL PostgreSQL, có transaction, chạy được bằng `psql` hoặc SQL console
+của IDE. Không tự DROP database, không xóa dữ liệu, không tạo tài khoản demo trong
+script schema. `ddl-auto=validate` được giữ nguyên; ứng dụng không tự chạy SQL.
 
-```sh
-psql -X -h localhost -p 5432 -U postgres -d postgres -f docs/sql/001_init_auth_db.sql
+### 1. Chuẩn bị database mới
+
+Nếu chưa có role/database, mở một phiên `psql` bằng administrator:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -h localhost -U postgres -d postgres
 ```
 
-Script **xóa toàn bộ database `auth_db` rồi tạo mới**, bao gồm tài khoản và refresh session.
-Không dùng `FORCE`; nếu còn kết nối thì lệnh dừng ở bước drop. `DROP/CREATE DATABASE` không
-chạy trong transaction; phần tạo bảng/index chạy trong một transaction sau khi kết nối database mới.
-
-Script tạo PostgreSQL login `auth_user` nếu chưa tồn tại, với mật khẩu local `auth_password`
-khớp `application.yaml`. Nếu login đã tồn tại thì giữ nguyên mật khẩu và quyền của login đó;
-cấu hình datasource phải dùng đúng credential hiện tại. Không xóa cluster-wide role hoặc database khác.
-
-Schema gồm:
-
-* `users`: email unique, `employee_id` bắt buộc/unique, password hash, active, `last_login_at`, audit timestamps.
-* `user_roles`: `user_id`, `role`; khóa chính ghép ngăn role trùng trên cùng account.
-* `refresh_sessions`: UUID session, foreign key tới User, token hash, thời gian tạo/hết hạn/thu hồi.
-* Check constraint chỉ chấp nhận EMPLOYEE, MANAGER, HR, ADMIN; index session theo `user_id`.
-
-Database khởi tạo rỗng, không có tài khoản demo hoặc ID seed cố định. Chạy lại script sẽ reset
-dữ liệu và identity sequence về trạng thái mới. Script dành cho môi trường phát triển local.
-
-### 2. Tạo Admin và dữ liệu demo
-
-Chạy từ thư mục `auth-service-main`, sau bước tạo schema:
-
-```sh
-psql -X -v ON_ERROR_STOP=1 -h localhost -p 5432 -U auth_user -d auth_db -f docs/sql/002_create_admin.sql
-psql -X -v ON_ERROR_STOP=1 -h localhost -p 5432 -U auth_user -d auth_db -f docs/sql/003_seed_demo_accounts.sql
-```
-
-Hai file seed là SQL PostgreSQL thông thường, có transaction; cũng có thể chạy toàn bộ file
-trong SQL console của IDE đã kết nối `auth_db`. File `001` có lệnh riêng của `psql`, cần chạy
-qua terminal. Nếu console đang ở transaction lỗi, chạy `ROLLBACK;` trước khi chạy seed.
-
-Mật khẩu local của admin mới tạo bởi `002`: **`password123`**. Các tài khoản demo
-trong `003` vẫn dùng **`Admin@123456`**. Mật khẩu được lưu dưới dạng BCrypt cost 12.
-Hash đã được tạo và xác minh bằng `BCryptPasswordEncoder` của service. Tất cả tài khoản mẫu
-chỉ dùng cho phát triển local.
-
-| File | Email đăng nhập | Employee | Roles | Active |
-|---|---|---|---|---|
-| `002` | `admin@company.com` | EMP005 | EMPLOYEE, ADMIN | true |
-| `003` | `hr@company.com` | EMP001 | EMPLOYEE, HR | true |
-| `003` | `manager@company.com` | EMP002 | EMPLOYEE, MANAGER | true |
-| `003` | `employee@company.com` | EMP003 | EMPLOYEE | true |
-| `003` | `disabled@company.com` | EMP006 | EMPLOYEE | false |
-
-UUID có dạng `10000000-0000-0000-0000-00000000000N`, khớp chính xác với dữ liệu trong
-`employee-service/src/main/resources/static/sql/seed_employee_data.sql`.
-EMP004 được để chưa có tài khoản, phục vụ thử API `/register`. Quyền ADMIN trên EMP005
-là quyền tài khoản mẫu, không suy ra từ chức danh Accountant. Email đăng nhập ở Auth
-có thể khác email liên hệ trong hồ sơ Employee.
-
-Seed dùng `INSERT ... RETURNING id` để gán role cho đúng tài khoản, không giả định ID
-bắt đầu từ 1. Chạy lại cùng email và employeeId không tạo trùng, không reset mật khẩu,
-không bật lại tài khoản hoặc khôi phục role đã bị thay đổi. Nếu email/employeeId thuộc
-liên kết khác, script báo lỗi và rollback toàn bộ lượt seed; cần kiểm tra dữ liệu trước
-khi thử lại, không tự gắn sang tài khoản khác. Vì vậy mật khẩu mẫu chỉ được bảo đảm
-cho tài khoản vừa được tạo bởi script, không phải tài khoản có sẵn được bỏ qua.
-
-Nếu `admin@company.com` đã tồn tại, chạy lại `002` không đổi mật khẩu. Để đặt mật khẩu
-admin local thành `password123`, chạy riêng câu SQL sau trong `auth_db`:
+Trong phiên này, chạy từng lệnh sau một lần:
 
 ```sql
-UPDATE users
-SET password_hash = '$2a$12$tDvgLx2K7fnWU.Z9SAKQkOPzTEKUkAbbj7lyXweeRHzAgrcyHDAMe',
-    updated_at = CURRENT_TIMESTAMP
-WHERE email = 'admin@company.com';
+CREATE ROLE auth_user LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
+    PASSWORD 'auth_password';
+CREATE DATABASE auth_db OWNER auth_user;
 ```
 
-Câu lệnh này chỉ đổi mật khẩu và thời điểm cập nhật, không thay đổi roles, trạng thái
-active hoặc Employee liên kết; không thu hồi các phiên đã cấp.
+Thoát phiên bằng `\q` trước khi chạy lệnh terminal bên dưới.
+`CREATE DATABASE` phải chạy ngoài transaction. Nếu role/database đã tồn tại thì
+bỏ qua lệnh tương ứng, không drop hoặc đổi mật khẩu role đang được sử dụng.
+`auth_password` chỉ là cấu hình local mặc định của repository.
 
-Seed không tạo refresh session hoặc JWT. Chúng được sinh khi đăng nhập thật.
-Auth dùng `users.is_active` và `activation_pending`, không có cột enum `account_status`. Không có foreign key
-xuyên database. Để thử liên kết đầy đủ, tạo schema và seed Employee trước.
+Từ thư mục gốc repository, chạy:
 
-Các script Auth không ghi vào database Employee và chưa phát sự kiện đồng bộ.
-`Employee.accountStatus` có thể vẫn là `NOT_CREATED` dù đã có Account;
-cần cơ chế đồng bộ/đối soát riêng, không dùng trạng thái mẫu đó để kết luận Account chưa tồn tại.
+```bash
+cd back-end/modules/auth-service-main
+psql -X -v ON_ERROR_STOP=1 -h localhost -U auth_user -d auth_db -f docs/sql/001_auth_schema.sql
+psql -X -v ON_ERROR_STOP=1 -h localhost -U auth_user -d auth_db -f docs/sql/002_auth_seed.sql
+```
 
-### 3. Chạy ứng dụng
+Schema có 8 bảng:
 
-Tạo hai cặp khóa RSA theo [hướng dẫn asymmetric JWT](asymmetric-jwt.md), rồi chạy:
+| Bảng | Chức năng |
+|---|---|
+| `users` | Email/employee_id unique, hash mật khẩu, active/activation_pending, thời gian audit |
+| `user_roles` | EMPLOYEE, MANAGER, HR, ADMIN; khóa ghép chống vai trò trùng |
+| `refresh_sessions` | Phiên đăng nhập, hash token, hết hạn/thu hồi |
+| `account_provisioning_results` | Kết quả Kafka theo request/event, chống xử lý trùng |
+| `account_link_versions` | Phiên bản trạng thái account theo Employee |
+| `event_outbox` | Sự kiện Kafka với retry và lease |
+| `account_activation_tokens` | Hash token, hạn dùng, đã dùng/thu hồi |
+| `activation_mail_outbox` | Email activation, trạng thái gửi, retry và lease |
 
-```sh
+Không có bảng Employee hoặc foreign key xuyên database.
+Các index hỗ trợ lookup phiên, lời mời và xử lý outbox; constraint cấm account vừa
+active vừa chờ kích hoạt, role không hợp lệ, trạng thái email không hợp lệ.
+
+Schema có thể chạy lại trên schema cùng phiên bản nhờ `IF NOT EXISTS`, nhưng
+**không phải migration cho database cũ bị thiếu cột/constraint**: nó không tự ALTER
+bảng đã tồn tại. Nếu cần giữ dữ liệu cũ, đối chiếu schema và thực hiện migration
+riêng; không chạy reset database chỉ để thêm seed.
+
+### 2. Tài khoản seed
+
+Mật khẩu của tất cả account **mới được seed**: **`Admin@123456`** (BCrypt cost 12).
+Chỉ dùng các account này trong môi trường phát triển.
+
+| Email đăng nhập | Employee | Roles | Active |
+|---|---|---|---|
+| `admin@company.com` | EMP005 | EMPLOYEE, ADMIN | true |
+| `hr@company.com` | EMP001 | EMPLOYEE, HR | true |
+| `manager@company.com` | EMP002 | EMPLOYEE, MANAGER | true |
+| `employee@company.com` | EMP003 | EMPLOYEE | true |
+| `disabled@company.com` | EMP006 | EMPLOYEE | false |
+
+`activation_pending=false` cho các account seed. Account disabled dùng để kiểm tra
+login bị từ chối, không phải account chờ kích hoạt. Các UUID
+`10000000-0000-0000-0000-00000000000N` khớp seed Employee; EMP004 được để trống để
+thử tạo account qua Kafka và email thật. Seed không xếp hàng gửi mail hoặc tạo JWT.
+
+Chạy lại seed không reset password, không thay đổi role/trạng thái hoặc tăng version
+của account hiện có. Nếu email và employeeId xung đột với mapping khác, toàn bộ lượt
+seed rollback. Role và version 1 chỉ được thêm cho account mới, không giả định user
+ID bắt đầu từ 1. Account cũ có mật khẩu khác vẫn giữ mật khẩu đó.
+
+`auth_demo_seed` trong script là bảng tạm `ON COMMIT DROP`, chỉ dùng để kiểm tra
+mapping và gán role; không phải bảng nghiệp vụ thứ chín của Auth. Trong SQL console,
+chạy toàn bộ script cùng một connection; không chạy từng đoạn INSERT rời khỏi
+transaction. Nếu lượt chạy trước bị lỗi, chạy `ROLLBACK;` trước khi thử lại.
+
+Seed không ghi vào database Employee, không phát sự kiện đồng bộ;
+`Employee.accountStatus` của dữ liệu demo có thể chưa phản ánh account seed trong
+Auth. Email đăng nhập cũng có thể khác email hồ sơ nhân viên.
+
+### 3. Chạy Auth
+
+Sau khi có schema và RSA keys, chạy trong thư mục module. Chỉ tạo `.env` nếu chưa
+có; mở file và chọn chế độ chạy trước khi nạp biến môi trường:
+
+```bash
+test -f .env || cp .env.example .env
+```
+
+| Chế độ | `HRM_EVENTS_ENABLED` | `AUTH_ACTIVATION_ENABLED` | Điều kiện |
+|---|---|---|---|
+| Chỉ thử đăng nhập/refresh với account seed | `false` | `false` | PostgreSQL, schema, RSA keys |
+| Cấp account qua Kafka, chưa gửi email | `true` | `false` | Thêm Kafka/topics và Employee đã cấu hình |
+| Cấp account và gửi lời mời kích hoạt | `true` | `true` | Thêm cấu hình Resend, token secret và URL kích hoạt |
+
+Sau khi lưu `.env`:
+
+```bash
+set -a
+. ./.env
+set +a
 ./mvnw spring-boot:run
 ```
 
-Đăng nhập Admin qua Swagger hoặc gọi:
+Spring Boot không tự nạp `.env`. Với IDE, đặt working directory là module Auth và
+nạp file env hoặc khai báo biến trong Run Configuration. Thay đổi `.env` cần nạp
+lại và restart tiến trình. Thư mục chạy phải chứa `keys/` nếu dùng đường dẫn JWT mặc định.
 
-```sh
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@company.com","password":"password123"}'
+Ở terminal khác, kiểm tra:
+
+```bash
+curl --fail http://localhost:8080/api/v1/auth/health-check
 ```
 
-Lấy `data.accessToken` để gọi Employee hoặc `/api/v1/auth/register` của Auth.
-Đăng nhập `disabled@company.com` trả `403` vì tài khoản bị vô hiệu hóa.
+Kỳ vọng `status=UP`, `database=UP`; đây không phải kiểm tra Kafka/Resend. Mở Swagger
+ở `http://localhost:8080/swagger-ui.html` để thao tác API.
 
-Ứng dụng giữ `ddl-auto: validate`, nên script phải chạy trước khi khởi động; SQL không
-tự chạy khi ứng dụng start. Không chạy `001` chỉ để thêm dữ liệu mẫu: nó xóa toàn bộ
-`auth_db`. Sau khi reset database, đăng nhập lại; token cũ có thể mang User ID được cấp
-lại. Với môi trường reset đã từng phát hành token, thay hai cặp khóa RSA và cập nhật
-access public key tại Employee trước khi khởi động lại.
+Cấu hình mail/worker xem [ACCOUNT-ACTIVATION.md](ACCOUNT-ACTIVATION.md). Đăng nhập:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@company.com","password":"Admin@123456"}'
+```
+
+Account `disabled@company.com` trả `403`. ADMIN không tự có quyền HR; cả hai vai
+trò đều được phép gọi các API cấp tài khoản theo chính sách hiện tại.
 
 ## Kiểm thử
 
-`mvn test` kiểm tra một/nhiều role qua register/login/refresh/me, mặc định EMPLOYEE, role trùng,
+`./mvnw test` kiểm tra một/nhiều role qua register/login/refresh/me, mặc định EMPLOYEE, role trùng,
 từ chối tập rỗng/null element/role ngoài enum, quyền HR hoặc ADMIN ở HTTP/service,
 token cũ sau đổi role, account inactive/deleted và thời điểm
 đăng nhập; kiểm tra employeeId bắt buộc/không trùng và truyền qua register/login/me/refresh.
 Các regression test validation, throttling, logout và refresh rotation vẫn được chạy.
-Các API test dùng H2; SQL khởi tạo/reset cần được kiểm tra riêng trên PostgreSQL tạm.
+Các API test dùng H2. `AuthSchemaTests` khởi tạo từ `001_auth_schema.sql` và để
+Hibernate validate schema thật; kiểm tra constraint và hash mật khẩu seed.
+Kiểm tra seed PostgreSQL (array/DO/CTE), chạy lại không ghi đè dữ liệu và rollback
+khi mapping xung đột cần dùng PostgreSQL tạm, không dùng database đang phục vụ ứng dụng.
 
 Nếu môi trường chặn Mockito tự attach agent, chạy với agent có sẵn trong Maven cache:
 
 ```sh
-mvn test -DargLine="-javaagent:/path/to/mockito-core-5.23.0.jar"
+./mvnw test -DargLine="-javaagent:/path/to/mockito-core-5.23.0.jar"
 ```

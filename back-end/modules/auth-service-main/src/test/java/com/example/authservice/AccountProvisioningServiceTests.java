@@ -33,7 +33,7 @@ class AccountProvisioningServiceTests {
     @BeforeEach
     void prepare() throws Exception {
         try (var connection = dataSource.getConnection()) {
-            ScriptUtils.executeSqlScript(connection, new FileSystemResource("docs/sql/004_account_provisioning.sql"));
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource("docs/sql/001_auth_schema.sql"));
         }
         for (String table : new String[]{"event_outbox", "account_provisioning_results", "account_link_versions", "refresh_sessions", "user_roles", "users"}) {
             jdbc.update("DELETE FROM " + table);
