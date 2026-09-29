@@ -11,27 +11,33 @@ thay thế luồng kích hoạt; database không cho Account chờ kích hoạt 
 
 ## 1. Database và Kafka
 
-Chạy từ `back-end/modules`, trên database development đã có schema Employee/Auth:
+Chạy từ `back-end/modules`, sau khi tạo user/database development riêng cho Employee và Auth:
 
 ```bash
 psql -X -v ON_ERROR_STOP=1 -h localhost -U employee_user -d employee_db \
-  -f employee-service/src/main/resources/static/sql/004_account_provisioning.sql
+  -f employee-service/docs/sql/001_employee_schema.sql
 psql -X -v ON_ERROR_STOP=1 -h localhost -U auth_user -d auth_db \
-  -f auth-service-main/docs/sql/004_account_provisioning.sql
+  -f auth-service-main/docs/sql/001_auth_schema.sql
 
 docker compose -f infra/kafka/compose.yaml up -d
 docker compose -f infra/kafka/compose.yaml run --rm kafka-init
 ```
 
-Nếu Employee vẫn còn cột `has_account` hoặc giá trị `UNKNOWN`, chạy migration `003`
-trước `004`. Migration không tự chạy khi start. Auth cần `004` trước khi chạy bản
-code mới, kể cả khi chưa bật Kafka, vì `User` có thêm cột `activation_pending`.
-Database mới: schema khởi tạo Employee đã có các bảng; script Auth `001` gọi `004`.
-Không chạy Auth `001` trên database cần giữ dữ liệu: script đó reset toàn bộ Auth DB.
+Hai service dùng schema đầy đủ trong `docs/sql/001_employee_schema.sql` và
+`docs/sql/001_auth_schema.sql`; SQL không tự chạy khi ứng dụng start.
+Các script tạo bảng/index còn thiếu, không reset database và không tự ALTER
+bảng cũ. Database Employee còn `has_account`/`UNKNOWN` hoặc thiếu cột/constraint
+cần migration riêng sau khi đối chiếu schema; Auth cũ cũng cần kiểm tra tương tự.
+
+Dữ liệu mẫu local là tùy chọn: chạy `employee-service/docs/sql/002_employee_seed.sql`
+và `auth-service-main/docs/sql/002_auth_seed.sql` sau schema tương ứng.
+UUID nhân viên khớp giữa hai seed. Seed không phát sự kiện nên `accountStatus`
+tại Employee chưa phản ánh các tài khoản seed Auth; dùng EMP004 chưa có Account
+để thử toàn bộ luồng này. Xem [hướng dẫn Employee](../../employee-service/README.md#5-script-sql).
 
 Topic yêu cầu: `hrm.employee.account-requests.v1`; topic kết quả:
-`hrm.auth.account-results.v1`. Mỗi topic có group riêng theo bên nhận. Topic vòng
-đời hiện chưa có consumer và không dùng cho yêu cầu cấp tài khoản.
+`hrm.auth.account-results.v1`. Sau kích hoạt, Auth phát `AccountStatusChanged` qua
+`hrm.auth.account-lifecycle.v1`, Employee consumer cập nhật theo version.
 
 ## 2. Chạy hai service
 
@@ -122,7 +128,7 @@ PLAINTEXT chỉ dành cho phát triển; không coi đây là bản production h
 
 UI gửi **HTTP request** tới Employee; `EmployeeAccountRequested` được backend tạo
 sau khi kiểm tra quyền và nhân viên. Sơ đồ giả định đã bật cờ sự kiện, cấu hình
-topic và chạy migration. Đây là luồng cho một yêu cầu mới hợp lệ.
+topic và chạy schema đầy đủ. Đây là luồng cho một yêu cầu mới hợp lệ.
 
 ```mermaid
 flowchart TB

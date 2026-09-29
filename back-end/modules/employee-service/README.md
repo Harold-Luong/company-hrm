@@ -3,7 +3,7 @@
 `employee-service` là service quản lý thông tin nhân viên trong hệ thống HRM.
 
 Employee là nguồn dữ liệu chính về hồ sơ nhân viên. Service đã xác minh JWT của
-Auth và đã có luồng Kafka cấp tài khoản (mặc định tắt, bật sau migration). Theo
+Auth và đã có luồng Kafka cấp tài khoản (mặc định tắt, bật sau khi tạo schema và Kafka topics). Theo
 [thiết kế event-driven](../EVENT-DRIVEN-GUIDE.md), người dùng yêu cầu cấp tài khoản
 tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequested`
 để Auth tạo Account và trả kết quả. Tạo hồ sơ vẫn là thao tác độc lập.
@@ -27,6 +27,9 @@ tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequeste
 
 ```text
 employee-service/
+├── docs/sql/
+│   ├── 001_employee_schema.sql
+│   └── 002_employee_seed.sql
 ├── src/
 │   └── main/
 │       ├── java/
@@ -46,11 +49,8 @@ employee-service/
 │       └── resources/
 │           ├── application.yaml
 │           └── static/
-│               ├── openapi/
-│               │   └── employee-api.yml
-│               └── sql/
-│                   ├── init_employee_schema.sql
-│                   └── seed_employee_data.sql
+│               └── openapi/
+│                   └── employee-api.yml
 │
 └── pom.xml
 ```
@@ -78,6 +78,8 @@ employee_user
 ```bash
 psql -h localhost -U postgres
 ```
+
+Chỉ tạo user/database nếu chưa tồn tại. Chạy `CREATE DATABASE` ngoài transaction.
 
 Tạo user:
 
@@ -147,56 +149,56 @@ spring:
 
 ## 5. Script SQL
 
-Các script tạo schema và dữ liệu mẫu nằm tại:
+Chạy theo thứ tự: [001_employee_schema.sql](docs/sql/001_employee_schema.sql) →
+[002_employee_seed.sql](docs/sql/002_employee_seed.sql) (seed chỉ dành cho local development).
+Các file nằm trong `docs/sql`, không đóng gói vào tài nguyên static của ứng dụng.
 
-```text
-src/main/resources/static/sql/
-```
+Schema đầy đủ gồm 7 bảng:
 
-### Tạo schema
+| Bảng | Mục đích |
+|---|---|
+| `departments` | Phòng ban |
+| `positions` | Chức danh |
+| `employees` | Hồ sơ, trạng thái lao động và trạng thái tài khoản từ Auth |
+| `account_provisioning_requests` | Yêu cầu cấp tài khoản và idempotency key |
+| `provisioning_processed_events` | Chống xử lý sự kiện trùng |
+| `employee_account_versions` | Version trạng thái tài khoản đã nhận |
+| `event_outbox` | Sự kiện chờ gửi Kafka, retry và claim/lease |
 
-```text
-init_employee_schema.sql
-```
+`employees.department_id`, `position_id`, `manager_id` tham chiếu phòng ban,
+chức danh và nhân viên quản lý. Không cho nhân viên tự quản lý chính mình.
 
-Tạo các bảng:
+Schema dùng `IF NOT EXISTS`, có thể chạy lại để tạo bảng/index còn thiếu; không
+xóa dữ liệu, không tự ALTER cấu trúc bảng cũ. Database còn `has_account`, thiếu
+`account_status` hoặc dùng constraint cho `UNKNOWN` cần migration riêng sau khi
+đối chiếu schema; chạy script này không nâng cấp được các cột/constraint đó.
+Hibernate dùng `ddl-auto: validate`, SQL không tự chạy khi service khởi động.
 
-```text
-departments
-positions
-employees
-```
+Seed tạo **4 phòng ban, 5 chức danh, 6 nhân viên**, với UUID giữ nguyên để khớp
+[seed Auth](../auth-service-main/docs/sql/002_auth_seed.sql):
 
-Quan hệ chính:
+| Mã | Email hồ sơ Employee | Email đăng nhập trong seed Auth | Role Auth |
+|---|---|---|---|
+| EMP001 | an.nguyen@company.com | hr@company.com | EMPLOYEE, HR |
+| EMP002 | binh.tran@company.com | manager@company.com | EMPLOYEE, MANAGER |
+| EMP003 | chi.le@company.com | employee@company.com | EMPLOYEE |
+| EMP004 | dung.pham@company.com | Chưa tạo | — |
+| EMP005 | ha.vo@company.com | admin@company.com | EMPLOYEE, ADMIN |
+| EMP006 | khanh.do@company.com | disabled@company.com (inactive) | EMPLOYEE |
 
-```text
-employees.department_id -> departments.id
+EMP003 và EMP004 có quản lý trực tiếp là EMP002. EMP004 đang thử việc; các hồ sơ
+còn lại có trạng thái lao động `ACTIVE`. Trạng thái lao động độc lập với tài khoản.
 
-employees.position_id -> positions.id
+Email hồ sơ và email đăng nhập là hai trường riêng, liên kết hai service bằng UUID
+`employeeId`. Role và mật khẩu thuộc Auth; chạy Employee seed không tạo tài khoản.
+Mọi hồ sơ mới trong seed đều có `account_status=NOT_CREATED`: seed trực tiếp không
+phát sự kiện, nên dù đã chạy seed Auth, trạng thái tại Employee vẫn chưa đồng bộ.
+EMP004 được chừa để thử luồng cấp tài khoản → email kích hoạt → `ACTIVE` thực tế.
 
-employees.manager_id -> employees.id
-```
-
-`manager_id` là self-reference, dùng để xác định quản lý trực tiếp của nhân viên.
-
-### Seed data
-
-```text
-seed_employee_data.sql
-```
-
-Chứa dữ liệu mẫu cho:
-
-- Department
-- Position
-- Employee
-
-Chạy thủ công script tạo schema trước, sau đó chạy script dữ liệu mẫu nếu cần
-(xem lệnh ở mục 9):
-
-```text
-init_employee_schema.sql -> seed_employee_data.sql
-```
+Seed chạy trong một transaction. Chạy lại chỉ thêm bản ghi thiếu, giữ nguyên hồ sơ,
+trạng thái và version hiện có. Nếu ID/mã/email xung đột với bản ghi khác, toàn bộ
+seed thất bại; không tự gán lại liên kết. Các bảng tạm `employee_demo_*` tự xóa khi
+commit. Không seed yêu cầu cấp tài khoản, version sự kiện hoặc Outbox.
 
 ---
 
@@ -343,46 +345,43 @@ Có thể giữ cả hai trong giai đoạn phát triển, nhưng về lâu dài
 
 ## 9. Chạy project
 
-Với database mới, sau khi tạo user/database ở mục 3, chạy script tạo schema
-một lần từ thư mục gốc của service:
+Sau khi tạo user/database ở mục 3, chạy từ thư mục gốc repository:
 
 ```bash
-psql -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f src/main/resources/static/sql/init_employee_schema.sql
+cd back-end/modules/employee-service
+psql -X -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f docs/sql/001_employee_schema.sql
+# Tùy chọn: dữ liệu mẫu local
+psql -X -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f docs/sql/002_employee_seed.sql
 ```
 
-Nếu cần dữ liệu mẫu, chạy tiếp một lần:
+Tạo RSA keys của Auth theo [hướng dẫn Auth](../auth-service-main/docs/hrm-auth.md)
+trước khi chạy Employee. Employee chỉ cần access **public** key tương ứng với Auth
+đang ký JWT. Từ thư mục `employee-service`, chạy trên Linux/macOS:
 
 ```bash
-psql -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f src/main/resources/static/sql/seed_employee_data.sql
-```
-
-Bỏ qua script tạo schema nếu các bảng đã tồn tại; bỏ qua seed nếu đã có dữ liệu mẫu.
-Application dùng
-`ddl-auto: validate`, không tự tạo bảng khi khởi động.
-
-Linux/macOS:
-
-```bash
+export JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem
+export HRM_EVENTS_ENABLED=false
 ./mvnw spring-boot:run
 ```
 
-Windows:
+Windows PowerShell (cũng từ thư mục service):
 
-```bash
-mvnw.cmd spring-boot:run
+```powershell
+$env:JWT_ACCESS_PUBLIC_KEY = "file:../auth-service-main/keys/access-public.pem"
+$env:HRM_EVENTS_ENABLED = "false"
+.\mvnw.cmd spring-boot:run
 ```
 
-Hoặc:
+Service mặc định chạy tại `http://localhost:8082`. Có thể dùng
+`mvn spring-boot:run` nếu đã cài Maven. `ddl-auto: validate` yêu cầu schema đầy đủ
+kể cả khi Kafka đang tắt.
 
-```bash
-mvn spring-boot:run
-```
-
-Service mặc định chạy:
-
-```text
-http://localhost:8082
-```
+Để thử cấp tài khoản/gửi email, chuẩn bị schema Auth, Kafka topics và cấu hình
+activation/Resend của Auth, rồi bật `HRM_EVENTS_ENABLED=true` cho **cả hai service**.
+Xem [hướng dẫn Kafka](../infra/kafka/ACCOUNT-PROVISIONING.md) và
+[hướng dẫn kích hoạt](../auth-service-main/docs/ACCOUNT-ACTIVATION.md).
+Dùng EMP004 với email nhận thư thực tế cho yêu cầu thử nghiệm; email demo không
+phải hộp thư được cấu hình để nhận email kích hoạt.
 
 ---
 
@@ -406,6 +405,10 @@ Kết quả dự kiến có:
 departments
 employees
 positions
+account_provisioning_requests
+provisioning_processed_events
+employee_account_versions
+event_outbox
 ```
 
 ---
@@ -568,7 +571,7 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" -i -X POST http://localhost:8082/a
   }'
 ```
 
-Các ID trong ví dụ lấy từ `src/main/resources/static/sql/seed_employee_data.sql`.
+Các ID trong ví dụ lấy từ `docs/sql/002_employee_seed.sql`.
 Trả về `201 Created`, header `Location` và thông tin nhân viên vừa tạo.
 
 - Bắt buộc: `employeeCode`, `firstName`, `lastName`, `email`, `hireDate`, `status`.
@@ -615,24 +618,18 @@ chính về tài khoản. Trạng thái tại Employee chỉ là bản sao để
 | Giá trị | Ý nghĩa |
 |---|---|
 | `NOT_CREATED` | Chưa có tài khoản theo thông tin hiện biết |
-| `PENDING_ACTIVATION` | Đã có tài khoản, chờ kích hoạt; dành cho luồng kích hoạt bổ sung sau này |
+| `PENDING_ACTIVATION` | Đã có tài khoản, chờ đặt mật khẩu/kích hoạt qua email |
 | `ACTIVE` | Tài khoản đang hoạt động |
 | `DISABLED` | Tài khoản bị vô hiệu hóa |
 
 Đã nhận `AccountCreated` / `AccountCreationFailed` để hoàn tất yêu cầu cấp tài khoản.
-Consumer `AccountStatusChanged` cho kích hoạt/khóa/mở chưa được triển khai. Thiết kế nằm trong
+Consumer `AccountStatusChanged` đã nhận trạng thái sau kích hoạt, chỉ áp dụng version mới hơn. Thiết kế nằm trong
 [hướng dẫn event-driven](../EVENT-DRIVEN-GUIDE.md). Không thêm `PENDING`/`FAILED` của
 quá trình cấp tài khoản vào enum này.
 
-Với database cũ, chạy `src/main/resources/static/sql/003_replace_has_account_with_account_status.sql`
-trước khi khởi động phiên bản mới vì Hibernate đang dùng `ddl-auto: validate`.
-Script chạy được dù đã hoặc chưa chạy bản `002`; không chạy `002` sau `003`.
-Trong development, migration thêm `account_status` mặc định `NOT_CREATED` và bỏ
-cột `has_account`. Nếu đã chạy bản migration trước đó, chạy lại `003` để chuyển
-`UNKNOWN` thành `NOT_CREATED` và cập nhật constraint; các trạng thái hợp lệ khác
-được giữ nguyên. Đây là mặc định development, không phải xác nhận từ Auth.
-Script không tự chạy khi ứng dụng khởi động. Database mới dùng schema khởi tạo đã
-có `account_status` với mặc định `NOT_CREATED`. Frontend cần đọc `accountStatus`
+Schema [001_employee_schema.sql](docs/sql/001_employee_schema.sql) dùng
+`account_status` mặc định `NOT_CREATED`, không dùng `has_account` hoặc `UNKNOWN`.
+Database cũ cần đối chiếu và migration riêng như mục 5. Frontend đọc `accountStatus`
 thay cho trường `hasAccount` đã bị loại khỏi response.
 
 ### Cấp tài khoản qua sự kiện
@@ -666,9 +663,9 @@ version Auth; thành công có thể vẫn đang `PENDING_ACTIVATION`.
 `AccountCreationFailed` chỉ làm yêu cầu thất bại, không xóa hồ sơ hoặc đặt lại
 `accountStatus`. Kết quả cũ không ghi đè yêu cầu mới hay trạng thái tài khoản mới hơn.
 
-Không cập nhật trạng thái lao động `EmployeeStatus` bằng kết quả từ Auth. API,
-migration `004`, Outbox và consumer kết quả đã có; Auth tạo Account chờ kích hoạt
-và chưa cung cấp API đặt mật khẩu/kích hoạt. Xem [hướng dẫn chạy và ví dụ API](../infra/kafka/ACCOUNT-PROVISIONING.md)
+Không cập nhật trạng thái lao động `EmployeeStatus` bằng kết quả từ Auth. Schema
+đã gồm hạ tầng Outbox và yêu cầu cấp tài khoản; Auth đã có API đặt mật khẩu/kích hoạt
+và phát sự kiện để Employee cập nhật `ACTIVE`. Xem [hướng dẫn chạy và ví dụ API](../infra/kafka/ACCOUNT-PROVISIONING.md)
 và [lộ trình còn lại](../EVENT-DRIVEN-GUIDE.md#10-lộ-trình-triển-khai-theo-phase).
 
 ### Danh sách và chi tiết
@@ -922,7 +919,7 @@ Các API `/api/v1/**` yêu cầu xác thực, ngoại trừ GET
 `/api/v1/employees/health-check`. GET `/actuator/health`, `/actuator/health/**`,
 `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs/swagger-config` và
 `/openapi/employee-api.yml` cũng công khai.
-Đường dẫn khác bị từ chối; không cung cấp SQL trong thư mục static qua HTTP.
+Đường dẫn khác bị từ chối; SQL nằm trong `docs/sql`, không cung cấp qua HTTP.
 Nếu gửi token sai ngay cả tới đường dẫn công khai, bộ lọc Bearer vẫn trả `401`.
 
 Cấu hình stateless, không lưu phiên đăng nhập, không hỗ trợ Basic/form login.
@@ -931,11 +928,11 @@ CSRF bị tắt vì xác thực qua Bearer header, không dùng cookie tự gử
 ### Phạm vi bảo vệ hiện tại
 
 Các role trong token được ánh xạ thành `ROLE_EMPLOYEE`, `ROLE_HR`, ... trong
-SecurityContext; principal là `sub` của token. Hiện **mọi access token hợp lệ theo
-hợp đồng trên đều có thể gọi các API nghiệp vụ**. Chưa áp dụng ma trận quyền HR,
-ADMIN hoặc giới hạn người dùng chỉ được đọc/sửa hồ sơ của mình.
+SecurityContext; principal là `sub` của token. API yêu cầu cấp tài khoản cần role
+HR hoặc ADMIN. Các API CRUD hồ sơ/phòng ban/chức danh hiện cho phép mọi access
+token hợp lệ; chưa giới hạn người dùng chỉ được đọc/sửa hồ sơ của mình.
 
-`accountStatus` hiện vẫn là dữ liệu hiển thị, chưa được đồng bộ hoặc kiểm tra
+`accountStatus` được đồng bộ qua Kafka nhưng chỉ dùng để hiển thị, không kiểm tra
 trong bộ lọc. JWT còn hạn có thể tiếp tục dùng sau khi tài khoản bị khóa ở Auth.
 Lớp phân quyền dữ liệu và cơ chế thu hồi quyền cần được triển khai trước khi
 cho người dùng thực tế truy cập dữ liệu nhân sự.

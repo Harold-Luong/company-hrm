@@ -163,7 +163,7 @@ class JwtSecurityTests extends JwtTestSupport {
 
     @Test
     void deniesOtherResourcesEvenWithValidToken() throws Exception {
-        mvc.perform(get("/sql/init_employee_schema.sql")
+        mvc.perform(get("/docs/sql/001_employee_schema.sql")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + sign(claims())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403));

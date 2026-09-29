@@ -77,7 +77,7 @@ paths:
             tags: [Employees]
             operationId: getEmployeeAccountRequest
             summary: Theo dõi yêu cầu cấp tài khoản
-            description: Cần HR hoặc ADMIN. SUCCEEDED có thể đi cùng accountStatus=PENDING_ACTIVATION; kích hoạt chưa triển khai.
+            description: Cần HR hoặc ADMIN. SUCCEEDED có thể đi cùng accountStatus=PENDING_ACTIVATION; Auth gửi email để người dùng đặt mật khẩu/kích hoạt.
             responses:
                 "200":
                     description: Tiến độ yêu cầu và bản sao trạng thái tài khoản hiện tại
@@ -851,7 +851,7 @@ components:
                     type: string
                     enum: [NOT_CREATED, PENDING_ACTIVATION, ACTIVE, DISABLED]
                     readOnly: true
-                    description: Trạng thái tài khoản đã ghi nhận từ Auth, chỉ phục vụ hiển thị. Mặc định NOT_CREATED. Cơ chế nhận cập nhật từ Auth chưa được triển khai.
+                    description: Trạng thái tài khoản đã ghi nhận từ Auth, chỉ phục vụ hiển thị. Mặc định NOT_CREATED. Nhận kết quả cấp tài khoản và AccountStatusChanged qua Kafka khi bật HRM_EVENTS_ENABLED.
                     example: NOT_CREATED
                 id:
                     type: string

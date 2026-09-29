@@ -28,18 +28,18 @@ kế đích; mục 2 phân biệt với code đã có.
 | Thành phần | Trạng thái |
 |---|---|
 | `Employee.accountStatus` và response tương ứng | Đã có enum; nhân viên mới mặc định `NOT_CREATED`; client không được sửa qua API hồ sơ |
-| Migration trạng thái tài khoản | Có script `003_replace_has_account_with_account_status.sql`; database cũ cần chạy thủ công |
+| Schema Employee | `employee-service/docs/sql/001_employee_schema.sql` đầy đủ; database cũ cần đối chiếu và migration riêng |
 | Kafka local và cấu hình hai service | Đã bổ sung topic yêu cầu/kết quả, group và smoke test; xem [hướng dẫn](infra/kafka/README.md) |
-| API yêu cầu cấp tài khoản, bảng yêu cầu, `EmployeeAccountRequested` | Đã triển khai; bật bằng `HRM_EVENTS_ENABLED=true` sau migration `004` |
-| Outbox hai phía, claim/lease, producer/consumer, chống trùng và kết quả | Đã triển khai cho cấp tài khoản; chưa có DLT/đối soát và consumer vòng đời |
+| API yêu cầu cấp tài khoản, bảng yêu cầu, `EmployeeAccountRequested` | Đã triển khai; bật bằng `HRM_EVENTS_ENABLED=true` sau schema đầy đủ của Auth/Employee và Kafka topics |
+| Outbox hai phía, claim/lease, producer/consumer, chống trùng và kết quả | Đã triển khai cho cấp tài khoản và nhận trạng thái sau kích hoạt; chưa có DLT/đối soát |
 | Auth tạo tài khoản chờ kích hoạt | Đã có `activation_pending=true`, `is_active=false`, role `EMPLOYEE`; đã có email Resend, token một lần/hết hạn và API kích hoạt |
-| Đồng bộ trạng thái và đối soát tài khoản cũ | Chưa triển khai |
+| Đồng bộ trạng thái và đối soát tài khoản cũ | Đã nhận `AccountStatusChanged` sau kích hoạt; đối soát tài khoản cũ chưa triển khai |
 
 Flow này không cần `employee_references` tại Auth hoặc lỗi `EMPLOYEE_NOT_SYNCED`.
 `EmployeeCreated` có thể phục vụ sự kiện vòng đời cho phân hệ khác sau này; không
 là điều kiện tiên quyết cho yêu cầu cấp tài khoản. Xem [cách chạy flow đã có](infra/kafka/ACCOUNT-PROVISIONING.md).
-Luồng mới mặc định tắt; Auth cần migration `004` cho cột mới ngay cả khi chưa bật
-sự kiện. Khi bật ở Auth, `/register` cũ trả `409` để không bỏ qua Outbox.
+Luồng mới mặc định tắt; Auth cần `docs/sql/001_auth_schema.sql`, Employee cần
+`docs/sql/001_employee_schema.sql` trong thư mục từng service ngay cả khi chưa bật sự kiện. Khi bật ở Auth, `/register` cũ trả `409` để không bỏ qua Outbox.
 Phạm vi quyền API mới hiện là HR/ADMIN toàn hệ thống, chưa chia theo phòng ban/tenant.
 
 ## 3. Quyền sở hữu dữ liệu
@@ -68,7 +68,7 @@ và không được cập nhật bằng kết quả cấp tài khoản từ Auth
 5. Worker đọc Outbox đã commit, gọi `AccountProvisioningProducer` gửi lên Kafka.
    Chỉ đánh dấu đã gửi khi broker xác nhận; lỗi gửi được retry từ Outbox.
 
-API đã triển khai, cần bật cờ sự kiện sau migration:
+API đã triển khai, cần bật cờ sự kiện sau khi tạo schema và Kafka topics:
 
 | API tại Employee | Mục đích |
 |---|---|
@@ -177,9 +177,9 @@ có version cao hơn đã nhận trước đó.
 Auth đã có `User.activationPending`: true ứng với `PENDING_ACTIVATION` và bắt buộc
 inactive. Với tài khoản không chờ kích hoạt, `User.active` true/false ứng với
 `ACTIVE`/`DISABLED`. API hoàn tất kích hoạt đã có. Trong development, dùng mặc định `NOT_CREATED`, không
-có trạng thái `UNKNOWN`. Migration `003` bỏ `has_account`; chạy lại sẽ chuyển giá
-trị `UNKNOWN` của bản cũ thành `NOT_CREATED` và cập nhật constraint, giữ các trạng
-thái hợp lệ khác. Không chạy migration `002` sau `003`.
+có trạng thái `UNKNOWN`. Schema Employee đầy đủ không dùng `has_account`;
+script chỉ tạo bảng/index còn thiếu, không tự chuyển đổi cột hay trạng thái cũ.
+Database cũ cần đối chiếu và migration riêng trước khi chạy phiên bản hiện tại.
 
 ## 7. Hợp đồng sự kiện
 
@@ -296,7 +296,7 @@ liệu vô hạn và không tạo transaction nguyên tử chung với database 
 
 ## 9. Topic và mở rộng service
 
-Topic/group đã cấu hình cho luồng mới (listener vòng đời chưa triển khai):
+Topic/group đã cấu hình cho luồng mới (đã có listener trạng thái sau kích hoạt):
 
 | Topic | Message | Producer | Consumer group |
 |---|---|---|---|

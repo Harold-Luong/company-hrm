@@ -8,7 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.security.access.AccessDeniedException;
@@ -44,7 +44,7 @@ class AccountRequestServiceTests extends JwtTestSupport {
     @BeforeEach
     void prepare() throws Exception {
         try (var connection = dataSource.getConnection()) {
-            ScriptUtils.executeSqlScript(connection, new ClassPathResource("static/sql/004_account_provisioning.sql"));
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource("docs/sql/001_employee_schema.sql"));
         }
         for (String table : new String[]{"event_outbox", "provisioning_processed_events", "account_provisioning_requests", "employee_account_versions", "employees"}) {
             jdbc.update("DELETE FROM " + table);
