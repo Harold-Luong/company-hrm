@@ -2,7 +2,7 @@
 
 Kafka local và hai service đã có luồng Employee gửi `EmployeeAccountRequested`,
 Auth tạo Account rồi trả `AccountCreated` / `AccountCreationFailed`.
-Xem [migration, cách bật và ví dụ API](ACCOUNT-PROVISIONING.md).
+Xem [schema, cách bật và ví dụ API](ACCOUNT-PROVISIONING.md).
 Luồng tạo tài khoản và [email đặt mật khẩu/kích hoạt qua Resend](../../auth-service-main/docs/ACCOUNT-ACTIVATION.md) đã có.
 
 ## 1. Khởi chạy
@@ -48,7 +48,7 @@ container trỏ về chính container đó.
 Hai service có `spring-boot-starter-kafka` và cấu hình `application.yaml`:
 
 - `KAFKA_BOOTSTRAP_SERVERS`: mặc định `localhost:9092`.
-- `HRM_EVENTS_ENABLED`: mặc định `false`; bật sau migration để worker/listener chạy.
+- `HRM_EVENTS_ENABLED`: mặc định `false`; bật sau khi tạo schema đầy đủ và Kafka topics để worker/listener chạy.
 - Listener dùng `hrm.events.request-group` / `result-group` riêng, không dùng một
   group chung giữa Auth và Employee; topic cũng cấu hình qua `hrm.events.*`.
 - Producer String key/value, `acks=all`, idempotence, giới hạn thời gian chờ gửi.

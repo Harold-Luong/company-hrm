@@ -1,28 +1,31 @@
+-- Complete Employee schema for PostgreSQL 16. Run as employee_user in employee_db.
+-- Creates missing tables/indexes; does not reset data or migrate legacy columns/constraints.
+-- Apply before starting the service (Hibernate ddl-auto=validate).
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+BEGIN;
 
-CREATE TABLE departments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+CREATE TABLE IF NOT EXISTS departments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(150) NOT NULL,
     description TEXT,
     active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE positions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+CREATE TABLE IF NOT EXISTS positions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(150) NOT NULL,
     description TEXT,
     active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE employees (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+CREATE TABLE IF NOT EXISTS employees (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     employee_code VARCHAR(50) NOT NULL UNIQUE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
@@ -46,8 +49,8 @@ CREATE TABLE employees (
     department_id UUID,
     position_id UUID,
     manager_id UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_employee_department FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE SET NULL,
     CONSTRAINT fk_employee_position FOREIGN KEY (position_id) REFERENCES positions (id) ON DELETE SET NULL,
     CONSTRAINT fk_employee_manager FOREIGN KEY (manager_id) REFERENCES employees (id) ON DELETE SET NULL,
@@ -57,17 +60,17 @@ CREATE TABLE employees (
     )
 );
 
-CREATE INDEX idx_employees_department_id ON employees (department_id);
+CREATE INDEX IF NOT EXISTS idx_employees_department_id ON employees (department_id);
 
-CREATE INDEX idx_employees_position_id ON employees (position_id);
+CREATE INDEX IF NOT EXISTS idx_employees_position_id ON employees (position_id);
 
-CREATE INDEX idx_employees_manager_id ON employees (manager_id);
+CREATE INDEX IF NOT EXISTS idx_employees_manager_id ON employees (manager_id);
 
-CREATE INDEX idx_employees_status ON employees (status);
+CREATE INDEX IF NOT EXISTS idx_employees_status ON employees (status);
 
-CREATE INDEX idx_employees_hire_date ON employees (hire_date);
+CREATE INDEX IF NOT EXISTS idx_employees_hire_date ON employees (hire_date);
 
--- Account provisioning infrastructure (also available as incremental migration 004).
+-- Account provisioning, event deduplication, lifecycle versions and transactional outbox.
 CREATE TABLE IF NOT EXISTS account_provisioning_requests (
     request_id UUID PRIMARY KEY,
     employee_id UUID NOT NULL REFERENCES employees(id),
@@ -111,3 +114,5 @@ CREATE TABLE IF NOT EXISTS event_outbox (
     sent_at TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX IF NOT EXISTS event_outbox_pending_idx ON event_outbox (sent_at, next_attempt_at);
+
+COMMIT;

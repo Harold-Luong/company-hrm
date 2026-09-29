@@ -74,10 +74,10 @@ springdoc:
         disable-swagger-default-url: true
         operations-sorter: method
 
-# Enable after SQL migration 004 and Kafka topics are ready.
+# Enable after docs/sql/001_employee_schema.sql and Kafka topics are ready.
 hrm:
     events:
-        enabled: ${HRM_EVENTS_ENABLED:false}
+        enabled: ${HRM_EVENTS_ENABLED:true}
         request-topic: hrm.employee.account-requests.v1
         result-topic: hrm.auth.account-results.v1
         request-group: auth-account-requests-v1
