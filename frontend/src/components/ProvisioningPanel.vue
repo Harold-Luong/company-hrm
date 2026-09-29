@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { hrm, uuidPattern, requestStatuses, accountStatuses } from '@/hrm/api.js'
 import { auth } from '@/auth/session.js'
 import { serviceError } from '@/auth/api.js'
+import ActivationInvitationPanel from '@/components/ActivationInvitationPanel.vue'
 const props = defineProps({ employee: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
 const storageKey = `company-hrm.provisioning.${auth.state.user.id}.${props.employee.id}`
@@ -11,6 +12,8 @@ const lookupId = ref('')
 const attempt = ref(null)
 const result = ref(null)
 const busy = ref(false)
+const operation = ref('')
+const checkedAt = ref('')
 const error = ref('')
 const note = ref('')
 let timer
@@ -51,6 +54,7 @@ async function send() {
   error.value = ''
   note.value = ''
   busy.value = true
+  operation.value = 'send'
   polls = 0
   try {
     if (!attempt.value) {
@@ -72,27 +76,36 @@ async function send() {
         'Chưa xác nhận được kết quả gửi. Thử lại sẽ dùng cùng mã gửi để tránh tạo yêu cầu trùng.'
   } finally {
     busy.value = false
+    operation.value = ''
   }
 }
 async function check(automatic = false) {
   if (busy.value || disposed) return
   clearTimeout(timer)
+  if (!automatic) {
+    polls = 0
+    note.value = ''
+    result.value = null
+    checkedAt.value = ''
+  }
   if (!uuidPattern.test(lookupId.value.trim())) {
     error.value = 'Mã yêu cầu phải là UUID hợp lệ.'
     return
   }
-  if (!automatic) {
-    polls = 0
-    note.value = ''
-  }
   error.value = ''
   busy.value = true
+  operation.value = 'lookup'
   try {
     accept(await hrm.request(props.employee.id, lookupId.value.trim()))
+    checkedAt.value = new Date().toLocaleTimeString('vi-VN')
   } catch (cause) {
-    error.value = serviceError(cause)
+    error.value =
+      cause.status === 404
+        ? 'Không tìm thấy yêu cầu cấp tài khoản của nhân viên này. Hãy kiểm tra lại mã yêu cầu.'
+        : serviceError(cause)
   } finally {
     busy.value = false
+    operation.value = ''
   }
 }
 function newRequest() {
@@ -102,6 +115,7 @@ function newRequest() {
   lookupId.value = ''
   error.value = ''
   note.value = ''
+  checkedAt.value = ''
   sessionStorage.removeItem(storageKey)
 }
 onMounted(() => {
@@ -133,7 +147,6 @@ onBeforeUnmount(() => {
     <p class="muted small">
       Yêu cầu được xử lý bất đồng bộ. Tài khoản mới có vai trò Nhân viên và chờ kích hoạt.
     </p>
-    <div v-if="error" class="alert alert-error" role="alert">{{ error }}</div>
     <p v-if="note" class="info-strip" role="status">{{ note }}</p>
     <form v-if="!result" @submit.prevent="send">
       <fieldset class="form-fields" :disabled="busy">
@@ -151,13 +164,48 @@ onBeforeUnmount(() => {
           class="button button-primary full-width"
           :disabled="employee.accountStatus !== 'NOT_CREATED' && !attempt"
         >
-          {{ busy ? 'Đang gửi…' : attempt ? 'Thử gửi lại' : 'Gửi yêu cầu cấp tài khoản' }}
+          {{
+            operation === 'send'
+              ? 'Đang gửi…'
+              : attempt
+                ? 'Thử gửi lại'
+                : 'Gửi yêu cầu cấp tài khoản'
+          }}
         </button>
       </fieldset>
     </form>
-    <div v-if="result" class="request-result" role="status">
+    <form class="request-lookup" @submit.prevent="check()">
+      <fieldset class="form-fields" :disabled="busy">
+        <label for="request-id">Tra cứu mã yêu cầu</label
+        ><input
+          id="request-id"
+          v-model="lookupId"
+          required
+          placeholder="UUID của yêu cầu đã gửi"
+          :readonly="result?.provisioningStatus === 'PENDING'"
+        />
+        <button class="button button-secondary full-width" type="submit">
+          {{ operation === 'lookup' ? 'Đang kiểm tra…' : 'Kiểm tra kết quả' }}
+        </button>
+      </fieldset>
+    </form>
+    <div v-if="error" class="alert alert-error" role="alert">{{ error }}</div>
+    <p v-if="operation === 'lookup'" class="info-strip" role="status">Đang tra cứu yêu cầu…</p>
+    <div v-if="result" class="request-result" role="status" aria-live="polite" aria-atomic="true">
+      <p v-if="checkedAt" class="small muted">Đã nhận kết quả lúc {{ checkedAt }}.</p>
       <strong>{{ requestStatuses[result.provisioningStatus] || result.provisioningStatus }}</strong>
       <p class="small muted">{{ accountStatuses[result.accountStatus] || result.accountStatus }}</p>
+      <p v-if="result.provisioningStatus === 'PENDING'" class="small">
+        Yêu cầu đã được ghi nhận và đang chờ xử lý. Kết quả tự cập nhật mỗi 3 giây, tối đa 30 lần.
+      </p>
+      <p
+        v-if="
+          result.provisioningStatus === 'SUCCEEDED' && result.accountStatus === 'PENDING_ACTIVATION'
+        "
+        class="small"
+      >
+        Tài khoản đã được tạo. Nhân viên cần mở email mời để đặt mật khẩu và kích hoạt.
+      </p>
       <p v-if="result.errorCode" class="field-error">
         {{ failures[result.errorCode] || result.errorCode }}
       </p>
@@ -173,23 +221,10 @@ onBeforeUnmount(() => {
         Chuẩn bị yêu cầu mới
       </button>
     </div>
-    <form class="request-lookup" @submit.prevent="check()">
-      <fieldset class="form-fields" :disabled="busy">
-        <label for="request-id">Tra cứu mã yêu cầu</label
-        ><input
-          id="request-id"
-          v-model="lookupId"
-          required
-          placeholder="UUID của yêu cầu đã gửi"
-          :readonly="result?.provisioningStatus === 'PENDING'"
-        />
-        <button class="button button-secondary full-width" type="submit">
-          {{ busy ? 'Đang kiểm tra…' : 'Kiểm tra kết quả' }}
-        </button>
-      </fieldset>
-    </form>
     <p class="field-help">
-      Chức năng đặt mật khẩu và kích hoạt tài khoản chưa được hệ thống hỗ trợ.
+      Dùng mã yêu cầu cấp tài khoản đã trả về khi gửi yêu cầu, không phải mã nhân viên hoặc mã lời
+      mời kích hoạt.
     </p>
+    <ActivationInvitationPanel :key="employee.id" :employee="employee" />
   </section>
 </template>

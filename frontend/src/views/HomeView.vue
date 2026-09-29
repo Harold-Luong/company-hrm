@@ -63,6 +63,14 @@ const today = new Intl.DateTimeFormat('vi-VN', {
         <span class="muted small">Dành cho vai trò của bạn</span>
       </div>
       <div class="quick-grid">
+        <RouterLink to="/calendar" class="panel quick-card">
+          <span class="metric-icon green"><AppIcon name="calendar" /></span>
+          <div>
+            <h3>Lịch nghỉ & sự kiện</h3>
+            <p>Xem lịch ngày lễ, nghỉ bù và các sự kiện trong năm.</p>
+          </div>
+          <AppIcon name="arrow" :size="19" />
+        </RouterLink>
         <RouterLink to="/employees" class="panel quick-card"
           ><span class="metric-icon green"><AppIcon name="user" /></span>
           <div>

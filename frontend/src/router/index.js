@@ -21,6 +21,12 @@ export const routes = [
     meta: { title: 'Không gian làm việc', requiresAuth: true },
     children: [
       {
+        path: 'calendar',
+        name: 'calendar',
+        component: () => import('@/views/EventCalendarView.vue'),
+        meta: { title: 'Lịch nghỉ & sự kiện' },
+      },
+      {
         path: '',
         name: 'home',
         component: () => import('@/views/HomeView.vue'),

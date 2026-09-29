@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 const id = '550e8400-e29b-41d4-a716-446655440000'
 const requestId = '650e8400-e29b-41d4-a716-446655440000'
 const departmentId = '750e8400-e29b-41d4-a716-446655440000'
+const invitationId = '850e8400-e29b-41d4-a716-446655440000'
 const employee = {
   id,
   employeeCode: 'NV001',
@@ -102,6 +103,39 @@ async function setup(page, roles = ['HR']) {
   })
   return state
 }
+async function mockInvitations(page) {
+  const state = { requests: [], postStatus: 202, getStatus: 200, deliveryStatus: 'PENDING' }
+  await page.route(`**/api/v1/auth/activation-invitations/${id}`, async (route) => {
+    const req = route.request()
+    state.requests.push({
+      method: req.method(),
+      body: req.postData(),
+      path: new URL(req.url()).pathname,
+    })
+    const status = req.method() === 'POST' ? state.postStatus : state.getStatus
+    await route.fulfill({
+      status,
+      headers: status === 429 ? { 'Retry-After': '7' } : {},
+      contentType: 'application/json',
+      body: JSON.stringify(
+        status >= 400
+          ? {
+              code: String(status),
+              message: status === 503 ? 'Account activation is disabled' : 'Request failed',
+            }
+          : {
+              invitationId,
+              deliveryStatus: req.method() === 'POST' ? 'PENDING' : state.deliveryStatus,
+              expiresAt: '2026-10-01T00:00:00Z',
+              sentAt: state.deliveryStatus === 'SENT' ? '2026-09-30T00:00:00Z' : null,
+              attempts: 1,
+              errorCode: state.deliveryStatus === 'FAILED' ? 'RESEND_HTTP_403' : null,
+            },
+      ),
+    })
+  })
+  return state
+}
 test('employee create, edit and status update follow backend payloads', async ({ page }) => {
   const state = await setup(page)
   await page.goto('/employees/new')
@@ -192,8 +226,168 @@ test('employee role sees personnel forms but cannot send provisioning requests',
   await page.goto(`/employees/${id}`)
   await expect(page.getByRole('heading', { name: 'Nguyễn Văn An' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toHaveCount(0)
   await page.goto('/services')
   await expect(page.getByText('Hoạt động bình thường')).toHaveCount(2)
+})
+test('manual request lookup shows loading and the returned result without submitting an account', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  state.status = 'SUCCEEDED'
+  let release
+  const responseReady = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/v1/employees/${id}/account-requests/${requestId}`, async (route) => {
+    await responseReady
+    await route.fallback()
+  })
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.provisioning-panel')
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill(requestId)
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByText('Đang tra cứu yêu cầu…')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Đang kiểm tra…' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toBeDisabled()
+  release()
+  await expect(panel.locator('.request-result')).toContainText('Đã nhận kết quả lúc')
+  await expect(panel.locator('.request-result')).toContainText('Đã cấp tài khoản')
+  await expect(panel.locator('.request-result')).toContainText('Chờ kích hoạt')
+  await expect(panel.locator('.request-result')).toContainText(requestId)
+  expect(state.requests).toHaveLength(0)
+})
+test('lookup errors replace stale results and allow correcting the request ID', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  state.status = 'SUCCEEDED'
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.provisioning-panel')
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill(requestId)
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByText('Đã cấp tài khoản', { exact: true })).toBeVisible()
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill('invalid-id')
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByRole('alert')).toHaveText('Mã yêu cầu phải là UUID hợp lệ.')
+  await expect(panel.locator('.request-result')).toHaveCount(0)
+  const missingId = '650e8400-e29b-41d4-a716-446655440001'
+  await page.route(`**/account-requests/${missingId}`, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Account request not found' }),
+    }),
+  )
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill(missingId)
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByRole('alert')).toContainText(
+    'Không tìm thấy yêu cầu cấp tài khoản của nhân viên này.',
+  )
+  await expect(panel.locator('.request-result')).toHaveCount(0)
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill(requestId)
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByText('Đã cấp tài khoản', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('alert')).toHaveCount(0)
+  expect(state.requests).toHaveLength(0)
+})
+test('manually looked up pending requests automatically show their final result', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.provisioning-panel')
+  await panel.getByLabel('Tra cứu mã yêu cầu').fill(requestId)
+  await panel.getByRole('button', { name: 'Kiểm tra kết quả' }).click()
+  await expect(panel.getByText('Đang xử lý', { exact: true })).toBeVisible()
+  await expect(panel.locator('.request-result')).toContainText('Kết quả tự cập nhật mỗi 3 giây')
+  state.status = 'FAILED'
+  state.provisioningError = 'EMAIL_ALREADY_USED'
+  await expect(panel.getByText('Email này đã được dùng cho tài khoản khác.')).toBeVisible()
+  await expect(panel.getByText('Cấp tài khoản thất bại', { exact: true })).toBeVisible()
+  expect(state.requests).toHaveLength(0)
+})
+test('activation resend queues mail to the Auth account and checks delivery separately', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  state.employee.accountStatus = 'PENDING_ACTIVATION'
+  const mail = await mockInvitations(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.activation-invitation')
+  await panel.getByRole('button', { name: 'Gửi lại email kích hoạt' }).click()
+  await expect(panel).toContainText('Đã xếp hàng email kích hoạt mới và thu hồi liên kết cũ.')
+  await expect(panel.getByText('Email đang chờ gửi', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: /Gửi lại sau/ })).toBeDisabled()
+  expect(mail.requests).toEqual([
+    { method: 'POST', body: null, path: `/api/v1/auth/activation-invitations/${id}` },
+  ])
+  mail.deliveryStatus = 'SENT'
+  await panel.getByRole('button', { name: 'Kiểm tra email kích hoạt' }).click()
+  await expect(panel.getByText('Dịch vụ email đã chấp nhận gửi', { exact: true })).toBeVisible()
+  await expect(panel).toContainText(
+    'chưa xác nhận email đã vào hộp thư hoặc tài khoản đã kích hoạt',
+  )
+  await expect(panel).toContainText(invitationId)
+  expect(state.employee.accountStatus).toBe('PENDING_ACTIVATION')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+test('activation resend respects Retry-After and permits retry when the cooldown ends', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  state.employee.accountStatus = 'PENDING_ACTIVATION'
+  const mail = await mockInvitations(page)
+  mail.postStatus = 429
+  await page.clock.install()
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.activation-invitation')
+  await panel.getByRole('button', { name: 'Gửi lại email kích hoạt' }).click()
+  await expect(panel.getByRole('button', { name: 'Gửi lại sau 7 giây' })).toBeDisabled()
+  expect(mail.requests).toHaveLength(1)
+  await page.clock.fastForward(7000)
+  await expect(panel.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toBeEnabled()
+  mail.postStatus = 202
+  await panel.getByRole('button', { name: 'Gửi lại email kích hoạt' }).click()
+  await expect(panel.getByText('Email đang chờ gửi', { exact: true })).toBeVisible()
+  expect(mail.requests).toHaveLength(2)
+})
+test('activation invitation lookup explains missing, disabled and failed delivery states', async ({
+  page,
+}) => {
+  await setup(page)
+  const mail = await mockInvitations(page)
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.activation-invitation')
+  await expect(panel.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toBeDisabled()
+  mail.getStatus = 404
+  await panel.getByRole('button', { name: 'Kiểm tra email kích hoạt' }).click()
+  await expect(panel.getByRole('alert')).toContainText('Chưa có lời mời kích hoạt')
+  mail.getStatus = 503
+  await panel.getByRole('button', { name: 'Kiểm tra email kích hoạt' }).click()
+  await expect(panel.getByRole('alert')).toContainText('Tính năng email kích hoạt chưa được bật')
+  mail.getStatus = 200
+  mail.deliveryStatus = 'FAILED'
+  await panel.getByRole('button', { name: 'Kiểm tra email kích hoạt' }).click()
+  await expect(panel.getByText('Gửi email thất bại', { exact: true })).toBeVisible()
+  await expect(panel).toContainText('RESEND_HTTP_403')
+  await expect(panel.getByRole('alert')).toHaveCount(0)
+})
+test('activation resend handles an account that was activated before the request', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  state.employee.accountStatus = 'PENDING_ACTIVATION'
+  const mail = await mockInvitations(page)
+  mail.postStatus = 409
+  await page.goto(`/employees/${id}`)
+  const panel = page.locator('.activation-invitation')
+  await panel.getByRole('button', { name: 'Gửi lại email kích hoạt' }).click()
+  await expect(panel.getByRole('alert')).toContainText(
+    'Tài khoản không còn ở trạng thái chờ kích hoạt',
+  )
+  await expect(panel.getByText('Email đang chờ gửi', { exact: true })).toHaveCount(0)
 })
 test('personnel pages fit a mobile viewport and render without runtime errors', async ({
   page,

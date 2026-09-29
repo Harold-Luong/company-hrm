@@ -54,6 +54,9 @@ async function signOut() {
                 <RouterLink to="/account" class="nav-item" active-class="is-active">
                     <AppIcon name="user" />Tài khoản của tôi
                 </RouterLink>
+                <RouterLink to="/calendar" class="nav-item" active-class="is-active">
+                    <AppIcon name="calendar" />Lịch nghỉ & sự kiện
+                </RouterLink>
                 <p class="nav-section management-label">QUẢN LÝ NHÂN SỰ</p>
                 <RouterLink to="/employees" class="nav-item" :class="{
                     'is-active': route.path === '/employees' || route.path.startsWith('/employees/'),
