@@ -1,0 +1,636 @@
+openapi: 3.0.3
+info:
+    title: Calendar Service API
+    version: v1
+    description: API đọc lịch ngày nghỉ và sự kiện công ty từ PostgreSQL.
+servers:
+    - url: /
+      description: Server đang phục vụ Swagger UI
+security:
+    - bearerAuth: []
+tags:
+    - name: Calendar
+      description: Lịch nội bộ dành cho nhân viên đã đăng nhập
+    - name: Calendar Management
+      description: Quản lý sự kiện; chỉ HR hoặc ADMIN.
+    - name: Health
+      description: Trạng thái service
+
+paths:
+    /api/v1/calendar:
+        get:
+            tags: [Calendar]
+            operationId: getCalendar
+            summary: Xem lịch theo năm
+            description: >-
+                Yêu cầu access JWT hợp lệ của Auth; mọi tài khoản đã đăng nhập, bao gồm EMPLOYEE,
+                MANAGER, HR và ADMIN, đều được xem. Chỉ trả sự kiện PUBLISHED hoặc CANCELLED
+                có audienceType ALL và giao với năm được chọn tại Asia/Ho_Chi_Minh.
+                Khoảng ngày/giờ gốc của sự kiện được giữ nguyên trong response.
+                Sự kiện CANCELLED vẫn hiển thị nhưng không còn hiệu lực.
+            parameters:
+                - name: year
+                  in: query
+                  required: false
+                  description: Mặc định là năm hiện tại tại Asia/Ho_Chi_Minh.
+                  schema:
+                      type: integer
+                      minimum: 1900
+                      maximum: 2100
+                  example: 2026
+            responses:
+                "200":
+                    description: Lịch trong năm; events rỗng nếu không có sự kiện hiển thị cho nhân viên.
+                    headers:
+                        Cache-Control:
+                            schema: { type: string, enum: [no-store] }
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/CalendarResponse",
+                                }
+                "400":
+                    description: year không phải số nguyên hoặc ngoài khoảng 1900–2100.
+                    content:
+                        application/problem+json:
+                            schema:
+                                { $ref: "#/components/schemas/ProblemDetail" }
+                "401":
+                    description: Thiếu access token hoặc token không hợp lệ, hết hạn.
+                    content:
+                        application/problem+json:
+                            schema:
+                                { $ref: "#/components/schemas/ProblemDetail" }
+                "503":
+                    description: Tạm thời không thể đọc dữ liệu lịch.
+                    content:
+                        application/problem+json:
+                            schema:
+                                { $ref: "#/components/schemas/ProblemDetail" }
+
+    /api/v1/calendar-events:
+        get:
+            tags: [Calendar Management]
+            operationId: listManagedEvents
+            summary: Danh sách quản lý; ưu tiên bản nháp rồi ngày bắt đầu gần hôm nay nhất.
+            description: >-
+                Chỉ HR hoặc ADMIN. DRAFT lên trước, rồi khoảng cách tuyệt đối giữa ngày bắt đầu
+                và hôm nay tại Asia/Ho_Chi_Minh tăng dần (quá khứ và tương lai).
+                Khi bằng khoảng cách, sắp thời điểm bắt đầu rồi ID tăng dần, trước khi phân trang.
+            parameters:
+                - name: from
+                  in: query
+                  required: true
+                  schema: { type: string, format: date }
+                  description: Ngày đầu của khoảng tìm kiếm, bao gồm.
+                - name: to
+                  in: query
+                  required: true
+                  schema: { type: string, format: date }
+                  description: Ngày cuối, bao gồm; from <= to, tối đa 366 ngày.
+                - name: type
+                  in: query
+                  schema: { $ref: "#/components/schemas/CalendarEventType" }
+                - name: status
+                  in: query
+                  schema: { type: string, enum: [DRAFT, PUBLISHED, CANCELLED] }
+                - name: page
+                  in: query
+                  schema: { type: integer, minimum: 0, default: 0 }
+                - name: size
+                  in: query
+                  schema:
+                      { type: integer, minimum: 1, maximum: 100, default: 20 }
+            responses:
+                "200":
+                    description: Thao tác thành công.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/CalendarEventPage",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+        post:
+            tags: [Calendar Management]
+            operationId: createCalendarEvent
+            summary: Tạo sự kiện ở trạng thái DRAFT.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            {
+                                $ref: "#/components/schemas/CalendarEventRequest",
+                            }
+            responses:
+                "201":
+                    description: Thao tác thành công.
+                    headers:
+                        ETag:
+                            schema: { type: string }
+                            description: Strong ETag chứa version, dùng cho If-Match.
+                        Location:
+                            schema: { type: string }
+                            description: Đường dẫn chi tiết sự kiện vừa tạo.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+
+    /api/v1/calendar-events/{id}:
+        get:
+            tags: [Calendar Management]
+            operationId: getManagedEvent
+            summary: Xem chi tiết quản lý và version hiện tại.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            parameters:
+                - $ref: "#/components/parameters/EventId"
+            responses:
+                "200":
+                    description: Thao tác thành công.
+                    headers:
+                        ETag:
+                            schema: { type: string }
+                            description: Strong ETag chứa version, dùng cho If-Match.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+        put:
+            tags: [Calendar Management]
+            operationId: replaceCalendarEvent
+            summary: Thay toàn bộ nội dung; sự kiện đã công bố cần lý do và chưa bắt đầu.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            parameters:
+                - $ref: "#/components/parameters/EventId"
+                - $ref: "#/components/parameters/IfMatch"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            {
+                                $ref: "#/components/schemas/CalendarEventRequest",
+                            }
+            responses:
+                "200":
+                    description: Thao tác thành công.
+                    headers:
+                        ETag:
+                            schema: { type: string }
+                            description: Strong ETag chứa version, dùng cho If-Match.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "412":
+                    $ref: "#/components/responses/PreconditionFailed"
+                "428":
+                    $ref: "#/components/responses/PreconditionRequired"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+        delete:
+            tags: [Calendar Management]
+            operationId: deleteCalendarEvent
+            summary: Xóa bản nháp; giữ lại audit.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            parameters:
+                - $ref: "#/components/parameters/EventId"
+                - $ref: "#/components/parameters/IfMatch"
+            responses:
+                "204":
+                    description: Thao tác thành công.
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "412":
+                    $ref: "#/components/responses/PreconditionFailed"
+                "428":
+                    $ref: "#/components/responses/PreconditionRequired"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+
+    /api/v1/calendar-events/{id}/publish:
+        patch:
+            tags: [Calendar Management]
+            operationId: publishCalendarEvent
+            summary: Công bố bản nháp; không công bố sự kiện trong quá khứ.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            parameters:
+                - $ref: "#/components/parameters/EventId"
+                - $ref: "#/components/parameters/IfMatch"
+            responses:
+                "200":
+                    description: Thao tác thành công.
+                    headers:
+                        ETag:
+                            schema: { type: string }
+                            description: Strong ETag chứa version, dùng cho If-Match.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "412":
+                    $ref: "#/components/responses/PreconditionFailed"
+                "428":
+                    $ref: "#/components/responses/PreconditionRequired"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+
+    /api/v1/calendar-events/{id}/cancel:
+        patch:
+            tags: [Calendar Management]
+            operationId: cancelCalendarEvent
+            summary: Hủy sự kiện đã công bố nhưng chưa bắt đầu; bắt buộc lý do.
+            description: Chỉ tài khoản có role HR hoặc ADMIN; actor lấy từ JWT.
+            parameters:
+                - $ref: "#/components/parameters/EventId"
+                - $ref: "#/components/parameters/IfMatch"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            {
+                                $ref: "#/components/schemas/CancelCalendarEventRequest",
+                            }
+            responses:
+                "200":
+                    description: Thao tác thành công.
+                    headers:
+                        ETag:
+                            schema: { type: string }
+                            description: Strong ETag chứa version, dùng cho If-Match.
+                    content:
+                        application/json:
+                            schema:
+                                {
+                                    $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                                }
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "401":
+                    $ref: "#/components/responses/Unauthorized"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "412":
+                    $ref: "#/components/responses/PreconditionFailed"
+                "428":
+                    $ref: "#/components/responses/PreconditionRequired"
+                "503":
+                    $ref: "#/components/responses/Unavailable"
+
+    /actuator/health:
+        get:
+            security: []
+            tags: [Health]
+            operationId: getHealth
+            summary: Kiểm tra trạng thái service
+            description: Công khai; không trả chi tiết kết nối hoặc cấu hình nội bộ.
+            responses:
+                "200":
+                    description: Service hoạt động.
+                    content:
+                        application/json:
+                            schema:
+                                { $ref: "#/components/schemas/HealthResponse" }
+                "503":
+                    description: Service hoặc thành phần phụ thuộc chưa sẵn sàng.
+                    content:
+                        application/json:
+                            schema:
+                                { $ref: "#/components/schemas/HealthResponse" }
+
+components:
+    parameters:
+        EventId:
+            name: id
+            in: path
+            required: true
+            schema: { type: integer, format: int64, minimum: 1 }
+        IfMatch:
+            name: If-Match
+            in: header
+            required: true
+            description: Một strong ETag chứa version số nguyên không âm. Không nhận wildcard, weak ETag hoặc danh sách.
+            schema: { type: string, example: '"0"' }
+    responses:
+        BadRequest:
+            description: Dữ liệu, trường request hoặc header không hợp lệ.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        Unauthorized:
+            description: Thiếu access JWT hợp lệ.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        Forbidden:
+            description: Cần role HR hoặc ADMIN.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        NotFound:
+            description: Không tìm thấy sự kiện.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        Conflict:
+            description: Vi phạm vòng đời sự kiện hoặc ràng buộc dữ liệu.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        PreconditionFailed:
+            description: Version đã thay đổi; đọc lại trước khi thao tác.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        PreconditionRequired:
+            description: Thiếu header If-Match.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+        Unavailable:
+            description: Dịch vụ dữ liệu tạm thời không sẵn sàng.
+            content:
+                application/problem+json:
+                    schema: { $ref: "#/components/schemas/ProblemDetail" }
+    securitySchemes:
+        bearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+    schemas:
+        CalendarEventType:
+            type: string
+            enum:
+                [
+                    HOLIDAY,
+                    COMPANY_MEAL,
+                    TEAM_BUILDING,
+                    TRAINING,
+                    MEETING,
+                    COMPANY_EVENT,
+                    OTHER,
+                ]
+        CalendarEventRequest:
+            type: object
+            additionalProperties: false
+            required: [title, type, allDay, timezone, audienceType]
+            description: >-
+                Chuỗi được trim. allDay=true yêu cầu startDate/endDate bao gồm ngày cuối và không có startAt/endAt.
+                allDay=false yêu cầu startAt < endAt và không có startDate/endDate; endAt không bao gồm.
+                HOLIDAY phải là cả ngày và có holidayKind; loại khác không được có holidayKind.
+                PUT xóa giá trị tùy chọn nếu bỏ qua hoặc null. Không nhận id/status/version/actor/timestamp.
+                Khi sửa PUBLISHED cần reason, giữ type/holidayKind/allDay/audienceType và cả thời điểm bắt đầu cũ/mới phải ở tương lai.
+            properties:
+                title: { type: string, minLength: 1, maxLength: 255 }
+                description: { type: string, maxLength: 10000, nullable: true }
+                type: { $ref: "#/components/schemas/CalendarEventType" }
+                holidayKind:
+                    type: string
+                    nullable: true
+                    enum:
+                        [
+                            PUBLIC_HOLIDAY,
+                            COMPANY_DAY_OFF,
+                            SUBSTITUTE_DAY_OFF,
+                            null,
+                        ]
+                allDay: { type: boolean }
+                startDate: { type: string, format: date, nullable: true }
+                endDate: { type: string, format: date, nullable: true }
+                startAt: { type: string, format: date-time, nullable: true }
+                endAt: { type: string, format: date-time, nullable: true }
+                timezone: { type: string, enum: [Asia/Ho_Chi_Minh] }
+                location: { type: string, maxLength: 255, nullable: true }
+                audienceType: { type: string, enum: [ALL] }
+                reason: { type: string, maxLength: 1000, nullable: true }
+        CancelCalendarEventRequest:
+            type: object
+            additionalProperties: false
+            required: [reason]
+            properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+        ManagedCalendarEventResponse:
+            type: object
+            required:
+                [
+                    id,
+                    title,
+                    type,
+                    allDay,
+                    timezone,
+                    audienceType,
+                    status,
+                    version,
+                    createdBy,
+                    updatedBy,
+                    createdAt,
+                    updatedAt,
+                ]
+            properties:
+                id: { type: integer, format: int64 }
+                title: { type: string }
+                description: { type: string, nullable: true }
+                type: { $ref: "#/components/schemas/CalendarEventType" }
+                holidayKind:
+                    {
+                        type: string,
+                        nullable: true,
+                        enum:
+                            [
+                                PUBLIC_HOLIDAY,
+                                COMPANY_DAY_OFF,
+                                SUBSTITUTE_DAY_OFF,
+                                null,
+                            ],
+                    }
+                allDay: { type: boolean }
+                startDate: { type: string, format: date, nullable: true }
+                endDate: { type: string, format: date, nullable: true }
+                startAt: { type: string, format: date-time, nullable: true }
+                endAt: { type: string, format: date-time, nullable: true }
+                timezone: { type: string, enum: [Asia/Ho_Chi_Minh] }
+                location: { type: string, nullable: true }
+                audienceType: { type: string, enum: [ALL] }
+                status: { type: string, enum: [DRAFT, PUBLISHED, CANCELLED] }
+                version: { type: integer, format: int64, minimum: 0 }
+                createdBy: { type: string }
+                updatedBy: { type: string }
+                createdAt: { type: string, format: date-time }
+                updatedAt: { type: string, format: date-time }
+        CalendarEventPage:
+            type: object
+            required: [content, page, size, totalElements, totalPages]
+            properties:
+                content:
+                    type: array
+                    items:
+                        {
+                            $ref: "#/components/schemas/ManagedCalendarEventResponse",
+                        }
+                page: { type: integer }
+                size: { type: integer }
+                totalElements: { type: integer, format: int64 }
+                totalPages: { type: integer }
+        CalendarResponse:
+            type: object
+            required: [year, availableYears, events]
+            properties:
+                year:
+                    type: integer
+                    minimum: 1900
+                    maximum: 2100
+                availableYears:
+                    type: array
+                    uniqueItems: true
+                    description: Các năm có sự kiện hiển thị cho nhân viên, năm được chọn và năm hiện tại; tăng dần.
+                    items: { type: integer }
+                events:
+                    type: array
+                    description: Sắp theo thời điểm bắt đầu tại múi giờ nghiệp vụ, sau đó theo ID.
+                    items:
+                        { $ref: "#/components/schemas/CalendarEventResponse" }
+
+        CalendarEventResponse:
+            type: object
+            required: [id, title, type, allDay, timezone, status, audienceType]
+            properties:
+                id: { type: integer, format: int64 }
+                title: { type: string, maxLength: 255 }
+                description: { type: string, nullable: true }
+                type:
+                    type: string
+                    enum:
+                        [
+                            HOLIDAY,
+                            COMPANY_MEAL,
+                            TEAM_BUILDING,
+                            TRAINING,
+                            MEETING,
+                            COMPANY_EVENT,
+                            OTHER,
+                        ]
+                holidayKind:
+                    type: string
+                    nullable: true
+                    enum:
+                        [
+                            PUBLIC_HOLIDAY,
+                            COMPANY_DAY_OFF,
+                            SUBSTITUTE_DAY_OFF,
+                            null,
+                        ]
+                    description: Bắt buộc với HOLIDAY; null với các loại sự kiện khác.
+                allDay:
+                    type: boolean
+                    description: HOLIDAY luôn là sự kiện cả ngày.
+                startDate:
+                    type: string
+                    format: date
+                    nullable: true
+                    description: Ngày đầu, bao gồm; bắt buộc khi allDay=true, ngược lại null.
+                endDate:
+                    type: string
+                    format: date
+                    nullable: true
+                    description: Ngày cuối, bao gồm; bắt buộc khi allDay=true, ngược lại null.
+                startAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Thời điểm bắt đầu UTC, bao gồm; bắt buộc khi allDay=false, ngược lại null.
+                endAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Thời điểm kết thúc UTC, không bao gồm; bắt buộc khi allDay=false, ngược lại null.
+                timezone: { type: string, enum: [Asia/Ho_Chi_Minh] }
+                location: { type: string, maxLength: 255, nullable: true }
+                status: { type: string, enum: [PUBLISHED, CANCELLED] }
+                audienceType: { type: string, enum: [ALL] }
+
+        ProblemDetail:
+            type: object
+            properties:
+                type: { type: string, format: uri }
+                title: { type: string }
+                status: { type: integer }
+                detail: { type: string }
+                instance: { type: string, format: uri-reference }
+
+        HealthResponse:
+            type: object
+            required: [status]
+            properties:
+                status: { type: string, example: UP }
