@@ -39,6 +39,7 @@ async function setup(page, roles = ['HR']) {
     let status = 200
     if (path.endsWith('/refresh')) body = { accessToken: 'access', refreshToken: 'refresh' }
     else if (path.endsWith('/me')) body = { id: 1, email: 'hr@company.com', active: true, roles }
+    else if (path === '/api/v1/calendar/health-check') body = { status: 'UP' }
     else if (path.endsWith('/health-check')) body = { status: 'UP', database: 'UP' }
     else if (path.includes('/account-requests')) {
       if (req.method() === 'POST') {
@@ -228,7 +229,25 @@ test('employee role sees personnel forms but cannot send provisioning requests',
   await expect(page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toHaveCount(0)
   await page.goto('/services')
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
+})
+test('calendar health failure is isolated and can be retried', async ({ page }) => {
+  await setup(page)
+  let available = false
+  await page.route('**/api/v1/calendar/health-check', (route) =>
+    route.fulfill({ status: available ? 200 : 503, json: { status: available ? 'UP' : 'DOWN' } }),
+  )
+  await page.goto('/services')
+  const calendar = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Lịch nghỉ & sự kiện', exact: true }) })
+  await expect(calendar.getByRole('alert')).toBeVisible()
   await expect(page.getByText('Hoạt động bình thường')).toHaveCount(2)
+  available = true
+  await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
+  await expect(calendar.getByRole('status')).toHaveText('Hoạt động bình thường')
+  await expect(calendar.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
 })
 test('manual request lookup shows loading and the returned result without submitting an account', async ({
   page,

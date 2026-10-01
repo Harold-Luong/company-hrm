@@ -23,13 +23,13 @@ Frontend không tự seed tài khoản hoặc thay đổi database.
 
 Vite chuyển `/api/v1/auth/*` tới `http://localhost:8080`; `/api/v1/employees`,
 `/api/v1/departments`, `/api/v1/positions` (và các đường dẫn con) tới
-`http://localhost:8082`. Các prefix API được giữ nguyên. Đổi backend nếu cần:
+`http://localhost:8082`; `/api/v1/calendar` tới `http://localhost:8083`. Các prefix API được giữ nguyên. Đổi backend nếu cần:
 
 ```sh
 cp .env.example .env.local
 ```
 
-Sửa `API_PROXY_TARGET` (Auth) và `EMPLOYEE_API_PROXY_TARGET` (Employee) rồi khởi động lại dev server. `.env.local` không được commit.
+Sửa `API_PROXY_TARGET` (Auth), `EMPLOYEE_API_PROXY_TARGET` (Employee) và `CALENDAR_API_PROXY_TARGET` (Calendar) rồi khởi động lại dev server. `.env.local` không được commit.
 Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã phía browser.
 
 ## Trang và quyền truy cập
@@ -178,3 +178,40 @@ xem thử build local.
 
 Tham khảo [Vue Router navigation guards](https://router.vuejs.org/guide/advanced/navigation-guards.html)
 và [Vue state management](https://vuejs.org/guide/scaling-up/state-management.html).
+
+## Lịch nghỉ và sự kiện
+
+Trang `/calendar` lấy toàn bộ dữ liệu từ `GET /api/v1/calendar?year=...` với Bearer access token qua phiên đăng nhập. Mọi tài khoản đã xác thực đều được xem, bao gồm EMPLOYEE; token hết hạn được refresh theo cơ chế chung.
+`src/calendar/api.js` gọi API, `constants.js` chứa nhãn tiếng Việt cho enum API,
+`utils.js` tính ô lịch và định dạng ngày theo `Asia/Ho_Chi_Minh`.
+Giao diện dùng trực tiếp `availableYears`, `title`, `type`, `holidayKind`,
+`description`, `location` và `status` từ response, không dùng dữ liệu mẫu dự phòng.
+Sự kiện cả ngày bao gồm ngày kết thúc; sự kiện theo giờ không bao gồm thời điểm kết thúc.
+Sự kiện `CANCELLED` vẫn hiển thị kèm nhãn đã hủy.
+
+Mặc định frontend gọi API cùng origin (qua Vite proxy khi chạy local).
+Khi triển khai, cấu hình reverse proxy `/api/v1/calendar` đến Calendar Service;
+có thể đặt `VITE_API_BASE_URL` nếu cần gọi calendar API ở origin khác.
+
+Trang `/services` kiểm tra cả Auth, Employee và Calendar. Calendar dùng
+`GET /actuator/health` và đọc trạng thái tổng hợp `status` (API không trả chi tiết database).
+Vite chuyển `/api/v1/calendar/health-check` tới `/actuator/health` của Calendar Service.
+Khi triển khai cùng origin, reverse proxy cũng cần ánh xạ đường dẫn này;
+khi đặt `VITE_API_BASE_URL`, frontend gọi trực tiếp `/actuator/health` trên origin đó.
+
+### Quản lý lịch (HR/ADMIN)
+
+Mở **Quản lý lịch** từ menu hoặc trang lịch nhân viên:
+
+- `/calendar-events`: danh sách, lọc khoảng ngày (tối đa 366 ngày), loại, trạng thái và phân trang. Bản nháp lên trước, sau đó ngày bắt đầu gần hôm nay nhất theo giờ Việt Nam; backend sắp xếp trước phân trang.
+- `/calendar-events/new`: tạo bản nháp.
+- `/calendar-events/:id`: xem/sửa, công bố, hủy có lý do hoặc xóa bản nháp.
+
+Mọi request quản lý dùng Bearer token. Khi sửa, công bố, hủy, xóa, UI gửi `If-Match`
+khớp `version` đã đọc. Khi nhận `412`, giữ nội dung đang nhập và yêu cầu tải lại có xác nhận;
+không tự lấy version mới rồi ghi đè. Không tự retry thao tác ghi khi lỗi mạng/5xx.
+Sự kiện đã công bố không thay đổi loại, loại ngày nghỉ hoặc chế độ cả ngày;
+sự kiện đã bắt đầu và đã hủy chỉ xem. Giờ nhập luôn theo Việt Nam (UTC+7), kể cả
+khi trình duyệt dùng múi giờ khác. Nhân viên thường vẫn xem lịch tại `/calendar`.
+
+Reverse proxy cần chuyển cả `/api/v1/calendar-events` và các đường dẫn con đến Calendar Service.

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { calendarManagementRoles } from '@/calendar/constants.js'
 import { auth } from '@/auth/session.js'
 import { ApiError } from '@/auth/api.js'
 import { accountCreationRoles, safeDestination } from '@/auth/navigation.js'
@@ -20,6 +21,25 @@ export const routes = [
     component: () => import('@/layouts/WorkspaceLayout.vue'),
     meta: { title: 'Không gian làm việc', requiresAuth: true },
     children: [
+      {
+        path: 'calendar-events',
+        name: 'calendar-management',
+        component: () => import('@/views/CalendarManagementView.vue'),
+        meta: { title: 'Quản lý lịch', roles: calendarManagementRoles },
+      },
+      {
+        path: 'calendar-events/new',
+        name: 'calendar-event-new',
+        component: () => import('@/views/CalendarEventFormView.vue'),
+        meta: { title: 'Tạo sự kiện', roles: calendarManagementRoles },
+      },
+      {
+        path: 'calendar-events/:id(\\d+)',
+        name: 'calendar-event-detail',
+        component: () => import('@/views/CalendarEventFormView.vue'),
+        props: true,
+        meta: { title: 'Chi tiết sự kiện', roles: calendarManagementRoles },
+      },
       {
         path: 'calendar',
         name: 'calendar',

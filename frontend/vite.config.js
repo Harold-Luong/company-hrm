@@ -24,6 +24,15 @@ export default defineConfig(({ mode }) => {
           target: env.EMPLOYEE_API_PROXY_TARGET || 'http://localhost:8082',
           changeOrigin: true,
         },
+        '/api/v1/calendar/health-check': {
+          target: env.CALENDAR_API_PROXY_TARGET || 'http://localhost:8083',
+          changeOrigin: true,
+          rewrite: () => '/actuator/health',
+        },
+        '/api/v1/calendar': {
+          target: env.CALENDAR_API_PROXY_TARGET || 'http://localhost:8083',
+          changeOrigin: true,
+        },
         '/api': {
           target: env.API_PROXY_TARGET || 'http://localhost:8080',
           changeOrigin: true,

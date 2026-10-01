@@ -1,11 +1,25 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiRequest, serviceError } from '@/auth/api.js'
+import { getCalendarHealth } from '@/calendar/api.js'
 const busy = ref(false)
 const checkedAt = ref('')
 const services = ref([
-  { name: 'Xác thực', path: '/api/v1/auth/health-check', status: '', error: '' },
-  { name: 'Nhân sự', path: '/api/v1/employees/health-check', status: '', error: '' },
+  {
+    name: 'Xác thực',
+    request: () => apiRequest('/api/v1/auth/health-check'),
+    requiresDatabaseStatus: true,
+    status: '',
+    error: '',
+  },
+  {
+    name: 'Nhân sự',
+    request: () => apiRequest('/api/v1/employees/health-check'),
+    requiresDatabaseStatus: true,
+    status: '',
+    error: '',
+  },
+  { name: 'Lịch nghỉ & sự kiện', request: getCalendarHealth, status: '', error: '' },
 ])
 async function check() {
   if (busy.value) return
@@ -15,9 +29,9 @@ async function check() {
       service.error = ''
       service.status = ''
       try {
-        const data = await apiRequest(service.path)
+        const data = await service.request()
         service.status =
-          data.status === 'UP' && data.database === 'UP'
+          data.status === 'UP' && (!service.requiresDatabaseStatus || data.database === 'UP')
             ? 'Hoạt động bình thường'
             : 'Dịch vụ chưa sẵn sàng'
       } catch (cause) {
@@ -43,7 +57,7 @@ onMounted(check)
       </button>
     </div>
     <div class="quick-grid" :aria-busy="busy">
-      <section v-for="service in services" :key="service.path" class="panel create-form">
+      <section v-for="service in services" :key="service.name" class="panel create-form">
         <h2>{{ service.name }}</h2>
         <p v-if="service.error" class="alert alert-error" role="alert">{{ service.error }}</p>
         <p v-else role="status">{{ service.status || 'Đang kiểm tra…' }}</p>
@@ -52,8 +66,8 @@ onMounted(check)
     <p v-if="checkedAt" class="muted small section-block">Kiểm tra lúc {{ checkedAt }}</p>
     <div class="info-strip">
       <p>
-        Kết quả này kiểm tra Auth và Employee. Tiến độ cấp tài khoản qua Kafka được theo dõi trong
-        hồ sơ nhân viên. Hệ thống chưa có API kiểm tra riêng kết nối Kafka.
+        Kết quả này kiểm tra Auth, Employee và Calendar. Tiến độ cấp tài khoản qua Kafka được theo
+        dõi trong hồ sơ nhân viên. Hệ thống chưa có API kiểm tra riêng kết nối Kafka.
       </p>
     </div>
   </div>

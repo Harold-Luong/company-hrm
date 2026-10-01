@@ -2,40 +2,34 @@
   --tone: #17796c;
   --tint: #edf8f4;
 }
-.kind-national_holiday {
+.kind-HOLIDAY {
   --tone: #b52e42;
   --tint: #fff0f2;
 }
-.kind-statutory_holiday {
+.kind-PUBLIC_HOLIDAY {
   --tone: #9b4928;
   --tint: #fff0e4;
 }
-.kind-japan_national_holiday {
-  --tone: #7545a5;
-  --tint: #f5efff;
-}
-.kind-calendar_event {
+.kind-OTHER,
+.kind-COMPANY_EVENT,
+.kind-MEETING {
   --tone: #3668aa;
   --tint: #eff5ff;
 }
-.kind-company_granted_holiday,
-.kind-salary_day {
+.kind-COMPANY_DAY_OFF {
   --tone: #137466;
   --tint: #e8f7f1;
 }
-.kind-substitute_holiday {
+.kind-SUBSTITUTE_DAY_OFF {
   --tone: #146a9a;
   --tint: #e8f5fc;
 }
-.kind-paid_leave_deduction {
-  --tone: #956000;
-  --tint: #fff5dc;
-}
-.kind-official_party {
+.kind-COMPANY_MEAL {
   --tone: #a03578;
   --tint: #ffeffa;
 }
-.kind-company_travel {
+.kind-TRAINING,
+.kind-TEAM_BUILDING {
   --tone: #176f7f;
   --tint: #e6f7fa;
 }
@@ -56,12 +50,6 @@
   border-radius: 14px;
   background: linear-gradient(110deg, #134e47, #227e6b);
   color: white;
-}
-.calendar-company {
-  font-size: 11px;
-  letter-spacing: 1.8px;
-  opacity: 0.8;
-  margin: 0;
 }
 .calendar-banner h2 {
   font-size: 34px;
@@ -213,9 +201,6 @@
   border-top: 3px solid var(--tone);
   padding-top: 6px;
 }
-.calendar-day.kind-paid_leave_deduction {
-  background: repeating-linear-gradient(135deg, #fff5dc, #fff5dc 8px, #ffedbf 8px, #ffedbf 10px);
-}
 .calendar-day.is-selected {
   box-shadow: inset 0 0 0 2px #17796c;
 }
@@ -289,60 +274,10 @@
   background: var(--tint);
   font-weight: 600;
 }
-.calendar-detail-list {
-  padding: 0;
-  margin: 20px 0 0;
-  list-style: none;
-  display: grid;
-  gap: 16px;
-}
-.calendar-detail-list li {
-  border-left: 3px solid var(--tone);
-  padding-left: 12px;
-}
-.calendar-detail-list p {
-  margin: 6px 0 0;
-  font-size: 12px;
-}
 .calendar-no-event {
   text-align: center;
   padding: 30px 0;
   color: var(--muted);
-}
-.calendar-admin {
-  margin-top: 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-}
-.calendar-admin > div {
-  display: flex;
-  gap: 8px;
-}
-.calendar-admin button:disabled {
-  cursor: not-allowed;
-}
-.calendar-delete {
-  color: #ad3649;
-  background: #fff0f2;
-  border: 1px solid #f3d6dd;
-}
-.calendar-notes {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background: #fff7e6;
-  border: 1px solid #efe1bf;
-  color: #806124;
-  border-radius: 10px;
-  padding: 16px 20px;
-  margin-top: 20px;
-  font-size: 12px;
-}
-.calendar-notes svg {
-  flex: 0 0 auto;
-}
-.calendar-notes p {
-  margin: 4px 0 0;
 }
 .calendar-event-list {
   display: grid;
@@ -411,9 +346,6 @@
   .calendar-layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .calendar-detail-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .calendar-event-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -425,10 +357,6 @@
   }
   .calendar-banner h2 {
     font-size: 25px;
-  }
-  .calendar-company {
-    font-size: 9px;
-    letter-spacing: 0.8px;
   }
   .calendar-banner p:last-child {
     font-size: 11px;
@@ -469,10 +397,11 @@
     padding: 16px;
   }
   .calendar-event-list,
-  .calendar-detail-list {
-    grid-template-columns: 1fr;
-  }
   .calendar-detail {
     padding: 20px;
   }
+}
+
+.calendar-description {
+  white-space: pre-line;
 }

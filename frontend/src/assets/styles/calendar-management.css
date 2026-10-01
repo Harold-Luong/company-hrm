@@ -1,0 +1,126 @@
+.calendar-management {
+  max-width: 1440px;
+}
+.calendar-filters {
+  padding: 20px;
+  margin-bottom: 22px;
+}
+.calendar-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 90px auto;
+  align-items: end;
+  gap: 14px;
+}
+.calendar-filter-grid select {
+  margin: 0;
+}
+.calendar-filter-grid .button {
+  min-height: 43px;
+}
+.event-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-DRAFT {
+  background: #f1f3f7;
+  color: #596579;
+}
+.status-PUBLISHED {
+  background: #e6f5ee;
+  color: #176c50;
+}
+.status-CANCELLED {
+  background: #fff0f0;
+  color: #ae3445;
+}
+.calendar-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 22px;
+  align-items: start;
+}
+.calendar-editor-layout h2 {
+  margin: 0 0 20px;
+  font-size: 18px;
+}
+.calendar-editor-layout .form-grid {
+  margin-top: 20px;
+}
+.calendar-editor-layout input,
+.calendar-editor-layout select {
+  min-width: 0;
+  max-width: 100%;
+}
+.calendar-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+}
+.calendar-checkbox input {
+  width: 17px;
+  height: 17px;
+}
+.calendar-editor-aside {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.calendar-lifecycle-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+.calendar-recovery {
+  margin: 16px 0;
+}
+.calendar-action-dialog {
+  width: min(520px, calc(100% - 32px));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  color: #24324a;
+  box-shadow: 0 16px 60px #172d4633;
+  overflow-wrap: anywhere;
+}
+.calendar-action-dialog::backdrop {
+  background: #122a3f88;
+}
+.calendar-action-dialog h2 {
+  margin-top: 0;
+}
+.calendar-action-dialog .form-footer {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.calendar-management .data-table td:first-child {
+  max-width: 350px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.calendar-management .form-footer {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+@media (max-width: 1100px) {
+  .calendar-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .calendar-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .calendar-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .calendar-filters {
+    padding: 16px;
+  }
+  .calendar-action-dialog {
+    padding: 20px;
+  }
+}
