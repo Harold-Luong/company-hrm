@@ -368,7 +368,7 @@ Khi triển khai Leave phải xác định:
 
 ## 8. Company Calendar
 
-Hiện route `/calendar` dùng `EventCalendarView.vue`, đọc dữ liệu mẫu từ `frontend/src/assets/everrise_vn_event_calendar_mock_db.json` qua `frontend/src/calendar/data.js`. Chưa có API lưu lịch, ngày lễ, số dư phép hoặc tích hợp Attendance. Các quy tắc dưới đây áp dụng khi triển khai lịch nghiệp vụ thật.
+Route `/calendar` dùng `EventCalendarView.vue`, đọc dữ liệu từ `GET /api/v1/calendar?year=...` của Calendar Service với Bearer access JWT. API yêu cầu đăng nhập và cho mọi tài khoản đã xác thực xem, bao gồm EMPLOYEE; health vẫn công khai. Frontend tách lời gọi API trong `frontend/src/calendar/api.js`, nhãn hiển thị trong `constants.js` và hàm xử lý ngày trong `utils.js`; không lưu dữ liệu lịch mẫu. API hỗ trợ đọc lịch và CRUD/công bố/hủy cho HR/ADMIN tại `/api/v1/calendar-events`; frontend có trang quản lý `/calendar-events` dành cho HR/ADMIN và trang xem `/calendar` cho nhân viên. Chưa có số dư phép hoặc tích hợp Attendance. Các quy tắc dưới đây áp dụng khi triển khai các phần nghiệp vụ tiếp theo.
 
 Web application cần có khả năng hiển thị:
 
