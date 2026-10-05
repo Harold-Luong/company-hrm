@@ -66,8 +66,15 @@ describe('calendar date handling', () => {
 describe('authenticated calendar API', () => {
   beforeEach(async () => {
     vi.resetModules()
-    sessionStorage.clear()
-    sessionStorage.setItem('company-hrm.refresh-token', 'refresh')
+    localStorage.clear()
+    localStorage.setItem(
+      'company-hrm.session',
+      JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
+    )
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: { request: (_name, callback) => Promise.resolve().then(callback) },
+    })
     ;({ getCalendar, getCalendarHealth } = await import('../../src/calendar/api.js'))
   })
 

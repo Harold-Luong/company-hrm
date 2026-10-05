@@ -22,7 +22,7 @@ local và cách khởi động nằm trong [hướng dẫn Auth](../back-end/mod
 Frontend không tự seed tài khoản hoặc thay đổi database.
 
 Vite chuyển toàn bộ `/api` tới **API Gateway `http://localhost:8080`**, giữ nguyên
-đường dẫn. Gateway chuyển tiếp tới Auth `8081`, Employee `8082` và Calendar `8083`,
+đường dẫn. Gateway chuyển tiếp tới Auth `8081`, Employee `8082`, Calendar `8083` và Leave `8084`,
 bao gồm health-check của từng service. Chạy gateway theo
 [hướng dẫn Gateway](../back-end/modules/gateway/README.md).
 
@@ -49,6 +49,9 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
 | Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | Mọi tài khoản đã xác thực |
 | Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | HR **hoặc** ADMIN         |
 | Kết nối dịch vụ         | `/services`                                            | Mọi tài khoản đã xác thực |
+| Nghỉ phép của tôi       | `/leave`                                               | Mọi tài khoản đã xác thực |
+| Duyệt nghỉ phép         | `/leave/inbox`                                         | HR hoặc ADMIN |
+| Chi tiết đơn nghỉ       | `/leave/requests/:id`                                  | Người gửi hoặc HR/ADMIN (backend kiểm tra) |
 | Từ chối truy cập        | `/forbidden`                                           | Tài khoản đã xác thực     |
 
 - Bảo vệ cả điều hướng từ menu và truy cập URL trực tiếp; chưa đăng nhập được đưa
@@ -61,6 +64,13 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
   contract của Auth, chỉ gọi `/auth/register`, không tạo/sửa/tìm kiếm Employee.
 - Chưa triển khai chấm công, danh sách tài khoản, sửa vai trò,
   khóa tài khoản hay quên mật khẩu. UI không giả lập các API chưa có.
+
+## Nghỉ phép
+
+Luồng Leave dùng `/api/v1/leave/requests`: nhân viên tạo đơn nghỉ cả ngày, HR/ADMIN
+duyệt hoặc từ chối; người gửi được rút đơn đang chờ. UI gửi version qua `If-Match`,
+yêu cầu tải lại khi có xung đột, giữ nội dung form khi lỗi. Chưa có số dư phép,
+email thông báo hoặc đồng bộ Calendar/Attendance. Xem [Leave Service](../back-end/modules/leave-service/README.md).
 
 ## API Auth được tích hợp
 
@@ -110,15 +120,27 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
 
 ## Phiên đăng nhập
 
-Access token và thông tin người dùng chỉ nằm trong bộ nhớ. Refresh token lưu trong
-`sessionStorage` của tab để giữ phiên khi reload, và bị xóa khi đăng xuất. Không
-lưu mật khẩu, access token hoặc roles vào localStorage/sessionStorage.
+Access token và thông tin người dùng chỉ nằm trong bộ nhớ của mỗi tab. Refresh
+token và mã phiên đăng nhập lưu chung trong `localStorage` tại `company-hrm.session`.
+Các tab cùng origin (giao thức/host/port), cùng browser profile dùng chung phiên;
+tab mới tự khôi phục đăng nhập. Không lưu mật khẩu, access token hoặc roles vào storage.
+Phiên có thể được khôi phục cả khi đóng/mở lại trình duyệt, đến khi refresh token hết
+hạn hoặc đăng xuất. Đăng xuất ở một tab xóa phiên ở tất cả tab qua sự kiện `storage`.
+
+Web Locks tuần tự hóa login, refresh và logout giữa các tab. Mỗi lần refresh đọc token
+mới nhất sau khi lấy khóa; mỗi tab vẫn giữ access token riêng. Mã phiên không đổi
+khi refresh và đổi khi đăng nhập lại, giúp loại bỏ response từ phiên cũ. Frontend
+kiểm tra lại phiên trước/sau request để xử lý cả tab nền nhận sự kiện storage chậm.
+Yêu cầu HTTPS (hoặc localhost khi phát triển) và trình duyệt hỗ trợ Web Locks;
+thiếu hỗ trợ sẽ báo lỗi thay vì refresh đồng thời không có khóa.
+
+Sau khi nâng cấp từ phiên bản chỉ dùng `sessionStorage`, đăng nhập lại một lần.
+Token riêng của tab cũ được xóa; không tự nhập lại token cũ vì nó có thể đã bị xoay
+vòng hoặc thu hồi. Các tab đang chạy bản frontend cũ nên được tải lại.
 
 Backend hiện trả refresh token trong JSON, chưa hỗ trợ HttpOnly cookie. Vì vậy
-refresh token trong sessionStorage vẫn có thể bị đọc nếu xảy ra XSS. Khi chuyển
-sang cookie HttpOnly cần điều chỉnh cả backend và cơ chế CSRF. Tab được nhân bản
-có thể sao chép sessionStorage; vì refresh token chỉ dùng một lần, tab còn lại có
-thể phải đăng nhập lại sau khi tab đầu xoay vòng token.
+refresh token trong localStorage vẫn có thể bị đọc nếu xảy ra XSS và tồn tại sau
+khi đóng tab. Khi chuyển sang cookie HttpOnly cần điều chỉnh cả backend và cơ chế CSRF.
 
 Lỗi mạng khi khôi phục phiên đưa tới trang kết nối gián đoạn để thử lại, không tự
 xóa phiên. Token refresh đã hết hạn/thu hồi hoặc account inactive đưa về login.

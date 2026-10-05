@@ -10,6 +10,9 @@ const baseUser = {
   updatedAt: '2026-09-25T01:00:00Z',
 }
 async function mockAuth(page, roles = ['ADMIN']) {
+  await page.route('**/api/v1/leave/requests/pending-count', (route) =>
+    route.fulfill({ json: { count: 0 } }),
+  )
   const state = {
     roles,
     loginStatus: 200,
@@ -94,7 +97,7 @@ test('protected deep link returns to the page after login, restores on reload, t
   expect(state.refreshCount).toBe(1)
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Đăng nhập workspace' })).toBeVisible()
-  expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
+  expect(await page.evaluate(() => localStorage.getItem('company-hrm.session'))).toBeNull()
   await page.goto('/account')
   await expect(page).toHaveURL(/\/login/)
 })
@@ -171,7 +174,7 @@ test('expired refresh returns to login without protected content', async ({ page
   state.refreshStatus = 401
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Đăng nhập workspace' })).toBeVisible()
-  expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
+  expect(await page.evaluate(() => localStorage.getItem('company-hrm.session'))).toBeNull()
 })
 test('service outage on session restoration allows retry without discarding credentials', async ({
   page,

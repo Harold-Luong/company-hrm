@@ -1,21 +1,52 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from '@/auth/session.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
 import { calendarManagementRoles } from '@/calendar/constants.js'
+import { leaveReviewRoles } from '@/leave/helpers.js'
+import { leave } from '@/leave/api.js'
 import AppIcon from '@/components/AppIcon.vue'
 const route = useRoute()
 const router = useRouter()
 const mobileOpen = ref(false)
 const busy = ref(false)
+const pendingLeaveCount = ref(0)
+let countLoading = false
+let countTimer
+let countStopped = false
 const initials = computed(() => auth.state.user?.email.slice(0, 2).toUpperCase() || 'CH')
 watch(
   () => route.fullPath,
   () => {
     mobileOpen.value = false
+    refreshPendingLeaveCount()
   },
 )
+async function refreshPendingLeaveCount() {
+  if (!auth.hasRole(leaveReviewRoles) || countLoading) return
+  countLoading = true
+  try {
+    const result = await leave.pendingCount()
+    pendingLeaveCount.value = Number.isSafeInteger(result.count) && result.count >= 0 ? result.count : 0
+  } catch {
+    // The menu remains usable if Leave is temporarily unavailable.
+  } finally {
+    countLoading = false
+  }
+}
+async function schedulePendingLeaveCount() {
+  await refreshPendingLeaveCount()
+  if (!countStopped) countTimer = window.setTimeout(schedulePendingLeaveCount, 30_000)
+}
+onMounted(() => {
+  countStopped = false
+  schedulePendingLeaveCount()
+})
+onBeforeUnmount(() => {
+  countStopped = true
+  window.clearTimeout(countTimer)
+})
 async function signOut() {
   busy.value = true
   let warning = false
@@ -79,6 +110,28 @@ async function signOut() {
           active-class="is-active"
         >
           <AppIcon name="calendar" />Quản lý lịch
+        </RouterLink>
+        <RouterLink
+          to="/leave"
+          class="nav-item"
+          active-class="is-active"
+          exact-active-class="is-active"
+        >
+          <AppIcon name="calendar" />Nghỉ phép của tôi
+        </RouterLink>
+        <RouterLink
+          v-if="auth.hasRole(leaveReviewRoles)"
+          to="/leave/inbox"
+          class="nav-item"
+          active-class="is-active"
+        >
+          <AppIcon name="calendar" /><span>Duyệt nghỉ phép</span
+          ><span
+            v-if="pendingLeaveCount > 0"
+            class="nav-notification"
+            :aria-label="`${pendingLeaveCount} đơn đang chờ duyệt`"
+            >{{ pendingLeaveCount > 99 ? '99+' : pendingLeaveCount }}</span
+          >
         </RouterLink>
         <RouterLink
           to="/employees"
@@ -156,3 +209,19 @@ async function signOut() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.nav-notification {
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35rem;
+  text-align: center;
+}
+</style>

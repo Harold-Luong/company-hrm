@@ -6,7 +6,13 @@ test('renders the authenticated API without company metadata, including events c
   const renderErrors = []
   page.on('pageerror', (error) => renderErrors.push(error.message))
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
-  await page.addInitScript(() => sessionStorage.setItem('company-hrm.refresh-token', 'refresh'))
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('company-hrm.session'))
+      localStorage.setItem(
+        'company-hrm.session',
+        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
+      )
+  })
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     let body

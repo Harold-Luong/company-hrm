@@ -25,6 +25,8 @@ const messages = {
     'Email already exists': 'Email này đã có tài khoản.',
     'Employee already has an account': 'UUID liên kết này đã có tài khoản.',
     'Invalid refresh token': 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+    'Shared session requires HTTPS and Web Locks support':
+        'Vui lòng mở ứng dụng qua HTTPS hoặc localhost bằng trình duyệt hỗ trợ Web Locks để dùng phiên đăng nhập nhiều tab.',
     'Access is denied': 'Bạn không có quyền thực hiện thao tác này.',
 }
 export function errorMessage(error) {
