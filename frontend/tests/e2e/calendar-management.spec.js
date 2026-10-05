@@ -25,12 +25,20 @@ async function setup(page, role = 'HR', options = {}) {
     failCreate: false,
   }
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
-  await page.addInitScript(() => sessionStorage.setItem('company-hrm.refresh-token', 'refresh'))
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('company-hrm.session'))
+      localStorage.setItem(
+        'company-hrm.session',
+        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
+      )
+  })
   await page.route('**/api/**', async (route) => {
     const req = route.request(),
       url = new URL(req.url()),
       path = url.pathname,
       method = req.method()
+    if (path === '/api/v1/leave/requests/pending-count')
+      return route.fulfill({ json: { count: 0 } })
     if (path.endsWith('/refresh'))
       return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
     if (path.endsWith('/me'))

@@ -1,0 +1,98 @@
+.leave-page {
+  max-width: 1200px;
+}
+.leave-section {
+  margin-bottom: 24px;
+}
+.leave-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.leave-page textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.leave-page .field {
+  margin-bottom: 16px;
+}
+.leave-page .leave-form-grid > .field {
+  min-width: 0;
+  margin: 0;
+}
+.leave-form-grid input,
+.leave-form-grid select {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.leave-page .list-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.leave-badge {
+  display: inline-block;
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.leave-PENDING {
+  color: #805d10;
+  background: #fff4d5;
+}
+.leave-APPROVED {
+  color: #176c50;
+  background: #e6f5ee;
+}
+.leave-REJECTED {
+  color: #ae3445;
+  background: #fff0f0;
+}
+.leave-CANCELLED {
+  color: #596579;
+  background: #f1f3f7;
+}
+.leave-details {
+  display: grid;
+  gap: 18px;
+}
+.leave-details dt {
+  color: #596579;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+.leave-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.leave-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.leave-history {
+  padding-left: 20px;
+}
+.leave-history li {
+  padding: 8px 0;
+}
+@media (max-width: 1100px) {
+  .leave-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .leave-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .leave-page .button-row {
+    flex-wrap: wrap;
+  }
+}

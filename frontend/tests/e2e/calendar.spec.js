@@ -2,7 +2,13 @@ import { expect, test } from '@playwright/test'
 
 async function setup(page, role = 'EMPLOYEE', { failOnce = false, empty = false } = {}) {
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
-  await page.addInitScript(() => sessionStorage.setItem('company-hrm.refresh-token', 'refresh'))
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('company-hrm.session'))
+      localStorage.setItem(
+        'company-hrm.session',
+        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
+      )
+  })
   const unexpected = []
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
@@ -11,6 +17,7 @@ async function setup(page, role = 'EMPLOYEE', { failOnce = false, empty = false 
     if (path.endsWith('/refresh')) body = { accessToken: 'access', refreshToken: 'refresh' }
     else if (path.endsWith('/me'))
       body = { id: 1, email: 'member@company.com', roles: [role], active: true }
+    else if (path === '/api/v1/leave/requests/pending-count') body = { count: 0 }
     else if (path === '/api/v1/calendar') {
       expect(route.request().headers().authorization).toBe('Bearer access')
       if (failOnce) {

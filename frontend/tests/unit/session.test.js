@@ -10,6 +10,10 @@ const user = {
   updatedAt: '2026-09-25T01:00:00Z',
 }
 const tokens = { accessToken: 'access-1', refreshToken: 'refresh-1' }
+const storageKey = 'company-hrm.session'
+const storedToken = () => JSON.parse(localStorage.getItem(storageKey))?.refreshToken
+const seedSession = (refreshToken) =>
+  localStorage.setItem(storageKey, JSON.stringify({ id: 'test-session', refreshToken }))
 const response = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -25,6 +29,11 @@ const input = {
 beforeEach(() => {
   vi.resetModules()
   sessionStorage.clear()
+  localStorage.clear()
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: { request: (_name, callback) => Promise.resolve().then(callback) },
+  })
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -35,6 +44,42 @@ async function login() {
   return auth
 }
 describe('Auth contract and session lifecycle', () => {
+  it('does not rotate without a cross-tab lock on unsupported browsers', async () => {
+    seedSession('existing')
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined })
+    const { auth } = await import('../../src/auth/session.js')
+    await expect(auth.initialize()).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(storedToken()).toBe('existing')
+  })
+  it('discards a late rejection from another login without deleting the new shared session', async () => {
+    const auth = await login()
+    let finish
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const pending = auth.loadUser()
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ id: 'another-login', refreshToken: 'new-session' }),
+    )
+    // Do not dispatch storage: a background tab may not have received the event yet.
+    finish(response({}, 401))
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(auth.state.user).toBeNull()
+    expect(storedToken()).toBe('new-session')
+  })
+  it('drops old per-tab tokens instead of restoring them after a shared logout', async () => {
+    sessionStorage.setItem('company-hrm.refresh-token', 'legacy-token')
+    const { auth } = await import('../../src/auth/session.js')
+    await auth.initialize()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(auth.authenticated.value).toBe(false)
+    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBeNull()
+  })
   it('uses login.data tokens, sends Bearer auth, and gets current roles from /me', async () => {
     const auth = await login()
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
@@ -45,11 +90,11 @@ describe('Auth contract and session lifecycle', () => {
     expect(fetchMock.mock.calls[1][1].headers).toMatchObject({ Authorization: 'Bearer access-1' })
     expect(auth.hasRole(['ADMIN'])).toBe(true)
     expect(auth.hasRole(['HR'])).toBe(false)
-    expect(sessionStorage.length).toBe(1)
-    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('refresh-1')
+    expect(localStorage.length).toBe(1)
+    expect(storedToken()).toBe('refresh-1')
   })
   it('restores the tab session and stores the rotated refresh token', async () => {
-    sessionStorage.setItem('company-hrm.refresh-token', 'old-refresh')
+    seedSession('old-refresh')
     const { auth } = await import('../../src/auth/session.js')
     fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
     await Promise.all([auth.initialize(), auth.initialize()])
@@ -58,7 +103,7 @@ describe('Auth contract and session lifecycle', () => {
       refreshToken: 'old-refresh',
     })
     expect(auth.state.user?.email).toBe(user.email)
-    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('refresh-1')
+    expect(storedToken()).toBe('refresh-1')
   })
   it('shares refresh for concurrent 401s and retries with the new access token', async () => {
     const auth = await login()
@@ -74,7 +119,7 @@ describe('Auth contract and session lifecycle', () => {
     })
     await Promise.all([auth.loadUser(), auth.loadUser(), auth.loadUser()])
     expect(refreshCount).toBe(1)
-    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('refresh-2')
+    expect(storedToken()).toBe('refresh-2')
   })
   it('does not loop when an API still returns 401 after refresh', async () => {
     const auth = await login()
@@ -86,23 +131,23 @@ describe('Auth contract and session lifecycle', () => {
     await expect(auth.loadUser()).rejects.toMatchObject({ status: 401 })
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(auth.state.user).toBeNull()
-    expect(sessionStorage.length).toBe(0)
+    expect(localStorage.length).toBe(0)
   })
   it('clears a revoked session on startup', async () => {
-    sessionStorage.setItem('company-hrm.refresh-token', 'revoked')
+    seedSession('revoked')
     const { auth } = await import('../../src/auth/session.js')
     fetchMock.mockResolvedValueOnce(response({}, 401))
     await auth.initialize()
     expect(auth.authenticated.value).toBe(false)
     expect(auth.state.initialized).toBe(true)
-    expect(sessionStorage.length).toBe(0)
+    expect(localStorage.length).toBe(0)
   })
   it('preserves a stored session during transient failures so startup can be retried', async () => {
-    sessionStorage.setItem('company-hrm.refresh-token', 'existing')
+    seedSession('existing')
     const { auth } = await import('../../src/auth/session.js')
     fetchMock.mockRejectedValueOnce(new TypeError('offline'))
     await expect(auth.initialize()).rejects.toMatchObject({ status: 0 })
-    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('existing')
+    expect(storedToken()).toBe('existing')
     expect(auth.state.initialized).toBe(false)
     fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
     await auth.initialize()
@@ -132,7 +177,7 @@ describe('Auth contract and session lifecycle', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('offline'))
     await expect(auth.logout()).rejects.toMatchObject({ status: 0 })
     expect(auth.authenticated.value).toBe(false)
-    expect(sessionStorage.length).toBe(0)
+    expect(localStorage.length).toBe(0)
   })
   it('does not restore the user from an in-flight response after logout', async () => {
     const auth = await login()
@@ -149,7 +194,7 @@ describe('Auth contract and session lifecycle', () => {
     finish(response(user))
     await expect(pending).rejects.toMatchObject({ status: 401 })
     expect(auth.authenticated.value).toBe(false)
-    expect(sessionStorage.length).toBe(0)
+    expect(localStorage.length).toBe(0)
   })
   it('waits for refresh rotation then revokes the latest session on logout', async () => {
     const auth = await login()
@@ -202,7 +247,7 @@ describe('Auth contract and session lifecycle', () => {
     expect(auth.state.user?.email).toBe(nextUser.email)
     expect(auth.hasRole(['ADMIN'])).toBe(false)
     expect(auth.hasRole(['HR'])).toBe(true)
-    expect(sessionStorage.getItem('company-hrm.refresh-token')).toBe('new-refresh')
+    expect(storedToken()).toBe('new-refresh')
   })
 })
 

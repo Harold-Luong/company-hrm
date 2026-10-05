@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { calendarManagementRoles } from '@/calendar/constants.js'
+import { leaveReviewRoles } from '@/leave/helpers.js'
 import { auth } from '@/auth/session.js'
 import { ApiError } from '@/auth/api.js'
 import { accountCreationRoles, safeDestination } from '@/auth/navigation.js'
@@ -21,6 +22,27 @@ export const routes = [
     component: () => import('@/layouts/WorkspaceLayout.vue'),
     meta: { title: 'Không gian làm việc', requiresAuth: true },
     children: [
+      {
+        path: 'leave',
+        name: 'leave-mine',
+        component: () => import('@/views/LeaveRequestsView.vue'),
+        props: { inbox: false },
+        meta: { title: 'Nghỉ phép của tôi' },
+      },
+      {
+        path: 'leave/inbox',
+        name: 'leave-inbox',
+        component: () => import('@/views/LeaveRequestsView.vue'),
+        props: { inbox: true },
+        meta: { title: 'Duyệt nghỉ phép', roles: leaveReviewRoles },
+      },
+      {
+        path: 'leave/requests/:id([0-9a-fA-F-]{36})',
+        name: 'leave-detail',
+        component: () => import('@/views/LeaveRequestDetailView.vue'),
+        props: true,
+        meta: { title: 'Chi tiết đơn nghỉ' },
+      },
       {
         path: 'calendar-events',
         name: 'calendar-management',
