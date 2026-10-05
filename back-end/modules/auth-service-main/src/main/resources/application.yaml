@@ -36,6 +36,7 @@ spring:
         show-sql: true
 
 server:
+    port: 8081
     forward-headers-strategy: none
 
 springdoc:

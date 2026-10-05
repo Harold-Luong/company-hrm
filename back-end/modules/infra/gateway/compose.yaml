@@ -1,0 +1,214 @@
+name: hrm
+
+x-app: &app
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  gateway:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: infra/gateway/Dockerfile
+      args:
+        MODULE: gateway
+    ports:
+      - "${GATEWAY_HTTPS_PORT:-443}:8443"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      AUTH_SERVICE_URL: http://auth:8081
+      EMPLOYEE_SERVICE_URL: http://employee:8082
+      WORKFORCE_SERVICE_URL: http://workforce:8083
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set frontend origins}
+      TLS_KEY_STORE: file:/run/secrets/gateway.p12
+      TLS_KEY_STORE_PASSWORD: ${TLS_KEY_STORE_PASSWORD:?Set TLS password}
+    secrets:
+      - source: access-public
+        target: access-public.pem
+      - source: gateway-tls
+        target: gateway.p12
+    networks: [public, services]
+    depends_on: [auth, employee, workforce]
+
+  auth:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: infra/gateway/Dockerfile
+      args:
+        MODULE: auth-service-main
+    environment:
+      SERVER_PORT: 8081
+      # Safe only on this private network, behind the header-sanitizing gateway.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: auth_user
+      SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD:?Set Auth DB password}
+      SPRING_JPA_SHOW_SQL: "false"
+      JWT_ACCESS_PRIVATE_KEY: file:/run/secrets/access-private.pem
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      JWT_REFRESH_PRIVATE_KEY: file:/run/secrets/refresh-private.pem
+      JWT_REFRESH_PUBLIC_KEY: file:/run/secrets/refresh-public.pem
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      HRM_EVENTS_ENABLED: "true"
+      AUTH_ACTIVATION_ENABLED: "false"
+    secrets:
+      - source: access-private
+        target: access-private.pem
+      - source: access-public
+        target: access-public.pem
+      - source: refresh-private
+        target: refresh-private.pem
+      - source: refresh-public
+        target: refresh-public.pem
+    networks: [services, auth-data]
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  employee:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: infra/gateway/Dockerfile
+      args:
+        MODULE: employee-service
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:postgresql://employee-db:5432/employee_db
+      SPRING_DATASOURCE_USERNAME: employee_user
+      SPRING_DATASOURCE_PASSWORD: ${EMPLOYEE_DB_PASSWORD:?Set Employee DB password}
+      SPRING_JPA_SHOW_SQL: "false"
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      HRM_EVENTS_ENABLED: "true"
+    secrets:
+      - source: access-public
+        target: access-public.pem
+    networks: [services, employee-data]
+    depends_on:
+      employee-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  # The repository's calendar-service currently provides Workforce endpoints.
+  workforce:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: infra/gateway/Dockerfile
+      args:
+        MODULE: calendar-service
+    environment:
+      SERVER_PORT: 8083
+      SPRING_DATASOURCE_URL: jdbc:postgresql://workforce-db:5432/workforce_db
+      SPRING_DATASOURCE_USERNAME: workforce_user
+      SPRING_DATASOURCE_PASSWORD: ${WORKFORCE_DB_PASSWORD:?Set Workforce DB password}
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    secrets:
+      - source: access-public
+        target: access-public.pem
+    networks: [services, workforce-data]
+    depends_on:
+      workforce-db:
+        condition: service_healthy
+
+  auth-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:?Set Auth DB password}
+    volumes:
+      - auth-data:/var/lib/postgresql/data
+      - ../../auth-service-main/docs/sql/001_auth_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    networks: [auth-data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U auth_user -d auth_db']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  employee-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: employee_db
+      POSTGRES_USER: employee_user
+      POSTGRES_PASSWORD: ${EMPLOYEE_DB_PASSWORD:?Set Employee DB password}
+    volumes:
+      - employee-data:/var/lib/postgresql/data
+      - ../../employee-service/docs/sql/001_employee_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    networks: [employee-data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U employee_user -d employee_db']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  workforce-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: workforce_db
+      POSTGRES_USER: workforce_user
+      POSTGRES_PASSWORD: ${WORKFORCE_DB_PASSWORD:?Set Workforce DB password}
+    volumes:
+      - workforce-data:/var/lib/postgresql/data
+      - ../../calendar-service/docs/sql/001_calendar_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    networks: [workforce-data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U workforce_user -d workforce_db']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  kafka:
+    extends:
+      file: ../kafka/compose.yaml
+      service: kafka
+    # Clear the local development port inherited from the Kafka compose file.
+    ports: !reset []
+    networks: [services]
+
+  kafka-init:
+    extends:
+      file: ../kafka/compose.yaml
+      service: kafka-init
+    networks: [services]
+
+networks:
+  public:
+  services:
+    internal: true
+  auth-data:
+    internal: true
+  employee-data:
+    internal: true
+  workforce-data:
+    internal: true
+
+volumes:
+  auth-data:
+  employee-data:
+  workforce-data:
+  kafka-data:
+
+secrets:
+  access-public:
+    file: ${JWT_ACCESS_PUBLIC_KEY_FILE:?Set access public key file}
+  access-private:
+    file: ${JWT_ACCESS_PRIVATE_KEY_FILE:?Set access private key file}
+  refresh-public:
+    file: ${JWT_REFRESH_PUBLIC_KEY_FILE:?Set refresh public key file}
+  refresh-private:
+    file: ${JWT_REFRESH_PRIVATE_KEY_FILE:?Set refresh private key file}
+  gateway-tls:
+    file: ${TLS_KEY_STORE_FILE:?Set PKCS12 certificate file}
