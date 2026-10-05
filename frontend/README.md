@@ -21,15 +21,19 @@ Backend Auth phải đang chạy để đăng nhập. Cấu hình database, RSA 
 local và cách khởi động nằm trong [hướng dẫn Auth](../back-end/modules/auth-service-main/docs/hrm-auth.md).
 Frontend không tự seed tài khoản hoặc thay đổi database.
 
-Vite chuyển `/api/v1/auth/*` tới `http://localhost:8080`; `/api/v1/employees`,
-`/api/v1/departments`, `/api/v1/positions` (và các đường dẫn con) tới
-`http://localhost:8082`; `/api/v1/calendar` tới `http://localhost:8083`. Các prefix API được giữ nguyên. Đổi backend nếu cần:
+Vite chuyển toàn bộ `/api` tới **API Gateway `http://localhost:8080`**, giữ nguyên
+đường dẫn. Gateway chuyển tiếp tới Auth `8081`, Employee `8082` và Calendar `8083`,
+bao gồm health-check của từng service. Chạy gateway theo
+[hướng dẫn Gateway](../back-end/modules/gateway/README.md).
 
 ```sh
 cp .env.example .env.local
 ```
 
-Sửa `API_PROXY_TARGET` (Auth), `EMPLOYEE_API_PROXY_TARGET` (Employee) và `CALENDAR_API_PROXY_TARGET` (Calendar) rồi khởi động lại dev server. `.env.local` không được commit.
+Chỉ cần cấu hình `API_PROXY_TARGET` trỏ tới gateway rồi khởi động lại dev server.
+Các biến `EMPLOYEE_API_PROXY_TARGET`, `CALENDAR_API_PROXY_TARGET` và
+`VITE_API_BASE_URL` cũ không còn được sử dụng; có thể xóa khỏi `.env.local`.
+`.env.local` không được commit.
 Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã phía browser.
 
 ## Trang và quyền truy cập
@@ -189,15 +193,14 @@ Giao diện dùng trực tiếp `availableYears`, `title`, `type`, `holidayKind`
 Sự kiện cả ngày bao gồm ngày kết thúc; sự kiện theo giờ không bao gồm thời điểm kết thúc.
 Sự kiện `CANCELLED` vẫn hiển thị kèm nhãn đã hủy.
 
-Mặc định frontend gọi API cùng origin (qua Vite proxy khi chạy local).
-Khi triển khai, cấu hình reverse proxy `/api/v1/calendar` đến Calendar Service;
-có thể đặt `VITE_API_BASE_URL` nếu cần gọi calendar API ở origin khác.
+Frontend gọi toàn bộ API cùng origin (qua Vite proxy khi chạy local).
+Khi triển khai bản build, cấu hình reverse proxy `/api` tới **Gateway**.
 
-Trang `/services` kiểm tra cả Auth, Employee và Calendar. Calendar dùng
-`GET /actuator/health` và đọc trạng thái tổng hợp `status` (API không trả chi tiết database).
-Vite chuyển `/api/v1/calendar/health-check` tới `/actuator/health` của Calendar Service.
-Khi triển khai cùng origin, reverse proxy cũng cần ánh xạ đường dẫn này;
-khi đặt `VITE_API_BASE_URL`, frontend gọi trực tiếp `/actuator/health` trên origin đó.
+Trang `/services` kiểm tra Auth, Employee và Calendar bằng access token của phiên
+đăng nhập. `GET /api/v1/calendar/health-check` qua Gateway được chuyển thành
+`GET /actuator/health` của Calendar Service; frontend đọc trạng thái tổng hợp
+`status` (API không trả chi tiết database). `/actuator/health` tại Gateway chỉ là
+trạng thái của chính gateway, không thay cho health-check Calendar.
 
 ### Quản lý lịch (HR/ADMIN)
 

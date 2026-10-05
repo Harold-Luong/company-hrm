@@ -231,6 +231,33 @@ test('employee role sees personnel forms but cannot send provisioning requests',
   await page.goto('/services')
   await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
 })
+test('service health checks send the current access token through the gateway', async ({ page }) => {
+  await setup(page)
+  const requests = []
+  for (const service of ['auth', 'employees', 'calendar']) {
+    await page.route(`**/api/v1/${service}/health-check`, (route) => {
+      const authorization = route.request().headers().authorization
+      requests.push({ service, authorization })
+      return route.fulfill({
+        status: authorization === 'Bearer access' ? 200 : 401,
+        json: authorization === 'Bearer access' ? { status: 'UP', database: 'UP' } : {},
+      })
+    })
+  }
+  await page.goto('/services')
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
+  expect(requests).toEqual(
+    expect.arrayContaining([
+      { service: 'auth', authorization: 'Bearer access' },
+      { service: 'employees', authorization: 'Bearer access' },
+      { service: 'calendar', authorization: 'Bearer access' },
+    ]),
+  )
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
+  await expect.poll(() => requests.length).toBe(6)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
+})
 test('calendar health failure is isolated and can be retried', async ({ page }) => {
   await setup(page)
   let available = false

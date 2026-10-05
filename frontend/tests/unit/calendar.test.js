@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 let getCalendar
+let getCalendarHealth
 import {
   dayEntries,
   eventDateRange,
@@ -67,7 +68,7 @@ describe('authenticated calendar API', () => {
     vi.resetModules()
     sessionStorage.clear()
     sessionStorage.setItem('company-hrm.refresh-token', 'refresh')
-    ;({ getCalendar } = await import('../../src/calendar/api.js'))
+    ;({ getCalendar, getCalendarHealth } = await import('../../src/calendar/api.js'))
   })
 
   function mockFetch(response) {
@@ -108,6 +109,16 @@ describe('authenticated calendar API', () => {
       expect.objectContaining({
         headers: { Accept: 'application/json', Authorization: 'Bearer access' },
         cache: 'no-store',
+      }),
+    )
+  })
+  it('checks Calendar health through the gateway with the session access token', async () => {
+    const fetchMock = mockFetch(new Response(JSON.stringify({ status: 'UP' })))
+    expect(await getCalendarHealth()).toEqual({ status: 'UP' })
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/v1/calendar/health-check',
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer access' },
       }),
     )
   })
