@@ -1,20 +1,21 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { apiRequest, serviceError } from '@/auth/api.js'
+import { serviceError } from '@/auth/api.js'
+import { auth } from '@/auth/session.js'
 import { getCalendarHealth } from '@/calendar/api.js'
 const busy = ref(false)
 const checkedAt = ref('')
 const services = ref([
   {
     name: 'Xác thực',
-    request: () => apiRequest('/api/v1/auth/health-check'),
+    request: () => auth.request('/api/v1/auth/health-check'),
     requiresDatabaseStatus: true,
     status: '',
     error: '',
   },
   {
     name: 'Nhân sự',
-    request: () => apiRequest('/api/v1/employees/health-check'),
+    request: () => auth.request('/api/v1/employees/health-check'),
     requiresDatabaseStatus: true,
     status: '',
     error: '',

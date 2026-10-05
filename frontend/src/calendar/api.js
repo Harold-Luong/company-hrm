@@ -1,19 +1,14 @@
-import { apiRequest } from '../auth/api.js'
 import { auth } from '../auth/session.js'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
-
 export function getCalendar(year) {
-  return auth.request(`${API_BASE_URL}/api/v1/calendar?year=${encodeURIComponent(year)}`)
+  return auth.request(`/api/v1/calendar?year=${encodeURIComponent(year)}`)
 }
 
 export function getCalendarHealth() {
-  return apiRequest(
-    API_BASE_URL ? `${API_BASE_URL}/actuator/health` : '/api/v1/calendar/health-check',
-  )
+  return auth.request('/api/v1/calendar/health-check')
 }
 
-const eventsPath = `${API_BASE_URL}/api/v1/calendar-events`
+const eventsPath = '/api/v1/calendar-events'
 const versionHeader = (version) => ({ 'If-Match': `"${version}"` })
 
 export const calendarManagement = {
