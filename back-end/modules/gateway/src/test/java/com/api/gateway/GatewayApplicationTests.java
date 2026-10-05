@@ -41,6 +41,7 @@ class GatewayApplicationTests {
     private static final HttpServer AUTH = backend("auth");
     private static final HttpServer EMPLOYEE = backend("employee");
     private static final HttpServer WORKFORCE = backend("workforce");
+    private static final HttpServer LEAVE = backend("leave");
     private static final Path PUBLIC_KEY = publicKey();
 
     @LocalServerPort
@@ -53,6 +54,7 @@ class GatewayApplicationTests {
         registry.add("AUTH_SERVICE_URL", () -> url(AUTH));
         registry.add("EMPLOYEE_SERVICE_URL", () -> url(EMPLOYEE));
         registry.add("WORKFORCE_SERVICE_URL", () -> url(WORKFORCE));
+        registry.add("LEAVE_SERVICE_URL", () -> url(LEAVE));
         registry.add("gateway.cors.allowed-origins", () -> "https://hrm.example.com");
     }
 
@@ -63,7 +65,7 @@ class GatewayApplicationTests {
 
     @AfterAll
     static void stopBackends() throws Exception {
-        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE)) {
+        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE, LEAVE)) {
             backend.stop(0);
         }
         Files.deleteIfExists(PUBLIC_KEY);
@@ -77,7 +79,9 @@ class GatewayApplicationTests {
             "/api/v1/departments,employee",
             "/api/v1/positions/42,employee",
             "/api/v1/calendar,workforce",
-            "/api/v1/calendar-events/42,workforce"
+            "/api/v1/calendar-events/42,workforce",
+            "/api/v1/leave/requests/mine,leave",
+            "/api/v1/leave/requests/inbox,leave"
     })
     void routesOriginalPathQueryAndBearerToken(String path, String backend) throws Exception {
         String token = sign(claims(), KEYS, JWSAlgorithm.RS256);
@@ -110,7 +114,8 @@ class GatewayApplicationTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"/api/v1/auth/register", "/api/v1/auth/logout-all", "/api/v1/auth/activation-invitations/42",
-            "/api/v1/employees", "/api/v1/departments", "/api/v1/positions", "/api/v1/calendar", "/api/v1/calendar-events"})
+            "/api/v1/employees", "/api/v1/departments", "/api/v1/positions", "/api/v1/calendar", "/api/v1/calendar-events",
+            "/api/v1/leave/requests", "/api/v1/leave/requests/inbox"})
     void protectedApisNeverReachBackendWithoutToken(String path) {
         int calls = UPSTREAM_CALLS.get();
         client.post().uri(path).exchange().expectStatus().isUnauthorized()
@@ -199,17 +204,18 @@ class GatewayApplicationTests {
                 .exchange().expectStatus().isForbidden().expectHeader().valueEquals("X-Test-Backend", "employee");
     }
 
-    @Test
-    void calendarHealthRequiresTokenAndRoutesToWorkforceActuator() {
+    @ParameterizedTest
+    @CsvSource({"calendar,workforce", "leave,leave"})
+    void serviceHealthRequiresTokenAndRoutesToActuator(String service, String backend) {
         int calls = UPSTREAM_CALLS.get();
-        client.get().uri("/api/v1/calendar/health-check")
+        client.get().uri("/api/v1/" + service + "/health-check")
                 .exchange().expectStatus().isUnauthorized();
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(calls);
 
-        client.get().uri("/api/v1/calendar/health-check")
+        client.get().uri("/api/v1/" + service + "/health-check")
                 .headers(headers -> headers.setBearerAuth(signUnchecked()))
                 .exchange().expectStatus().isOk()
-                .expectHeader().valueEquals("X-Test-Backend", "workforce")
+                .expectHeader().valueEquals("X-Test-Backend", backend)
                 .expectBody(String.class).isEqualTo("/actuator/health|");
     }
 
