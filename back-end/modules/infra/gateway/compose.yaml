@@ -21,6 +21,7 @@ services:
       EMPLOYEE_SERVICE_URL: http://employee:8082
       WORKFORCE_SERVICE_URL: http://workforce:8083
       LEAVE_SERVICE_URL: http://leave:8084
+      ATTENDANCE_SERVICE_URL: http://attendance:8085
       JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set frontend origins}
       TLS_KEY_STORE: file:/run/secrets/gateway.p12
@@ -31,7 +32,7 @@ services:
       - source: gateway-tls
         target: gateway.p12
     networks: [public, services]
-    depends_on: [auth, employee, workforce, leave]
+    depends_on: [auth, employee, workforce, leave, attendance]
 
   auth:
     <<: *app
@@ -141,6 +142,49 @@ services:
       leave-db:
         condition: service_healthy
 
+  attendance:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: infra/gateway/Dockerfile
+      args:
+        MODULE: attendance-service
+    environment:
+      SERVER_PORT: 8085
+      ATTENDANCE_DB_URL: jdbc:postgresql://attendance-db:5432/attendance_db
+      ATTENDANCE_DB_USER: attendance_user
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:?Set Attendance DB password}
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      EMPLOYEE_SERVICE_URL: http://employee:8082
+      LEAVE_SERVICE_URL: http://leave:8084
+      CALENDAR_SERVICE_URL: http://workforce:8083
+      ATTENDANCE_ALLOWED_NETWORKS: ${ATTENDANCE_ALLOWED_NETWORKS:-}
+      ATTENDANCE_TRUSTED_PROXIES: ${ATTENDANCE_TRUSTED_PROXIES:-}
+    secrets:
+      - source: access-public
+        target: access-public.pem
+    networks: [services, attendance-data]
+    depends_on:
+      attendance-db:
+        condition: service_healthy
+
+  attendance-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: attendance_db
+      POSTGRES_USER: attendance_user
+      POSTGRES_PASSWORD: ${ATTENDANCE_DB_PASSWORD:?Set Attendance DB password}
+    volumes:
+      - attendance-data:/var/lib/postgresql/data
+      - ../../attendance-service/docs/sql/001_attendance_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    networks: [attendance-data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U attendance_user -d attendance_db']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   leave-db:
     image: postgres:16
     environment:
@@ -235,6 +279,8 @@ networks:
     internal: true
   leave-data:
     internal: true
+  attendance-data:
+    internal: true
 
 volumes:
   auth-data:
@@ -242,6 +288,7 @@ volumes:
   workforce-data:
   kafka-data:
   leave-data:
+  attendance-data:
 
 secrets:
   access-public:

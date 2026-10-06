@@ -113,6 +113,20 @@ public class LeaveRepository {
         return new Page(content, page, size, count, (count + size - 1) / size);
     }
 
+    public List<AttendanceLeave> attendance(UUID employeeId, LocalDate from, LocalDate until) {
+        String filter = employeeId == null ? "" : " AND employee_id = ?";
+        var params = new java.util.ArrayList<Object>();
+        params.add(until); params.add(from);
+        if (employeeId != null) params.add(employeeId);
+        return jdbc.query("SELECT id, employee_id, leave_type, start_date, end_date, leave_period, status, version "
+                + "FROM leave_requests WHERE status IN ('PENDING','APPROVED') AND start_date <= ? AND end_date >= ?"
+                + filter + " ORDER BY start_date, id LIMIT 2001", (rs, row) -> new AttendanceLeave(
+                    rs.getObject("id", UUID.class), rs.getObject("employee_id", UUID.class),
+                    LeaveType.valueOf(rs.getString("leave_type")), rs.getObject("start_date", LocalDate.class),
+                    rs.getObject("end_date", LocalDate.class), LeavePeriod.valueOf(rs.getString("leave_period")),
+                    Status.valueOf(rs.getString("status")), rs.getLong("version")), params.toArray());
+    }
+
     public long pendingCount() {
         return jdbc.queryForObject("SELECT count(*) FROM leave_requests WHERE status = 'PENDING'", Long.class);
     }

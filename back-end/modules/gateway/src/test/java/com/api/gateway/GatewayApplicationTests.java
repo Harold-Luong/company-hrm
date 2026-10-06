@@ -42,6 +42,7 @@ class GatewayApplicationTests {
     private static final HttpServer EMPLOYEE = backend("employee");
     private static final HttpServer WORKFORCE = backend("workforce");
     private static final HttpServer LEAVE = backend("leave");
+    private static final HttpServer ATTENDANCE = backend("attendance");
     private static final Path PUBLIC_KEY = publicKey();
 
     @LocalServerPort
@@ -55,6 +56,7 @@ class GatewayApplicationTests {
         registry.add("EMPLOYEE_SERVICE_URL", () -> url(EMPLOYEE));
         registry.add("WORKFORCE_SERVICE_URL", () -> url(WORKFORCE));
         registry.add("LEAVE_SERVICE_URL", () -> url(LEAVE));
+        registry.add("ATTENDANCE_SERVICE_URL", () -> url(ATTENDANCE));
         registry.add("gateway.cors.allowed-origins", () -> "https://hrm.example.com");
     }
 
@@ -65,7 +67,7 @@ class GatewayApplicationTests {
 
     @AfterAll
     static void stopBackends() throws Exception {
-        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE, LEAVE)) {
+        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE, LEAVE, ATTENDANCE)) {
             backend.stop(0);
         }
         Files.deleteIfExists(PUBLIC_KEY);
@@ -81,7 +83,8 @@ class GatewayApplicationTests {
             "/api/v1/calendar,workforce",
             "/api/v1/calendar-events/42,workforce",
             "/api/v1/leave/requests/mine,leave",
-            "/api/v1/leave/requests/inbox,leave"
+            "/api/v1/leave/requests/inbox,leave",
+            "/api/v1/attendance/health-check,attendance"
     })
     void routesOriginalPathQueryAndBearerToken(String path, String backend) throws Exception {
         String token = sign(claims(), KEYS, JWSAlgorithm.RS256);
@@ -115,7 +118,7 @@ class GatewayApplicationTests {
     @ParameterizedTest
     @ValueSource(strings = {"/api/v1/auth/register", "/api/v1/auth/logout-all", "/api/v1/auth/activation-invitations/42",
             "/api/v1/employees", "/api/v1/departments", "/api/v1/positions", "/api/v1/calendar", "/api/v1/calendar-events",
-            "/api/v1/leave/requests", "/api/v1/leave/requests/inbox"})
+            "/api/v1/leave/requests", "/api/v1/leave/requests/inbox", "/api/v1/attendance/health-check"})
     void protectedApisNeverReachBackendWithoutToken(String path) {
         int calls = UPSTREAM_CALLS.get();
         client.post().uri(path).exchange().expectStatus().isUnauthorized()

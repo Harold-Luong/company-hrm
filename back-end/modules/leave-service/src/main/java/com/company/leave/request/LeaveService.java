@@ -87,6 +87,21 @@ public class LeaveService {
     }
 
     @Transactional(readOnly = true)
+    public List<AttendanceLeave> attendance(UUID employeeId, LocalDate from, LocalDate until,
+            JwtAuthenticationToken actor) {
+        if (!reviewer(actor)) {
+            if (employeeId != null && !employeeId.equals(employee(actor)))
+                throw error(HttpStatus.FORBIDDEN, "You can only read your own leave coverage");
+            employeeId = employee(actor);
+        }
+        if (until.isBefore(from)) throw error(HttpStatus.BAD_REQUEST, "Invalid date range");
+        var result = repository.attendance(employeeId, from, until);
+        if (result.size() > 2000)
+            throw error(HttpStatus.UNPROCESSABLE_ENTITY, "Narrow the employee or date range");
+        return result;
+    }
+
+    @Transactional(readOnly = true)
     public Request get(UUID id, JwtAuthenticationToken actor) {
         Request request = repository.find(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Leave request not found"));
         if (!request.employeeId().equals(employee(actor)) && !reviewer(actor)) {

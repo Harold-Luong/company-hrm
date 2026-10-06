@@ -62,6 +62,23 @@ class LeaveIntegrationTests extends JwtTestSupport {
     private Request submit(UUID employee) { return service.submit(body(), actor(employee, "EMPLOYEE")); }
 
     @Test
+    void attendanceCoverageIsOwnerScopedAndOmitsPrivateReasons() throws Exception {
+        var own = submit(EMPLOYEE); submit(HR);
+        service.decide(own.id(), Status.APPROVED, "\"0\"", null, actor(HR, "HR"));
+        String path = BASE + "/attendance?from=2030-02-01&until=2030-02-03";
+        mvc.perform(get(path).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].employeeId").value(EMPLOYEE.toString()))
+                .andExpect(jsonPath("$[0].status").value("APPROVED"))
+                .andExpect(jsonPath("$[0].reason").doesNotExist())
+                .andExpect(jsonPath("$[0].reviewNote").doesNotExist());
+        mvc.perform(get(path + "&employeeId=" + HR).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(path).with(authentication(actor(HR, "HR"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
     void completeEmployeeToHrFlowAndHistory() throws Exception {
         mvc.perform(post(BASE).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))).contentType("application/json")
                 .content("""
