@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { calendarManagementRoles } from '@/calendar/constants.js'
 import { leaveReviewRoles } from '@/leave/helpers.js'
+import { attendanceRoles } from '@/attendance/helpers.js'
 import { auth } from '@/auth/session.js'
 import { ApiError } from '@/auth/api.js'
 import { accountCreationRoles, safeDestination } from '@/auth/navigation.js'
@@ -22,6 +23,36 @@ export const routes = [
     component: () => import('@/layouts/WorkspaceLayout.vue'),
     meta: { title: 'Không gian làm việc', requiresAuth: true },
     children: [
+      {
+        path: 'attendance',
+        name: 'attendance-mine',
+        component: () => import('@/views/AttendanceView.vue'),
+        meta: { title: 'Công của tôi' },
+      },
+      {
+        path: 'attendance/requests',
+        name: 'attendance-requests',
+        component: () => import('@/views/AttendanceRequestsView.vue'),
+        meta: { title: 'Xin đi trễ / về sớm' },
+      },
+      {
+        path: 'attendance/shifts',
+        name: 'attendance-shifts',
+        component: () => import('@/views/AttendanceShiftsView.vue'),
+        meta: { title: 'Ca làm việc', roles: attendanceRoles },
+      },
+      {
+        path: 'attendance/schedules',
+        name: 'attendance-schedules',
+        component: () => import('@/views/AttendanceSchedulesView.vue'),
+        meta: { title: 'Phân công ca', roles: attendanceRoles },
+      },
+      {
+        path: 'attendance/reports',
+        name: 'attendance-reports',
+        component: () => import('@/views/AttendanceReportsView.vue'),
+        meta: { title: 'Bảng công', roles: attendanceRoles },
+      },
       {
         path: 'leave',
         name: 'leave-mine',

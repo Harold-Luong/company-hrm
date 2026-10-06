@@ -62,15 +62,39 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
   suy thành HR. Quyền phía frontend phục vụ UX; backend vẫn kiểm tra từng API.
 - Không có đăng ký công khai. Form cấp tài khoản yêu cầu Employee UUID hiện có theo
   contract của Auth, chỉ gọi `/auth/register`, không tạo/sửa/tìm kiếm Employee.
-- Chưa triển khai chấm công, danh sách tài khoản, sửa vai trò,
+- Chưa triển khai danh sách tài khoản, sửa vai trò,
   khóa tài khoản hay quên mật khẩu. UI không giả lập các API chưa có.
 
 ## Nghỉ phép
 
-Luồng Leave dùng `/api/v1/leave/requests`: nhân viên tạo đơn nghỉ cả ngày, HR/ADMIN
+Luồng Leave dùng `/api/v1/leave/requests`: nhân viên tạo đơn nghỉ cả/nửa ngày, HR/ADMIN
 duyệt hoặc từ chối; người gửi được rút đơn đang chờ. UI gửi version qua `If-Match`,
-yêu cầu tải lại khi có xung đột, giữ nội dung form khi lỗi. Chưa có số dư phép,
-email thông báo hoặc đồng bộ Calendar/Attendance. Xem [Leave Service](../back-end/modules/leave-service/README.md).
+yêu cầu tải lại khi có xung đột, giữ nội dung form khi lỗi. Leave có số dư phép năm;
+Attendance đọc phép qua API để đối soát. Chưa có email hoặc tự đồng bộ ngày công đã snapshot. Xem [Leave Service](../back-end/modules/leave-service/README.md).
+
+## Chấm công
+
+| Trang | Đường dẫn | Quyền |
+| --- | --- | --- |
+| Công của tôi, ghi giờ vào/ra, lịch sử | `/attendance` | Đã đăng nhập |
+| Mẫu ca, tạo/sửa/vô hiệu hóa, lịch sử | `/attendance/shifts` | HR/ADMIN |
+| Phân công, chọn nhân viên/phạm vi, preview và lịch sử | `/attendance/schedules` | HR/ADMIN |
+| Bảng công, đối soát phép/lịch, CSV | `/attendance/reports` | HR/ADMIN |
+
+UI gọi `/api/v1/attendance` qua Gateway với phiên Auth hiện tại. Nhân viên chỉ tự
+chấm công, giờ lấy từ server; HR áp lịch mặc định hoặc lịch riêng có ngày hiệu lực.
+Phiên bản cũ yêu cầu tải lại; sửa nội dung phân công phải preview lại. Retry ghi công
+giữ Idempotency-Key trong sessionStorage. CSV tải qua API có xác thực, hỗ trợ lỗi JSON.
+
+Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. HR phải
+phân ca trước, cấu hình allowlist/trusted proxy để chấm công local/triển khai.
+Xem [hướng dẫn backend](../back-end/modules/attendance-service/README.md).
+Bảng công/CSV tạm tính, chưa có khóa kỳ hoặc điều chỉnh giờ thủ công. Phép thay đổi
+sau khi check-in cần HR cập nhật coverage để đối soát. Chưa hỗ trợ giờ linh hoạt.
+
+Kiểm thử UI: `npm test`, `npm run build`,
+`npx playwright test tests/e2e/attendance.spec.js`. Browser tests mock API để kiểm tra
+UI và contract request; không khởi động cả hệ thống backend.
 
 ## API Auth được tích hợp
 

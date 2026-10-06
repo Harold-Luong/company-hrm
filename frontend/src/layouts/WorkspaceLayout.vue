@@ -5,6 +5,7 @@ import { auth } from '@/auth/session.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
 import { calendarManagementRoles } from '@/calendar/constants.js'
 import { leaveReviewRoles } from '@/leave/helpers.js'
+import { attendanceRoles } from '@/attendance/helpers.js'
 import { leave } from '@/leave/api.js'
 import AppIcon from '@/components/AppIcon.vue'
 const route = useRoute()
@@ -28,7 +29,8 @@ async function refreshPendingLeaveCount() {
   countLoading = true
   try {
     const result = await leave.pendingCount()
-    pendingLeaveCount.value = Number.isSafeInteger(result.count) && result.count >= 0 ? result.count : 0
+    pendingLeaveCount.value =
+      Number.isSafeInteger(result.count) && result.count >= 0 ? result.count : 0
   } catch {
     // The menu remains usable if Leave is temporarily unavailable.
   } finally {
@@ -102,7 +104,34 @@ async function signOut() {
         <RouterLink to="/calendar" class="nav-item" active-class="is-active">
           <AppIcon name="calendar" />Lịch nghỉ & sự kiện
         </RouterLink>
+        <RouterLink to="/attendance" class="nav-item" exact-active-class="is-active"
+          ><AppIcon name="calendar" />Công của tôi</RouterLink
+        >
+        <RouterLink to="/attendance/requests" class="nav-item" active-class="is-active"
+          ><AppIcon name="clock" />Xin đi trễ / về sớm</RouterLink
+        >
         <p class="nav-section management-label">QUẢN LÝ NHÂN SỰ</p>
+        <RouterLink
+          v-if="auth.hasRole(attendanceRoles)"
+          to="/attendance/shifts"
+          class="nav-item"
+          active-class="is-active"
+          ><AppIcon name="calendar" />Ca làm việc</RouterLink
+        >
+        <RouterLink
+          v-if="auth.hasRole(attendanceRoles)"
+          to="/attendance/schedules"
+          class="nav-item"
+          active-class="is-active"
+          ><AppIcon name="calendar" />Phân công ca</RouterLink
+        >
+        <RouterLink
+          v-if="auth.hasRole(attendanceRoles)"
+          to="/attendance/reports"
+          class="nav-item"
+          active-class="is-active"
+          ><AppIcon name="grid" />Bảng công</RouterLink
+        >
         <RouterLink
           v-if="auth.hasRole(calendarManagementRoles)"
           to="/calendar-events"
