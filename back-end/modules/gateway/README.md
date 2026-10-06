@@ -14,12 +14,14 @@ Compose; database `calendar_db` đang có trên máy không bị đổi tên ho�
 | `/activate`, `/activation/index.html`, `/activation/activate.js`, `/activation/style.css` | Auth `:8081` |
 | `/api/v1/employees/**`, `/api/v1/departments/**`, `/api/v1/positions/**` | Employee `:8082` |
 | `/api/v1/calendar/**`, `/api/v1/calendar-events/**` | Workforce / Calendar `:8083` |
+| `/api/v1/leave/**` | Leave `:8084` |
+| `GET /api/v1/leave/health-check` (cần access token) | `/actuator/health` của Leave `:8084` |
 | `GET /api/v1/calendar/health-check` (cần access token) | `/actuator/health` của Calendar `:8083` |
 | `GET /actuator/health` | Health của gateway, không trả chi tiết |
 
 Chỉ các POST login, refresh, logout, activate và các GET trang activation,
 `/actuator/health` của gateway cho phép truy cập ẩn danh. Health-check của Auth,
-Employee và Calendar cần access token. Register, logout-all, activation-invitations
+Employee, Calendar và Leave cần access token. Register, logout-all, activation-invitations
 và API nghiệp vụ yêu cầu access token. Refresh được Auth kiểm tra bằng refresh
 token trong body, kể cả khi header còn mang access token hết hạn. Swagger và các
 endpoint quản trị không được mở qua gateway.
@@ -44,7 +46,9 @@ với 8082 và Calendar với 8083. Để service local chỉ nhận kết nối
 đặt `SERVER_ADDRESS=127.0.0.1` khi chạy từng service.
 
 Có thể đổi đích qua `AUTH_SERVICE_URL`, `EMPLOYEE_SERVICE_URL`,
-`WORKFORCE_SERVICE_URL`. `CORS_ALLOWED_ORIGINS` là danh sách origin phân cách bằng
+`WORKFORCE_SERVICE_URL`, `LEAVE_SERVICE_URL`. Leave mặc định chạy tại `:8084`,
+tự kiểm tra quyền người gửi/HR và sở hữu `leave_db` riêng.
+`CORS_ALLOWED_ORIGINS` là danh sách origin phân cách bằng
 dấu phẩy; mặc định `http://localhost:5173`. Frontend gọi gateway thay cho cổng
 riêng của từng service và tiếp tục gửi `Authorization: Bearer <access-token>`.
 CORS được xử lý tại gateway, gồm cả preflight và lỗi 401/403; gateway bỏ `Origin`
@@ -76,7 +80,7 @@ nhiều instance, cần bộ đếm dùng chung như mô tả trong
 
 ## Kiểm thử
 
-`mvn verify` chạy gateway thật với ba HTTP backend giả lập, RSA key sinh riêng
+`mvn verify` chạy gateway thật với bốn HTTP backend giả lập, RSA key sinh riêng
 trong test: route, query/body/token, JWT sai chữ ký/claims/algorithm, endpoint
 public/private, refresh với access token hết hạn, CORS, header giả và lỗi 403
 của backend. Không cần database hoặc key production.

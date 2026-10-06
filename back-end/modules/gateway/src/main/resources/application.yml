@@ -22,6 +22,18 @@ spring:
             # CORS is handled at the gateway, before these routing filters.
             - RemoveRequestHeader=Origin
           routes:
+            - id: leave-health
+              uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
+              order: -1
+              predicates:
+                - Path=/api/v1/leave/health-check
+                - Method=GET
+              filters:
+                - SetPath=/actuator/health
+            - id: leave-service
+              uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/leave/**
             - id: auth-service
               uri: ${AUTH_SERVICE_URL:http://localhost:8081}
               predicates:
