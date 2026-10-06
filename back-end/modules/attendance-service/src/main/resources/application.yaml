@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: attendance-service
+  jackson:
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true
+  datasource:
+    url: ${ATTENDANCE_DB_URL:jdbc:postgresql://localhost:5432/attendance_db}
+    username: ${ATTENDANCE_DB_USER:attendance_user}
+    password: ${ATTENDANCE_DB_PASSWORD:attendance_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 3000
+      validation-timeout: 2000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  sql:
+    init:
+      mode: never
+
+jwt:
+  access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
+  access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
+  access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
+
+server:
+  port: ${ATTENDANCE_PORT:8085}
+  forward-headers-strategy: none
+
+attendance:
+  employee-url: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
+  leave-url: ${LEAVE_SERVICE_URL:http://localhost:8084}
+  calendar-url: ${CALENDAR_SERVICE_URL:http://localhost:8083}
+  # Fail closed until the deployment's company network and proxy are configured.
+  allowed-networks: ${ATTENDANCE_ALLOWED_NETWORKS:}
+  trusted-proxies: ${ATTENDANCE_TRUSTED_PROXIES:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-components: never
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    disable-swagger-default-url: true
+    operations-sorter: method
