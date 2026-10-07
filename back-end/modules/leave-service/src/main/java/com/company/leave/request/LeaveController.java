@@ -40,6 +40,13 @@ public class LeaveController {
     ResponseEntity<PendingCount> pendingCount(JwtAuthenticationToken actor) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.pendingCount(actor));
     }
+    @GetMapping("/attendance")
+    ResponseEntity<List<AttendanceLeave>> attendance(@RequestParam(required = false) UUID employeeId,
+            @RequestParam java.time.LocalDate from, @RequestParam java.time.LocalDate until,
+            JwtAuthenticationToken actor) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(service.attendance(employeeId, from, until, actor));
+    }
     @GetMapping("/{id}")
     ResponseEntity<Request> get(@PathVariable UUID id, JwtAuthenticationToken actor) { return response(service.get(id, actor)); }
     @GetMapping("/{id}/history")

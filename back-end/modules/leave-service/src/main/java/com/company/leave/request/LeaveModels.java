@@ -42,6 +42,10 @@ public final class LeaveModels {
     public record PendingCount(long count) {
     }
 
+    /** Minimal attendance projection; excludes reasons and review notes. */
+    public record AttendanceLeave(UUID id, UUID employeeId, LeaveType leaveType, LocalDate startDate,
+            LocalDate endDate, LeavePeriod period, Status status, long version) {}
+
     public record History(long id, String action, String actorUserId, String note, Instant occurredAt) {
     }
 

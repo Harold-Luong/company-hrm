@@ -4,16 +4,16 @@
 Internet --HTTPS :443--> Gateway
                            |
                     services (internal)
-                     /     |      |          \
-                  Auth  Employee  Workforce  Leave
-                    |      |      |          |
-                 auth_db employee_db workforce_db leave_db
+                  /      |       |        |          \
+                Auth  Employee Workforce Leave    Attendance
+                  |      |       |        |          |
+               auth_db employee_db workforce_db leave_db attendance_db
 ```
 
 Workforce trong cấu hình này là `calendar-service`.
 
 Mỗi database nằm trên một network `internal` riêng với service sở hữu nó.
-Gateway không tham gia mạng database. Auth, Employee, Workforce, Leave và Kafka không
+Gateway không tham gia mạng database. Auth, Employee, Workforce, Leave, Attendance và Kafka không
 publish cổng nào. Kafka được tái sử dụng từ `infra/kafka/compose.yaml`, bỏ cổng
 localhost được publish trong cấu hình phát triển. Chỉ gateway có network public.
 
@@ -26,13 +26,14 @@ Chạy các lệnh sau tại `modules/infra/gateway`:
 cp .env.example .env
 ```
 
-Điền `.env` với bốn mật khẩu database riêng (gồm `LEAVE_DB_PASSWORD`), origin HTTPS của frontend và đường
+Điền `.env` với năm mật khẩu database riêng (gồm `LEAVE_DB_PASSWORD` và
+`ATTENDANCE_DB_PASSWORD`), origin HTTPS của frontend và đường
 dẫn tuyệt đối tới các key/certificate. Không commit `.env` hoặc secrets.
 
 - Dùng hai cặp RSA **khác nhau** của Auth: access và refresh. Private key PKCS#8,
   public key X.509, tối thiểu 2048 bit. Nếu đã có key, dùng lại để token còn hiệu lực.
   Cách tạo key có trong [tài liệu Auth](../../auth-service-main/docs/asymmetric-jwt.md).
-- Gateway, Employee, Workforce và Leave chỉ nhận access public key. Chỉ Auth nhận private
+- Gateway, Employee, Workforce, Leave và Attendance chỉ nhận access public key. Chỉ Auth nhận private
   keys và refresh public key.
 - Dùng chứng chỉ TLS hợp lệ cho domain gateway, đóng gói PKCS12. Ví dụ chuyển từ
   PEM (OpenSSL sẽ hỏi mật khẩu, điền cùng mật khẩu vào `.env`):
@@ -53,7 +54,7 @@ và trỏ `.env` tới các bản sao đó. Không thay quyền key gốc đang 
 docker compose --env-file .env config --quiet
 docker compose --env-file .env up -d --build
 docker compose ps
-docker compose logs --tail=100 gateway auth employee workforce leave
+docker compose logs --tail=100 gateway auth employee workforce leave attendance
 ```
 
 Các volume mang tên project `hrm`, không dùng database đang chạy trên localhost.
@@ -79,6 +80,14 @@ Leave chạy tại `leave:8084`, dùng database riêng `leave_db`; Gateway chuy�
 `leave_request_owners` được khởi tạo trên volume mới. Chưa có seed đơn nghỉ.
 Leave chỉ nhận access public key, không tham gia mạng dữ liệu của service khác.
 
+Attendance chạy tại `attendance:8085`, sở hữu `attendance_db`; Gateway giữ nguyên
+đường dẫn `/api/v1/attendance/**`. Đã có API ca cố định, phân công, chấm công và CSV tạm tính. Database mới được init bằng
+`001_attendance_schema.sql`; volume cũ phải áp SQL thủ công theo README SQL.
+Cấu hình `ATTENDANCE_ALLOWED_NETWORKS` là IP/CIDR client công ty mà Gateway nhìn thấy,
+`ATTENDANCE_TRUSTED_PROXIES` là địa chỉ/CIDR riêng của Gateway. Danh sách rỗng sẽ
+từ chối chấm công; không dùng subnet Docker làm mạng client công ty.
+Xem [hướng dẫn Attendance](../../attendance-service/README.md).
+
 Không nạp seed chứa tài khoản/mật khẩu mẫu lên hệ thống public. Production cần
 quy trình cấp tài khoản quản trị phù hợp trước khi người dùng đăng nhập.
 
@@ -93,7 +102,7 @@ docker compose ps
 # Chỉ gateway có cổng host 443; service, database và Kafka không có port binding.
 ```
 
-Mở inbound TCP 443 trên firewall/security group của host. Không mở 8081–8084,
+Mở inbound TCP 443 trên firewall/security group của host. Không mở 8081–8085,
 5432 hoặc 9092. Quản trị database bằng `docker compose exec`, không thêm `ports`
 vào các database/service.
 

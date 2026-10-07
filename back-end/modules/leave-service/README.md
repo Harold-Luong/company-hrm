@@ -10,6 +10,8 @@ xem kết quả trên hệ thống, chưa có email/push hoặc phân công mộ
   request body không quyết định người gửi, trạng thái hay người duyệt.
 - Loại nghỉ: `ANNUAL` (phép năm), `UNPAID` (không lương). Phép `ANNUAL` được cấp tự động
   12 ngày (24 đơn vị nửa ngày) cho mỗi nhân viên trong mỗi năm dương lịch.
+- Đơn vị nghỉ phép nhỏ nhất là **nửa ngày**: `MORNING`/`AFTERNOON` dùng 1 unit,
+  `FULL_DAY` dùng 2 units/ngày. Không nhận đơn nghỉ phép theo giờ hoặc phút.
 - Lý do nghỉ là trường `reason` riêng, bắt buộc, tối đa 2.000 ký tự. Có thể ghi
   "Việc cá nhân", "Việc gia đình", "Khám bệnh"; không yêu cầu chi tiết bệnh lý.
   `SICK`/`OTHER` không còn là loại nghỉ hợp lệ trong API.
@@ -33,6 +35,36 @@ xem kết quả trên hệ thống, chưa có email/push hoặc phân công mộ
 - Chưa đồng bộ Kafka, Calendar hay Attendance. Chỉ `ANNUAL` dùng sổ số dư;
   `UNPAID` không trừ số dư phép năm.
   Khi bổ sung các consumer, triển khai outbox cùng transaction và chống trùng sự kiện.
+
+## Thiết kế nghỉ phép, lịch làm việc và tích hợp công
+
+Thiết kế chung được tổng hợp tại [Attendance Design](../ATTENDANCE-DESIGN.md),
+bao gồm các ví dụ tính công, quyền sở hữu dữ liệu, đối soát và xuất CSV.
+Attendance đã có [API/UI ca cố định, phân công, chấm công và CSV tạm tính](../attendance-service/README.md),
+đọc phép qua endpoint coverage. Đơn đi trễ/về sớm, lịch linh hoạt và tự đồng bộ
+ngày công khi phép thay đổi chưa được triển khai.
+
+- Leave quản lý phép theo ngày, bước **0,5 ngày**, và phê duyệt; đơn đi trễ/về sớm là mở rộng dự kiến; Attendance quản lý lịch/ca, giờ thực tế và kết quả tính công.
+- `FIXED_SHIFT`: làm theo giờ ca; đi trễ/về sớm làm tròn lên riêng từng loại,
+  bước **15 phút** (5 phút → 15; 16 phút → 30). Giữ giờ thực tế để đối soát.
+- HR/Admin tạo và chỉnh ca, mặc định **08:00–12:00, 13:30–17:30**. Có thể đổi
+  khoảng giờ (ví dụ chiều 13:00–15:00), áp dụng toàn bộ hoặc một/vài nhân viên
+  theo ngày hiệu lực. Tổng giờ tính từ lịch đã gán; xem thiết kế chung về
+  ưu tiên lịch riêng và xử lý ngoại lệ khi áp dụng toàn bộ.
+- `FLEXIBLE_DURATION`: chỉ yêu cầu đủ thời lượng ngày, ví dụ 8 giờ; không đánh
+  giá đi trễ/về sớm. Đề xuất thiếu giờ giữ thời lượng thực tế mặc định; chỉ làm
+  tròn thiếu giờ lên 15 phút nếu công ty cấu hình chính sách riêng.
+- Part-time có thể dùng một trong hai chế độ: ca cố định 10:00–12:00 hoặc
+  13:00–15:30; hoặc lịch linh hoạt yêu cầu đủ 2/2,5 giờ. Không hard-code ngày 8h.
+- Với lịch cố định, phép loại đúng khoảng buổi được duyệt. Với flex, đề xuất
+  nghỉ 0,5 ngày giảm nửa mục tiêu ngày; UI/API nửa ngày không gắn buổi và chính
+  sách phép part-time phải hoàn thiện trước khi bật, chưa phải khả năng API hiện tại.
+- Ví dụ nghỉ phép sáng, chiều phải làm 13:30–17:30, vào 13:38 và ra 17:30:
+  ghi riêng phép 0,5 ngày, làm thực tế 3h52, làm việc tính công 3h45.
+- Bước 15 phút không tự trừ số dư phép hoặc quyết định bù công/hưởng lương.
+  Giờ làm thực tế, giờ làm tính công và thời lượng nghỉ phép được lưu riêng.
+- Trước khi tích hợp chính thức phải sửa tính phép theo lịch làm việc/ngày lễ,
+  lưu snapshot, xử lý đồng bộ, chốt kỳ và revision báo cáo theo thiết kế chung.
 
 ## Chạy local
 
@@ -145,3 +177,13 @@ LEAVE_TEST_DB_USER=leave_test LEAVE_TEST_DB_PASSWORD=your-test-password ./mvnw t
 Kiểm thử gồm workflow, quyền sở hữu, tự duyệt, version, xử lý đồng thời,
 chống trùng khoảng ngày và rollback audit. Frontend có unit test và Playwright:
 `npm run test`, `npx playwright test tests/e2e/leave.spec.js` trong `frontend`.
+
+## Coverage cho Attendance
+
+`GET /api/v1/leave/requests/attendance?from=YYYY-MM-DD&until=YYYY-MM-DD&employeeId=UUID`
+trả các đơn PENDING/APPROVED giao khoảng ngày, gồm id, employeeId, loại, buổi,
+ngày và version. Không trả reason/note. Nhân viên chỉ đọc bản thân; HR/ADMIN có thể
+chọn nhân viên hoặc toàn công ty. Tối đa 2.000 đơn; vượt giới hạn trả 422, không cắt
+mất dữ liệu. Attendance dùng APPROVED tính thời lượng phép theo ca và PENDING làm
+cờ đối soát. Endpoint này không thay đổi quy tắc sổ số dư Leave, không tự đồng bộ
+ngày công đã snapshot; HR cập nhật coverage qua Attendance khi nguồn thay đổi.

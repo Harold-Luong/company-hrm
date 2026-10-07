@@ -54,6 +54,7 @@ for wrapper in \
     "$MODULES_DIR/employee-service/mvnw" \
     "$MODULES_DIR/calendar-service/mvnw" \
     "$MODULES_DIR/leave-service/mvnw" \
+    "$MODULES_DIR/attendance-service/mvnw" \
     "$MODULES_DIR/gateway/mvnw"; do
     if [[ ! -x "$wrapper" ]]; then
         log "Không tìm thấy Maven Wrapper có quyền chạy: $wrapper"
@@ -75,9 +76,11 @@ start_app "gateway" "$MODULES_DIR/gateway" \
     env JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem ./mvnw spring-boot:run
 start_app "leave" "$MODULES_DIR/leave-service" \
     env JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem ./mvnw spring-boot:run
+start_app "attendance" "$MODULES_DIR/attendance-service" \
+    env JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem ./mvnw spring-boot:run
 start_app "frontend" "$ROOT_DIR/frontend" npm run dev
 
-log "Đã khởi chạy 6 ứng dụng. Chờ log sẵn sàng của từng ứng dụng. Frontend: http://localhost:5173, Gateway: http://localhost:8080"
+log "Đã khởi chạy 7 ứng dụng. Chờ log sẵn sàng của từng ứng dụng. Frontend: http://localhost:5173, Gateway: http://localhost:8080"
 log "Nhấn Ctrl+C để dừng toàn bộ."
 
 # Kết thúc script ngay khi một ứng dụng thoát; trap sẽ dừng các ứng dụng còn lại.

@@ -15,13 +15,14 @@ Compose; database `calendar_db` đang có trên máy không bị đổi tên ho�
 | `/api/v1/employees/**`, `/api/v1/departments/**`, `/api/v1/positions/**` | Employee `:8082` |
 | `/api/v1/calendar/**`, `/api/v1/calendar-events/**` | Workforce / Calendar `:8083` |
 | `/api/v1/leave/**` | Leave `:8084` |
+| `/api/v1/attendance/**` | Attendance `:8085`; hiện có health check, giữ nguyên đường dẫn |
 | `GET /api/v1/leave/health-check` (cần access token) | `/actuator/health` của Leave `:8084` |
 | `GET /api/v1/calendar/health-check` (cần access token) | `/actuator/health` của Calendar `:8083` |
 | `GET /actuator/health` | Health của gateway, không trả chi tiết |
 
 Chỉ các POST login, refresh, logout, activate và các GET trang activation,
 `/actuator/health` của gateway cho phép truy cập ẩn danh. Health-check của Auth,
-Employee, Calendar và Leave cần access token. Register, logout-all, activation-invitations
+Employee, Calendar, Leave và Attendance cần access token. Register, logout-all, activation-invitations
 và API nghiệp vụ yêu cầu access token. Refresh được Auth kiểm tra bằng refresh
 token trong body, kể cả khi header còn mang access token hết hạn. Swagger và các
 endpoint quản trị không được mở qua gateway.
@@ -46,7 +47,9 @@ với 8082 và Calendar với 8083. Để service local chỉ nhận kết nối
 đặt `SERVER_ADDRESS=127.0.0.1` khi chạy từng service.
 
 Có thể đổi đích qua `AUTH_SERVICE_URL`, `EMPLOYEE_SERVICE_URL`,
-`WORKFORCE_SERVICE_URL`, `LEAVE_SERVICE_URL`. Leave mặc định chạy tại `:8084`,
+`WORKFORCE_SERVICE_URL`, `LEAVE_SERVICE_URL`, `ATTENDANCE_SERVICE_URL`.
+Attendance mặc định tại `:8085`, dùng `attendance_db`; xem [hướng dẫn](../attendance-service/README.md).
+Leave mặc định chạy tại `:8084`,
 tự kiểm tra quyền người gửi/HR và sở hữu `leave_db` riêng.
 `CORS_ALLOWED_ORIGINS` là danh sách origin phân cách bằng
 dấu phẩy; mặc định `http://localhost:5173`. Frontend gọi gateway thay cho cổng

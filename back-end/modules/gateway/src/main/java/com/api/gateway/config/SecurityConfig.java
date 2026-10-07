@@ -78,7 +78,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/activate")
                         .permitAll()
                         .pathMatchers("/api/v1/auth/**", "/api/v1/employees/**", "/api/v1/departments/**",
-                                "/api/v1/positions/**", "/api/v1/calendar/**", "/api/v1/calendar-events/**", "/api/v1/leave/**")
+                                "/api/v1/positions/**", "/api/v1/calendar/**", "/api/v1/calendar-events/**",
+                                "/api/v1/leave/**", "/api/v1/attendance/**")
                         .authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(resource -> resource
