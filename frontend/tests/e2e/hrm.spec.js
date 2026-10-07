@@ -235,14 +235,14 @@ test('employee role sees personnel forms but cannot send provisioning requests',
   await expect(page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toHaveCount(0)
   await page.goto('/services')
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
 })
 test('service health checks send the current access token through the gateway', async ({
   page,
 }) => {
   await setup(page)
   const requests = []
-  for (const service of ['auth', 'employees', 'calendar', 'leave']) {
+  for (const service of ['auth', 'employees', 'calendar', 'leave', 'attendance']) {
     await page.route(`**/api/v1/${service}/health-check`, (route) => {
       const authorization = route.request().headers().authorization
       requests.push({ service, authorization })
@@ -253,19 +253,20 @@ test('service health checks send the current access token through the gateway', 
     })
   }
   await page.goto('/services')
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
   expect(requests).toEqual(
     expect.arrayContaining([
       { service: 'auth', authorization: 'Bearer access' },
       { service: 'employees', authorization: 'Bearer access' },
       { service: 'calendar', authorization: 'Bearer access' },
       { service: 'leave', authorization: 'Bearer access' },
+      { service: 'attendance', authorization: 'Bearer access' },
     ]),
   )
   await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
-  await expect.poll(() => requests.length).toBe(8)
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
+  await expect.poll(() => requests.length).toBe(10)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
 })
 test('calendar health failure is isolated and can be retried', async ({ page }) => {
   await setup(page)
@@ -278,12 +279,12 @@ test('calendar health failure is isolated and can be retried', async ({ page }) 
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Lịch nghỉ & sự kiện', exact: true }) })
   await expect(calendar.getByRole('alert')).toBeVisible()
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(3)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
   available = true
   await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
   await expect(calendar.getByRole('status')).toHaveText('Hoạt động bình thường')
   await expect(calendar.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
 })
 test('manual request lookup shows loading and the returned result without submitting an account', async ({
   page,
