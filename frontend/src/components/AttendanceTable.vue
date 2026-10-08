@@ -76,6 +76,7 @@ function dateLabel(value) {
           <th>Vào / Ra</th>
           <th>Giờ thực tế</th>
           <th>Giờ tính công</th>
+          <th>OT thực tế / Đã duyệt</th>
           <th>Phép</th>
           <th>Trễ / Sớm quy đổi</th>
           <th>Trạng thái</th>
@@ -94,6 +95,10 @@ function dateLabel(value) {
           <td>{{ secondsLabel(row.workedActualSeconds) }}</td>
           <td>{{ minutesLabel(row.workMinutesCounted) }}</td>
           <td>
+            {{ minutesLabel(row.overtime?.countedMinutes ?? 0)
+            }}<small>Đã duyệt {{ minutesLabel(row.overtime?.approvedMinutes ?? 0) }}</small>
+          </td>
+          <td>
             {{ row.leaveDays }} ngày<small v-if="row.annualLeaveMinutes"
               >Phép năm {{ minutesLabel(row.annualLeaveMinutes) }}</small
             ><small v-if="row.unpaidLeaveMinutes"
@@ -107,6 +112,21 @@ function dateLabel(value) {
             }}</span
             ><small v-if="row.pendingLeaveIds?.length"
               >{{ row.pendingLeaveIds.length }} đơn chờ duyệt</small
+            >
+            <small v-if="row.permissionCoverage?.approvedRequestIds?.length"
+              >Có phép đi trễ/về sớm ·
+              {{ row.permissionCoverage.approvedRequestIds.length }} đơn</small
+            >
+            <small v-if="row.permissionCoverage?.pendingRequestIds?.length"
+              >{{ row.permissionCoverage.pendingRequestIds.length }} đơn đi trễ/về sớm chờ
+              duyệt</small
+            >
+            <small v-if="row.permissionCoverage?.conflictingRequestIds?.length"
+              >Cần đối soát đơn đi trễ/về sớm với phép/ca</small
+            >
+            <small v-if="row.permissionCoverage?.unapprovedRoundedLateMinutes != null"
+              >Chưa có phép: trễ {{ row.permissionCoverage.unapprovedRoundedLateMinutes }}p / sớm
+              {{ row.permissionCoverage.unapprovedRoundedEarlyMinutes }}p</small
             >
           </td>
           <td v-if="management">
@@ -129,7 +149,7 @@ function dateLabel(value) {
           </td>
         </tr>
         <tr v-if="busy || !filtered.length">
-          <td :colspan="management ? 9 : 7">
+          <td :colspan="management ? 10 : 8">
             <div class="attendance-empty">
               <AppIcon :name="busy ? 'clock' : failed ? 'info' : 'calendar'" :size="30" />
               <strong>{{

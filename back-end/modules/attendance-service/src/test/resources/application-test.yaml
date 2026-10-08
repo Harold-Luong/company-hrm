@@ -14,5 +14,7 @@ spring:
       schema-locations: file:docs/sql/001_attendance_schema.sql
 
 attendance:
+  initialize-default-schedule: false
+  idempotency-cleanup-cron: "-"
   allowed-networks: 127.0.0.1/32
   trusted-proxies: []

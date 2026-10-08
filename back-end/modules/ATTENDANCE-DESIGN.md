@@ -5,11 +5,23 @@
 Tài liệu gồm thiết kế tổng thể và lộ trình mở rộng. [Attendance Service](attendance-service/README.md)
 đã triển khai Java 21/JPA, ca cố định, phân công theo hiệu lực, check-in/out qua mạng
 công ty, tổng hợp phép/ngày nghỉ và CSV tạm tính; có UI tương ứng. Mẫu mặc định
-08:00–12:00, 13:30–17:30 được seed nhưng HR phải chủ động phân công.
+08:00–12:00, 13:30–17:30 tự áp dụng thứ Hai–thứ Sáu khi service khởi động nếu
+công ty chưa có lịch. Lịch riêng và lịch công ty HR đã cấu hình được giữ nguyên.
+Attendance cũng quản lý đơn đi trễ/về sớm, ca cố định qua đêm và OT có duyệt.
 Leave hỗ trợ bước 0,5 ngày và endpoint coverage tối thiểu phục vụ Attendance.
-Chưa có đơn xin đi trễ/về sớm, lịch linh hoạt, điều chỉnh công thủ công, chốt kỳ
+Chưa có lịch linh hoạt, điều chỉnh công thủ công, chốt kỳ
 hoặc tự đồng bộ nguồn. Các mô hình/contract dự kiến bên dưới không đồng nghĩa đã
 triển khai toàn bộ; API hiện hành nằm trong README service.
+
+Attendance hiện dùng lớp cha JPA chung cho metadata audit, version và xét duyệt;
+giữ các bảng nghiệp vụ/lịch sử riêng để bảo toàn FK và snapshot. Báo cáo và lịch
+cá nhân đọc dữ liệu theo khoảng ngày, tránh truy vấn từng ngày. Xem
+[kiến trúc hiện hành](attendance-service/README.md#kiến-trúc-code-và-dữ-liệu)
+và [schema khởi tạo duy nhất](attendance-service/docs/sql/001_attendance_schema.sql).
+Ngày công, quy tắc lịch và đơn đi trễ/về sớm tham chiếu phiên bản ca bất biến thay
+vì sao chép JSON ca. Snapshot nguồn được thu gọn theo từng ngày; vẫn giữ bằng
+chứng chấm công từng ngày và ràng buộc chống ghi trùng vào/ra. Trong giai đoạn
+phát triển, cập nhật schema này và tạo lại database khi thay đổi cấu trúc.
 
 Thiết kế dùng chung cho giờ cố định, ca part-time và lịch linh hoạt chỉ yêu cầu
 đủ thời lượng trong ngày. Trước mắt triển khai giờ cố định; các chế độ sau dùng
@@ -26,6 +38,17 @@ khai multi-tenant: phạm vi hiện tại vẫn là một công ty, `Asia/Ho_Chi
 Full-time/part-time mô tả lịch và thời lượng được phân công, không phải thuật
 toán tính công thứ ba. Ca cố định 2 giờ dùng cùng thuật toán với ca cố định 8 giờ.
 Lịch linh hoạt không cần khai báo một giờ bắt đầu/kết thúc giả để tính đi trễ.
+
+Ưu tiên hiện tại là **`FIXED_SHIFT`**, phù hợp với lịch có khung giờ xác định,
+kể cả ca part-time. **`FLEXIBLE_DURATION` thuộc giai đoạn nâng cao**, mặc định
+ẩn và chỉ xuất hiện sau khi ADMIN mở khóa ở cấp công ty. HR và nhân viên không
+được tự thay đổi trạng thái mở khóa; backend phải kiểm tra trạng thái này khi
+tạo/sửa ca, kể cả khi gọi API trực tiếp. Việc mở khóa chỉ cung cấp thêm lựa chọn,
+không tự chuyển các ca cố định đã có sang chế độ linh hoạt.
+
+Đây là chính sách cho giai đoạn sau: hiện chưa triển khai cách tính công linh
+hoạt hoặc chức năng mở khóa. UI chỉ dùng ca cố định và `ShiftService` vẫn từ chối
+`FLEXIBLE_DURATION`, kể cả yêu cầu gửi bởi ADMIN.
 
 Chính sách mặc định của công ty tạo phân công cho nhân viên. Cho phép phân công
 riêng theo nhân viên và ngày hiệu lực; mỗi ngày phải xác định được duy nhất một
@@ -92,8 +115,8 @@ phải có ánh xạ nghỉ nửa ngày rõ ràng trước khi nhận loại đ�
 | --- | --- |
 | Employee | Nhân viên, phòng ban, ngày bắt đầu/kết thúc làm việc |
 | Calendar | Ngày lễ/ngày nghỉ chung có hiệu lực |
-| Leave | Đơn nghỉ, số dư theo ngày; đơn đi trễ/về sớm, phê duyệt và lịch sử |
-| Attendance — đã có ca cố định và công tạm tính | Chính sách công, mẫu ca, phân công, sự kiện vào/ra, điều chỉnh, tổng hợp, chốt kỳ và CSV |
+| Leave | Đơn nghỉ cả ngày/nửa ngày, số dư phép, phê duyệt và lịch sử nghỉ phép |
+| Attendance | Mẫu ca, phân công, sự kiện vào/ra, đơn đi trễ/về sớm và lịch sử duyệt, OT, công tạm tính và CSV; điều chỉnh/chốt kỳ còn trong lộ trình |
 
 Chưa cần Shift Service hoặc Report Service riêng. Không đọc chéo database.
 Attendance lấy dữ liệu qua API nội bộ có xác thực hoặc bản sao từ sự kiện;
@@ -223,18 +246,21 @@ làm tròn riêng từng phiên. Lựa chọn này phải được lưu trong po
 
 ## 6. Đơn đi trễ/về sớm và bù công
 
-Leave lưu riêng `time_permission_requests`: nhân viên, ngày/phân công, loại
-`LATE_ARRIVAL`/`EARLY_DEPARTURE`, khoảng xin phép, lý do, trạng thái, version và
-audit. Thời lượng xin theo bước 15 phút, không chứa giờ nghỉ. Bước thời lượng
-không bắt buộc giờ bắt đầu ca nằm trên mốc :00/:15/:30/:45.
+Attendance lưu `attendance_requests` và `attendance_request_history`: nhân viên,
+ngày công, snapshot ca, loại `LATE_ARRIVAL`/`EARLY_DEPARTURE`, buổi, giờ dự kiến,
+lý do, trạng thái, version và lịch sử xét duyệt. API `/api/v1/attendance/requests`;
+UI `/attendance/requests`. Giờ dự kiến chính xác đến phút và nằm trong khoảng
+làm việc; backend tự tính số phút xin phép. Quy tắc làm tròn 15 phút áp dụng khi
+tính sai lệch chấm công, không bắt buộc số phút xin phép là bội số của 15.
 
 Chỉ áp dụng loại đơn này cho `FIXED_SHIFT`. Với flex thuần túy không có mốc trễ/
 sớm, giao diện không yêu cầu đơn đó. Nếu tương lai có xin miễn một phần thời
 lượng ngày, cần nghiệp vụ riêng; không dùng nhãn đi trễ cho thiếu giờ linh hoạt.
 
-Dùng cùng quyền HR/ADMIN, cấm tự duyệt, `If-Match`, audit và khóa theo nhân viên
-để kiểm tra chồng lấn với phép/đơn khác trong cùng transaction Leave. Xác minh
-phân công và snapshot bằng contract Attendance; không tin giờ ca client gửi.
+HR/ADMIN duyệt, cấm tự duyệt, dùng `If-Match`, audit và khóa điều phối trong
+transaction Attendance để kiểm tra lịch và đơn khác. Attendance kiểm tra phép
+qua REST của Leave; không có transaction chung giữa hai service. Phân công và
+snapshot được xác minh trong Attendance, không tin giờ ca hoặc thời lượng client gửi.
 
 Phê duyệt xác nhận khoảng vắng được cho phép, không tự đổi timestamp, trừ phép
 năm hoặc bù đủ công. Đề xuất mặc định `permission_credit=NONE`; bù công có
@@ -299,11 +325,12 @@ outbox cùng transaction duyệt và consumer chống trùng/sai thứ tự theo
 1. Tạo Attendance với policy/phân công/snapshot; HR/Admin quản lý `FIXED_SHIFT`
    mặc định 08–12, 13:30–17:30 và ca tùy chỉnh, áp dụng toàn bộ hoặc nhân viên
    được chọn. Ghi nhận vào/ra và tổng hợp có kiểm soát dữ liệu thiếu.
-2. Mở rộng Leave với đơn đi trễ/về sớm; sửa tính phép theo lịch/ngày nghỉ và
-   kết nối dữ liệu đã duyệt để tính công theo quy tắc 15 phút.
+2. Đơn đi trễ/về sớm đã triển khai trong Attendance, không thuộc Leave.
+   Tiếp tục hoàn thiện tính phép theo lịch/ngày nghỉ và đối soát dữ liệu đã duyệt.
 3. Đối soát, khóa kỳ, CSV chi tiết và tổng tháng.
-4. Hoàn thiện chính sách phép part-time và bật `FLEXIBLE_DURATION` sau khi hoàn
-   thiện UI/validation, chính sách nghỉ/nửa ngày flex và kiểm thử tương ứng. Chọn
+4. Triển khai `FLEXIBLE_DURATION` như tính năng nâng cao mặc định ẩn, chỉ ADMIN
+   được mở khóa, sau khi hoàn thiện tính công, UI/validation, chính sách nghỉ/nửa
+   ngày flex và kiểm thử tương ứng. Chọn
    chế độ theo assignment, không tạo Attendance Service riêng cho từng chế độ.
 
 Các ca nghiệm thu bắt buộc: toàn bộ ví dụ mục 7; 0/15/15 phút 1 giây ở biên

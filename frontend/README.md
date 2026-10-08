@@ -264,3 +264,22 @@ sự kiện đã bắt đầu và đã hủy chỉ xem. Giờ nhập luôn theo 
 khi trình duyệt dùng múi giờ khác. Nhân viên thường vẫn xem lịch tại `/calendar`.
 
 Reverse proxy cần chuyển cả `/api/v1/calendar-events` và các đường dẫn con đến Calendar Service.
+
+## Đi trễ / về sớm
+
+`/attendance/requests` đã dùng API thật: tải ca theo ngày, gửi/sửa/rút đơn, xem
+trạng thái/lịch sử. HR/ADMIN có hàng chờ duyệt cùng trang. Đơn duyệt ghi nhận phần
+có phép; công vẫn trừ theo bước 15 phút. Không còn dữ liệu mẫu hoặc memory store.
+[Contract và migration cần chạy](src/attendance/REQUESTS-UI.md).
+
+
+### Phân ca và OT
+
+- `/attendance/schedules`: backend tự khởi tạo ca mặc định thứ Hai–thứ Sáu nếu công ty chưa có lịch, không ngày kết thúc;
+  lịch riêng ưu tiên theo ngày hiệu lực. HR chọn ca có giờ bắt đầu/kết thúc cụ thể,
+  các thứ áp dụng và khoảng ngày hiệu lực, xem trước rồi áp dụng phân công.
+- `/attendance/shifts`: bật “Ca qua đêm” cho một khoảng giờ kết thúc ngày sau.
+- `/attendance/overtime`: gửi/rút đăng ký OT, hộp duyệt HR, bắt đầu/kết thúc OT
+  bằng thời gian server qua mạng công ty. Chỉ OT đã duyệt mới được chấm giờ.
+- Bảng công và CSV tách số phút OT đã duyệt và thực tế khỏi công thường.
+- Backend dùng schema Attendance duy nhất `001_attendance_schema.sql`; khi đổi cấu trúc trong giai đoạn phát triển, tạo lại database theo README SQL của service.

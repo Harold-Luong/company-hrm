@@ -10,6 +10,7 @@ import { safeDestination } from '../../src/auth/navigation.js'
 afterEach(() => vi.unstubAllGlobals())
 const form = () => ({
   name: ' Standard ',
+  overnight: false,
   intervals: [
     { period: 'MORNING', start: '08:00', end: '12:00' },
     { period: 'AFTERNOON', start: '13:30', end: '17:30' },
@@ -41,6 +42,24 @@ describe('attendance UI contract', () => {
     ])
       expect(() => shiftBody({ ...form(), intervals })).toThrow()
   })
+  it('validates explicit overnight shifts and their next-day window', () => {
+    const night = {
+      ...form(),
+      overnight: true,
+      intervals: [{ period: 'AFTERNOON', start: '22:00', end: '06:00' }],
+      checkInFrom: '21:00',
+      checkOutUntil: '07:00',
+    }
+    expect(shiftBody(night).overnight).toBe(true)
+    expect(() => shiftBody({ ...night, overnight: false })).toThrow()
+    expect(() => shiftBody({ ...night, checkOutUntil: '05:00' })).toThrow()
+    expect(() =>
+      shiftBody({
+        ...night,
+        intervals: [...night.intervals, { period: 'MORNING', start: '07:00', end: '09:00' }],
+      }),
+    ).toThrow()
+  })
   it('does not display missing work as zero and keeps actual seconds', () => {
     expect(minutesLabel(null)).toBe('Chưa xác định')
     expect(minutesLabel(225)).toBe('3h 45p')
@@ -68,6 +87,7 @@ describe('attendance UI contract', () => {
       '/attendance/shifts',
       '/attendance/schedules',
       '/attendance/reports',
+      '/attendance/overtime',
     ])
       expect(safeDestination(path)).toBe(path)
     expect(safeDestination('/attendance/../accounts/new')).toBe('/')

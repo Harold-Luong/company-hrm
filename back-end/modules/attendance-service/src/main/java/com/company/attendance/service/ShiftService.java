@@ -38,6 +38,10 @@ public class ShiftService {
     public WorkShift require(UUID id) {
         return shifts.findById(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Shift not found"));
     }
+    public ShiftRevision revision(UUID shiftId, long version) {
+        return revisions.findByShiftIdAndShiftVersion(shiftId, version)
+                .orElseThrow(() -> error(HttpStatus.CONFLICT, "Shift revision not found"));
+    }
     public ShiftRequest definition(String json) { return mapper.readValue(json, ShiftRequest.class); }
     public PageResponse<ShiftRevision> history(UUID id, int page, int size) {
         require(id); page(page, size);
@@ -69,7 +73,7 @@ public class ShiftService {
     private void apply(WorkShift shift, ShiftRequest body) {
         int minutes = validate(body);
         var clean = new ShiftRequest(body.name().trim(), body.mode(), body.timezone(), body.intervals(),
-                body.checkInFrom(), body.checkOutUntil());
+                body.checkInFrom(), body.checkOutUntil(), body.overnight());
         shift.setName(clean.name()); shift.setDefinition(mapper.writeValueAsString(clean));
         shift.setRequiredMinutes(minutes); shift.setUpdatedAt(clock.instant());
     }
@@ -79,6 +83,16 @@ public class ShiftService {
         if (!"Asia/Ho_Chi_Minh".equals(body.timezone()))
             throw error(HttpStatus.BAD_REQUEST, "Only Asia/Ho_Chi_Minh is supported in this release");
         var periods = new HashSet<>(); LocalTime previous = null; int minutes = 0;
+        if (body.overnight()) {
+            var i = body.intervals().getFirst();
+            if (body.intervals().size() != 1 || !i.end().isBefore(i.start())
+                    || !minutePrecision(i.start()) || !minutePrecision(i.end())
+                    || !minutePrecision(body.checkInFrom()) || !minutePrecision(body.checkOutUntil())
+                    || body.checkInFrom().isAfter(i.start()) || !body.checkInFrom().isAfter(i.end())
+                    || body.checkOutUntil().isBefore(i.end()) || !body.checkOutUntil().isBefore(body.checkInFrom()))
+                throw error(HttpStatus.BAD_REQUEST, "Overnight shift requires one interval and a recording window shorter than 24 hours");
+            return (int) Duration.between(i.start(), i.end()).toMinutes() + 1440;
+        }
         for (var interval : body.intervals()) {
             if (!minutePrecision(interval.start()) || !minutePrecision(interval.end())
                     || !interval.start().isBefore(interval.end())
@@ -99,10 +113,9 @@ public class ShiftService {
                 shift.getRequiredMinutes(), shift.isActive(), shift.getUpdatedAt());
     }
     private void audit(WorkShift shift, JwtAuthenticationToken actor) {
-        var revision = new ShiftRevision(); revision.setId(UUID.randomUUID());
+        var revision = new ShiftRevision(); revision.recordAudit(actor.getName(), clock.instant());
         revision.setShiftId(shift.getId()); revision.setShiftVersion(shift.getVersion());
         revision.setDefinition(shift.getDefinition()); revision.setActive(shift.isActive());
-        revision.setActorUserId(actor.getName()); revision.setOccurredAt(clock.instant());
         revisions.save(revision);
     }
 }

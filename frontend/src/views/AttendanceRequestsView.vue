@@ -1,18 +1,13 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch, onMounted } from 'vue'
 import { auth } from '@/auth/session.js'
-import { today, minutesLabel } from '@/attendance/helpers.js'
+import { attendance } from '@/attendance/api.js'
+import { today, minutesLabel, attendanceError, attendanceRoles } from '@/attendance/helpers.js'
 import { dateLabel } from '@/leave/helpers.js'
-import {
-  previewShift,
-  requestBody,
-  requestPreview,
-  requestStatuses,
-  requestTypes,
-} from '@/attendance/requests.js'
+import { requestBody, requestStatuses, requestTypes } from '@/attendance/requests.js'
 import AttendanceNav from '@/components/AttendanceNav.vue'
 import AppIcon from '@/components/AppIcon.vue'
-
+import PageControls from '@/components/PageControls.vue'
 const defaults = () => ({
   requestType: 'LATE_ARRIVAL',
   workDate: today(),
@@ -20,93 +15,176 @@ const defaults = () => ({
   expectedTime: '',
   reason: '',
 })
-const form = reactive(defaults())
-const rows = requestPreview(auth.state.user.id)
-const editing = ref(null)
-const cancelId = ref(null)
-const filter = ref('')
-const error = ref('')
-const message = ref('')
-const formElement = ref(null)
-const reasonElement = ref(null)
+const form = reactive(defaults()),
+  rows = ref([]),
+  plan = ref(null),
+  editing = ref(null),
+  cancelId = ref(null),
+  filter = ref(''),
+  inbox = ref(false)
+const error = ref(''),
+  message = ref(''),
+  busy = ref(false),
+  scheduleBusy = ref(false),
+  formElement = ref(null),
+  reasonElement = ref(null)
+const pagination = ref({ page: 0, totalPages: 0, totalElements: 0 }),
+  histories = reactive({})
+const reviewer = computed(() => auth.hasRole(attendanceRoles))
+let submitKey = '',
+  sequence = 0
 const interval = computed(() =>
-  previewShift.definition.intervals.find((value) => value.period === form.period),
+  plan.value?.definition?.intervals.find((value) => value.period === form.period),
 )
 const isLate = computed(() => form.requestType === 'LATE_ARRIVAL')
 const timeTitle = computed(() => (isLate.value ? 'Giờ đến dự kiến' : 'Giờ về dự kiến'))
 const duration = computed(() => {
   try {
-    return requestBody({ ...form, reason: form.reason || 'Xem trước' }).requestedMinutes
+    return requestBody({ ...form, reason: form.reason || 'Xem trước' }, plan.value).requestedMinutes
   } catch {
     return null
   }
 })
-const filteredRows = computed(() =>
-  rows.filter((row) => !filter.value || row.status === filter.value),
+const filteredRows = computed(() => rows.value)
+watch(
+  form,
+  () => {
+    submitKey = ''
+  },
+  { deep: true },
 )
+async function reload() {
+  await load()
+  if (!error.value && editing.value) {
+    const current = rows.value.find((row) => row.id === editing.value.id)
+    if (current?.status === 'PENDING') await edit(current)
+    else reset()
+  }
+  await loadSchedule()
+}
+async function loadSchedule() {
+  const ticket = ++sequence,
+    date = form.workDate
+  plan.value = null
+  if (!date) return
+  scheduleBusy.value = true
+  try {
+    const result = await attendance.schedule(date, date)
+    if (ticket !== sequence) return
+    plan.value = result[0] || null
+    if (!plan.value?.definition)
+      error.value = 'Chưa được phân ca cho ngày đã chọn. Liên hệ HR trước khi gửi đơn.'
+    else if (!plan.value.definition.intervals.some((i) => i.period === form.period))
+      form.period = plan.value.definition.intervals[0].period
+  } catch (cause) {
+    if (ticket === sequence) error.value = attendanceError(cause)
+  } finally {
+    if (ticket === sequence) scheduleBusy.value = false
+  }
+}
+watch(() => form.workDate, loadSchedule)
+async function load(page = 0) {
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await attendance.requests(inbox.value, filter.value, page)
+    rows.value = result.content
+    pagination.value = result
+  } catch (cause) {
+    rows.value = []
+    error.value = attendanceError(cause)
+  } finally {
+    busy.value = false
+  }
+}
+watch([filter, inbox], () => {
+  reset()
+  load()
+})
 function reset() {
   Object.assign(form, defaults())
   editing.value = null
+  cancelId.value = null
   error.value = ''
+  submitKey = ''
 }
-function submit() {
+async function submit() {
+  if (busy.value || scheduleBusy.value) return
   error.value = ''
   message.value = ''
   try {
-    const body = requestBody(form)
-    if (
-      rows.some(
-        (row) =>
-          row.id !== editing.value &&
-          ['PENDING', 'APPROVED'].includes(row.status) &&
-          row.workDate === body.workDate &&
-          row.period === body.period &&
-          row.requestType === body.requestType,
-      )
-    )
-      throw new Error(
-        'Đã có đơn chờ duyệt hoặc đã duyệt cùng ngày, buổi và loại yêu cầu. Bạn có thể sửa đơn đang chờ duyệt.',
-      )
-    const existing = rows.find((row) => row.id === editing.value)
-    if (existing) Object.assign(existing, body)
-    else
-      rows.unshift({
-        ...body,
-        id: crypto.randomUUID(),
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-        reviewNote: '',
-      })
-    filter.value = ''
-    message.value = existing
-      ? 'Đã cập nhật đơn mô phỏng. Chưa gửi đến HR.'
-      : 'Đã tạo đơn mô phỏng ở trạng thái chờ duyệt. Chưa gửi đến HR.'
+    const body = requestBody(form, plan.value)
+    busy.value = true
+    submitKey ||= crypto.randomUUID()
+    await attendance.saveRequest(editing.value?.id, body, editing.value?.version, submitKey)
+    const updated = !!editing.value
     reset()
+    await load()
+    message.value = updated ? 'Đã cập nhật đơn chờ duyệt.' : 'Đã gửi đơn đến HR để xét duyệt.'
   } catch (cause) {
-    error.value = cause.message
+    error.value = attendanceError(cause)
+  } finally {
+    busy.value = false
   }
 }
-function edit(row) {
+async function edit(row) {
   Object.assign(form, {
     requestType: row.requestType,
     workDate: row.workDate,
     period: row.period,
-    expectedTime: row.expectedTime,
+    expectedTime: row.expectedTime.slice(0, 5),
     reason: row.reason,
   })
-  editing.value = row.id
+  editing.value = row
   cancelId.value = null
   error.value = ''
   message.value = ''
-  formElement.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  reasonElement.value.focus({ preventScroll: true })
+  await loadSchedule()
+  formElement.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  reasonElement.value?.focus({ preventScroll: true })
 }
-function cancel(row) {
-  row.status = 'CANCELLED'
-  cancelId.value = null
-  if (editing.value === row.id) reset()
-  message.value = 'Đã rút đơn trong bản mô phỏng. Bảng công thực tế không thay đổi.'
+async function cancel(row) {
+  busy.value = true
+  error.value = ''
+  try {
+    await attendance.cancelRequest(row)
+    reset()
+    await load()
+    message.value = 'Đã rút đơn chờ duyệt.'
+  } catch (cause) {
+    error.value = attendanceError(cause)
+  } finally {
+    busy.value = false
+  }
 }
+async function decide(row, status) {
+  busy.value = true
+  error.value = ''
+  try {
+    await attendance.decideRequest(row, status, row.decisionNote?.trim() || null)
+    await load()
+    message.value = status === 'APPROVED' ? 'Đã duyệt đơn.' : 'Đã từ chối đơn.'
+  } catch (cause) {
+    error.value = attendanceError(cause)
+  } finally {
+    busy.value = false
+  }
+}
+async function showHistory(row) {
+  busy.value = true
+  error.value = ''
+  try {
+    histories[row.id] = (await attendance.requestHistory(row.id)).content
+  } catch (cause) {
+    error.value = attendanceError(cause)
+  } finally {
+    busy.value = false
+  }
+}
+onMounted(() => {
+  load()
+  loadSchedule()
+})
 </script>
 
 <template>
@@ -124,18 +202,24 @@ function cancel(row) {
       >
     </div>
     <AttendanceNav />
-    <div class="attendance-demo-note">
-      <AppIcon name="info" :size="20" />
-      <div>
-        <strong>Bản xem trước · Dữ liệu mô phỏng</strong>
-        <p>
-          Ca và đơn bên dưới là dữ liệu mẫu. Thao tác chưa gửi đến HR, chưa cập nhật bảng công; tải
-          lại trang sẽ đặt lại dữ liệu.
-        </p>
-      </div>
+    <div v-if="reviewer" class="button-row">
+      <button class="button button-secondary" :disabled="busy || !inbox" @click="inbox = false">
+        Đơn của tôi
+      </button>
+      <button class="button button-secondary" :disabled="busy || inbox" @click="inbox = true">
+        Hàng chờ duyệt
+      </button>
     </div>
+    <p class="info-strip">
+      Đơn được duyệt ghi nhận phần có phép; thời gian thiếu vẫn trừ công theo bước 15 phút. Không
+      trừ số dư phép năm.
+    </p>
+    <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
+    <button class="button button-secondary" :disabled="busy || scheduleBusy" @click="reload">
+      Tải lại dữ liệu
+    </button>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
-    <div class="attendance-request-layout">
+    <div v-if="!inbox" class="attendance-request-layout">
       <form ref="formElement" class="panel create-form" @submit.prevent="submit">
         <div class="attendance-section-heading">
           <div>
@@ -144,7 +228,7 @@ function cancel(row) {
           </div>
           <span class="attendance-badge">{{ editing ? 'Đang chỉnh sửa' : 'Đơn mới' }}</span>
         </div>
-        <fieldset class="attendance-request-types">
+        <fieldset class="attendance-request-types" :disabled="busy || scheduleBusy">
           <legend>Loại yêu cầu</legend>
           <label
             v-for="(label, value) in requestTypes"
@@ -163,13 +247,26 @@ function cancel(row) {
         <div class="attendance-fields">
           <div class="field">
             <label for="request-date">Ngày xin phép</label
-            ><input id="request-date" v-model="form.workDate" type="date" :min="today()" required />
+            ><input
+              id="request-date"
+              v-model="form.workDate"
+              :disabled="busy"
+              type="date"
+              :min="today()"
+              required
+            />
           </div>
           <div class="field">
             <label for="request-period">Buổi làm việc</label
-            ><select id="request-period" v-model="form.period">
-              <option value="MORNING">Buổi sáng · 08:00–12:00</option>
-              <option value="AFTERNOON">Buổi chiều · 13:30–17:30</option>
+            ><select id="request-period" v-model="form.period" :disabled="busy || scheduleBusy">
+              <option
+                v-for="item in plan?.definition?.intervals || []"
+                :key="item.period"
+                :value="item.period"
+              >
+                {{ item.period === 'MORNING' ? 'Buổi sáng' : 'Buổi chiều' }} ·
+                {{ item.start.slice(0, 5) }}–{{ item.end.slice(0, 5) }}
+              </option>
             </select>
           </div>
         </div>
@@ -179,12 +276,15 @@ function cancel(row) {
             ><input
               id="request-time"
               v-model="form.expectedTime"
+              :disabled="busy || scheduleBusy"
               type="time"
               required
               aria-describedby="request-time-help"
             />
             <p id="request-time-help" class="field-help">
-              Chọn giờ nằm trong buổi làm việc {{ interval.start }}–{{ interval.end }}.
+              Chọn giờ nằm trong buổi làm việc {{ interval?.start?.slice(0, 5) || '—' }}–{{
+                interval?.end?.slice(0, 5) || '—'
+              }}.
             </p>
           </div>
           <div class="attendance-request-duration">
@@ -198,6 +298,7 @@ function cancel(row) {
             id="request-reason"
             ref="reasonElement"
             v-model="form.reason"
+            :disabled="busy"
             rows="4"
             maxlength="1000"
             required
@@ -207,13 +308,14 @@ function cancel(row) {
             {{ form.reason.length }} / 1.000 ký tự
           </p>
         </div>
-        <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
+
         <div class="button-row">
-          <button class="button button-primary">
-            <AppIcon name="check" :size="17" />{{
-              editing ? 'Lưu thay đổi thử' : 'Gửi thử đơn'
-            }}</button
-          ><button class="button button-secondary" type="button" @click="reset">
+          <button
+            class="button button-primary"
+            :disabled="busy || scheduleBusy || !plan?.definition"
+          >
+            <AppIcon name="check" :size="17" />{{ editing ? 'Lưu thay đổi' : 'Gửi đơn' }}</button
+          ><button class="button button-secondary" type="button" :disabled="busy" @click="reset">
             {{ editing ? 'Hủy chỉnh sửa' : 'Nhập lại' }}
           </button>
         </div>
@@ -228,11 +330,13 @@ function cancel(row) {
           </div>
           <div>
             <dt>Ca tham chiếu</dt>
-            <dd>{{ previewShift.definition.name }}</dd>
+            <dd>{{ plan?.definition?.name || 'Chưa có ca' }}</dd>
           </div>
           <div>
             <dt>Buổi làm việc</dt>
-            <dd>{{ interval.start }}–{{ interval.end }}</dd>
+            <dd>
+              {{ interval?.start?.slice(0, 5) || '—' }}–{{ interval?.end?.slice(0, 5) || '—' }}
+            </dd>
           </div>
           <div>
             <dt>{{ timeTitle }}</dt>
@@ -245,8 +349,8 @@ function cancel(row) {
         </dl>
         <div class="attendance-guide-note">
           <AppIcon name="info" :size="18" /><span
-            >Thời lượng trên là thời gian xin phép, chưa phải kết quả tính công. Đơn mẫu được duyệt
-            cũng không thay đổi giờ chấm công.</span
+            >Thời lượng xin phép dựa trên ca được phân công. Giờ chấm công thực tế được giữ nguyên;
+            đơn duyệt chỉ giúp phân biệt phần có phép và chưa có phép.</span
           >
         </div>
         <RouterLink to="/leave" class="text-button attendance-related-link"
@@ -257,10 +361,9 @@ function cancel(row) {
     <section class="panel create-form">
       <div class="attendance-section-heading">
         <div>
-          <h2>Đơn xin phép của tôi</h2>
+          <h2>{{ inbox ? 'Hàng chờ HR/Admin' : 'Đơn xin phép của tôi' }}</h2>
           <p class="muted small">
-            {{ rows.filter((row) => row.status === 'PENDING').length }} đơn chờ duyệt · Dữ liệu mô
-            phỏng
+            {{ rows.filter((row) => row.status === 'PENDING').length }} đơn chờ duyệt trên trang
           </p>
         </div>
         <span class="attendance-badge">{{ filteredRows.length }} đơn</span>
@@ -268,7 +371,7 @@ function cancel(row) {
       <div class="attendance-table-tools">
         <div class="field">
           <label for="request-status">Trạng thái đơn</label
-          ><select id="request-status" v-model="filter">
+          ><select id="request-status" v-model="filter" :disabled="busy">
             <option value="">Tất cả trạng thái</option>
             <option v-for="(label, value) in requestStatuses" :key="value" :value="value">
               {{ label }}
@@ -307,32 +410,80 @@ function cancel(row) {
                 }}</span>
               </td>
               <td>
+                <p v-if="inbox">{{ row.employeeName }} · {{ row.employeeCode }}</p>
                 <details class="attendance-request-detail">
                   <summary>Lý do & phản hồi</summary>
                   <p>{{ row.reason }}</p>
-                  <p v-if="row.reviewNote"><strong>Phản hồi mẫu:</strong> {{ row.reviewNote }}</p>
+                  <p v-if="row.reviewNote"><strong>Phản hồi:</strong> {{ row.reviewNote }}</p>
                   <p v-else class="muted small">
-                    {{
-                      row.status === 'CANCELLED'
-                        ? 'Đơn đã được rút trong bản mô phỏng.'
-                        : 'Chưa có phản hồi.'
-                    }}
+                    {{ row.status === 'CANCELLED' ? 'Đơn đã được rút.' : 'Chưa có phản hồi.' }}
                   </p>
                 </details>
-                <div v-if="row.status === 'PENDING'" class="button-row">
-                  <button type="button" class="text-button" @click="edit(row)">Sửa đơn</button
+                <div v-if="row.status === 'PENDING' && !inbox" class="button-row">
+                  <button type="button" class="text-button" :disabled="busy" @click="edit(row)">
+                    Sửa đơn</button
                   ><button
                     type="button"
                     class="text-button attendance-cancel-link"
+                    :disabled="busy"
                     @click="cancelId = row.id"
                   >
                     Rút đơn
                   </button>
                 </div>
+                <div v-if="inbox && row.status === 'PENDING'" class="create-form">
+                  <label :for="`decision-${row.id}`">Phản hồi (bắt buộc khi từ chối)</label>
+                  <textarea
+                    :id="`decision-${row.id}`"
+                    v-model="row.decisionNote"
+                    maxlength="1000"
+                    :disabled="busy"
+                  ></textarea>
+                  <div class="button-row">
+                    <button
+                      class="button button-primary"
+                      type="button"
+                      :disabled="busy || row.employeeId === auth.state.user?.employeeId"
+                      @click="decide(row, 'APPROVED')"
+                    >
+                      Duyệt đơn
+                    </button>
+                    <button
+                      class="button button-secondary"
+                      type="button"
+                      :disabled="
+                        busy ||
+                        !row.decisionNote?.trim() ||
+                        row.employeeId === auth.state.user?.employeeId
+                      "
+                      @click="decide(row, 'REJECTED')"
+                    >
+                      Từ chối
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="text-button"
+                  type="button"
+                  :disabled="busy"
+                  @click="showHistory(row)"
+                >
+                  Lịch sử đơn
+                </button>
+                <ul v-if="histories[row.id]">
+                  <li v-for="event in histories[row.id]" :key="event.id">
+                    {{ event.action }} · {{ new Date(event.occurredAt).toLocaleString('vi-VN') }}
+                  </li>
+                </ul>
                 <div v-if="cancelId === row.id" class="attendance-cancel-confirm">
                   <p>Rút đơn này khỏi danh sách chờ duyệt?</p>
                   <div class="button-row">
-                    <button type="button" class="button button-danger-outline" @click="cancel(row)">
+                    <button
+                      type="button"
+                      class="button button-danger-outline"
+                      :disabled="busy"
+                      @click="cancel(row)"
+                    >
                       Xác nhận rút</button
                     ><button type="button" class="button button-secondary" @click="cancelId = null">
                       Giữ đơn
@@ -355,6 +506,13 @@ function cancel(row) {
           </tbody>
         </table>
       </div>
+      <PageControls
+        :page="pagination.page"
+        :pages="pagination.totalPages"
+        :total="pagination.totalElements"
+        :busy="busy"
+        @change="load"
+      />
     </section>
   </div>
 </template>

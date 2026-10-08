@@ -51,7 +51,8 @@ public class LeaveService {
             throw error(HttpStatus.BAD_REQUEST, "Annual leave cannot span calendar years; submit one request per year");
         }
         int totalUnits = period == LeavePeriod.FULL_DAY
-                ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2 : 1;
+                ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2
+                : 1;
         UUID employeeId = employee(actor);
         repository.lockEmployee(employeeId);
         if (repository.overlaps(employeeId, body.startDate(), body.endDate(), period)) {
@@ -94,7 +95,8 @@ public class LeaveService {
                 throw error(HttpStatus.FORBIDDEN, "You can only read your own leave coverage");
             employeeId = employee(actor);
         }
-        if (until.isBefore(from)) throw error(HttpStatus.BAD_REQUEST, "Invalid date range");
+        if (until.isBefore(from))
+            throw error(HttpStatus.BAD_REQUEST, "Invalid date range");
         var result = repository.attendance(employeeId, from, until);
         if (result.size() > 2000)
             throw error(HttpStatus.UNPROCESSABLE_ENTITY, "Narrow the employee or date range");

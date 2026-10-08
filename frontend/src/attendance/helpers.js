@@ -38,8 +38,12 @@ export const timeLabel = (value) =>
       }).format(new Date(value))
     : '—'
 export const shiftLabel = (definition) =>
-  definition?.intervals?.map((i) => `${i.start.slice(0, 5)}–${i.end.slice(0, 5)}`).join(' · ') ||
-  'Chưa có ca'
+  definition?.intervals
+    ?.map(
+      (i) =>
+        `${i.start.slice(0, 5)}–${i.end.slice(0, 5)}${definition.overnight ? ' (+1 ngày)' : ''}`,
+    )
+    .join(' · ') || 'Chưa có ca'
 export function shiftBody(form) {
   const intervals = form.intervals.map((i) => ({
     period: i.period,
@@ -57,12 +61,22 @@ export function shiftBody(form) {
       periods.has(i.period) ||
       !/^([01]\d|2[0-3]):[0-5]\d$/.test(i.start) ||
       !/^([01]\d|2[0-3]):[0-5]\d$/.test(i.end) ||
-      i.start >= i.end ||
+      (!form.overnight && i.start >= i.end) ||
       (index > 0 && i.start < intervals[index - 1].end)
     )
       throw new Error('Các khoảng giờ phải đúng thứ tự, không trùng nhau và không trùng buổi.')
     periods.add(i.period)
   }
+  if (
+    form.overnight &&
+    (intervals.length !== 1 ||
+      intervals[0].end >= intervals[0].start ||
+      form.checkInFrom <= intervals[0].end ||
+      form.checkOutUntil >= form.checkInFrom)
+  )
+    throw new Error(
+      'Ca qua đêm cần một khoảng giờ kết thúc vào ngày sau, cửa sổ chấm công dưới 24 giờ.',
+    )
   if (
     !form.checkInFrom ||
     !form.checkOutUntil ||
@@ -75,6 +89,7 @@ export function shiftBody(form) {
     mode: 'FIXED_SHIFT',
     timezone: 'Asia/Ho_Chi_Minh',
     intervals,
+    overnight: !!form.overnight,
     checkInFrom: form.checkInFrom,
     checkOutUntil: form.checkOutUntil,
   }
@@ -90,6 +105,40 @@ export function attendanceError(error) {
   if (error.status === 422)
     return 'Phạm vi dữ liệu quá lớn. Hãy chọn ít nhân viên hoặc rút ngắn khoảng ngày.'
   const messages = {
+    'Schedule overlaps an adjacent assigned shift':
+      'Lịch mới chồng giờ với ca liền kề đang được phân công.',
+    'Schedule affects approved OT; choose another date range':
+      'Lịch mới ảnh hưởng OT đã duyệt. Hãy chọn phạm vi ngày khác.',
+    'You cannot review your own OT request': 'Bạn không được tự duyệt OT của mình.',
+    'OT must be in the future, at minute precision, and shorter than 24 hours':
+      'OT cần được đăng ký và duyệt trước giờ bắt đầu, có thời lượng dưới 24 giờ.',
+    'OT overlaps another pending or approved request':
+      'Khoảng OT trùng với đơn đang chờ duyệt hoặc đã duyệt.',
+    'OT must be outside regular working intervals':
+      'Giờ OT phải nằm ngoài giờ làm việc thông thường.',
+    'OT conflicts with leave': 'Giờ OT trùng với khoảng nghỉ phép.',
+    'OT must be approved before recording time': 'OT cần được duyệt trước khi chấm giờ.',
+    'Outside the approved OT interval': 'Chỉ được bắt đầu trong khoảng OT đã duyệt.',
+    'Finish the previous overnight shift first':
+      'Hãy kết thúc ca đêm đang mở trước khi vào ca mới.',
+
+    'No assigned schedule for request date': 'Chưa được phân ca cho ngày xin phép. Liên hệ HR.',
+    'An active request already exists for this date, period and type':
+      'Đã có đơn chờ duyệt hoặc đã duyệt cùng ngày, buổi và loại yêu cầu.',
+    'A leave request already covers this period':
+      'Buổi này đã có đơn nghỉ phép chờ duyệt hoặc được duyệt.',
+    'Cannot request time on a company holiday': 'Ngày nghỉ chung không cần đơn đi trễ/về sớm.',
+    'Late and early requests cannot cover the entire work interval':
+      'Hai đơn bao phủ cả buổi làm việc. Hãy dùng đơn nghỉ phép.',
+    'Only pending requests can be reviewed': 'Đơn đã được xử lý. Hãy tải lại danh sách.',
+    'Only pending requests can be edited or cancelled': 'Chỉ được sửa hoặc rút đơn đang chờ duyệt.',
+    'You cannot review your own attendance request':
+      'Bạn không được tự duyệt hoặc từ chối đơn của mình.',
+    'Past requests cannot be edited': 'Không thể sửa đơn của ngày đã qua.',
+    'A rejection reason is required': 'Nhập lý do từ chối đơn.',
+    'Schedule affects approved attendance requests; resolve conflicts first':
+      'Phân công ảnh hưởng đơn đi trễ/về sớm đã duyệt. Hãy chọn phạm vi khác hoặc đối soát trước.',
+
     'Check-in/out is only allowed from the company network':
       'Bạn cần kết nối mạng công ty để chấm công. Nếu đang ở công ty, liên hệ quản trị viên kiểm tra cấu hình mạng.',
     'A trusted single client IP is required':
