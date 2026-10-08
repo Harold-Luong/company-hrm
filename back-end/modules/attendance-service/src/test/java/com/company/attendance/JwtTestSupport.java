@@ -13,9 +13,11 @@ import java.util.Base64;
 abstract class JwtTestSupport {
     protected static final KeyPair ACCESS_KEYS = generateKeyPair();
     private static final Path PUBLIC_KEY = writePublicKey();
+    protected static final Path TEST_SCHEMA = writeTestSchema();
 
     @DynamicPropertySource
     static void jwtProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.sql.init.schema-locations", () -> TEST_SCHEMA.toUri().toString());
         registry.add("jwt.access-public-key", () -> PUBLIC_KEY.toUri().toString());
         registry.add("jwt.access-issuer", () -> "auth-service");
         registry.add("jwt.access-audience", () -> "hrm-api-access");
@@ -28,6 +30,20 @@ abstract class JwtTestSupport {
             return generator.generateKeyPair();
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot generate test key", exception);
+        }
+    }
+
+    /** Dùng schema chính; H2 bỏ riêng trigger/index PostgreSQL, không duy trì schema SQL thứ hai. */
+    private static Path writeTestSchema() {
+        try {
+            String sql = Files.readString(Path.of("docs/sql/001_attendance_schema.sql"));
+            sql = sql.replaceAll("(?s)-- BEGIN POSTGRESQL ONLY.*?-- END POSTGRESQL ONLY", "");
+            Path path = Files.createTempFile("attendance-test-schema-", ".sql");
+            Files.writeString(path, sql);
+            path.toFile().deleteOnExit();
+            return path;
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Cannot prepare attendance test schema", exception);
         }
     }
 

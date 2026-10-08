@@ -26,6 +26,8 @@ public class ScheduleService {
     private final WorkforceClient source;
     private final OperationService operations;
     private final ScheduleBatchRepository batches;
+    private final AttendanceRequestRepository requests;
+    private final OvertimeRequestRepository overtime;
     private final tools.jackson.databind.ObjectMapper mapper;
     private final Clock clock;
 
@@ -47,8 +49,14 @@ public class ScheduleService {
             for (UUID id : request.employeeIds()) leaves.addAll(source.leaves(id, request.from(), until(request), actor));
         } else leaves.addAll(source.leaves(null, request.from(), until(request), actor));
         int approved = (int) leaves.stream().filter(l -> "APPROVED".equals(l.status()) && affectsLeave(request, l)).count();
+        int approvedRequests = (int) requests.findByStatusAndWorkDateBetween(
+                com.company.attendance.enums.AttendanceRequestStatus.APPROVED, request.from(), until(request)).stream()
+                .filter(r -> request.weekdays().contains(r.getWorkDate().getDayOfWeek()))
+                .filter(r -> request.scope() != ScheduleScope.SELECTED_EMPLOYEES || request.employeeIds().contains(r.getEmployeeId()))
+                .filter(r -> request.scope() != ScheduleScope.COMPANY_DEFAULT
+                        || effective(r.getEmployeeId(), r.getWorkDate()).map(rule -> rule.getEmployeeId() == null).orElse(true)).count();
         return new Preview(revision, shift, affected.size(), affected.stream().map(ScheduleRule::getEmployeeId)
-                .filter(Objects::nonNull).distinct().sorted().toList(), (int) conflicts, approved);
+                .filter(Objects::nonNull).distinct().sorted().toList(), (int) conflicts, approved, approvedRequests, overtimeConflicts(request, shift.definition()));
     }
     @Transactional
     public Applied apply(ScheduleRequest request, String match, String key, JwtAuthenticationToken actor) {
@@ -58,13 +66,19 @@ public class ScheduleService {
         requireVersion(match, lock.getRevision());
         var shift = validate(request, actor);
         var preview = preview(request, shift, lock.getRevision(), actor);
+        if (preview.approvedRequestConflicts() > 0)
+            throw error(HttpStatus.CONFLICT, "Schedule affects approved attendance requests; resolve conflicts first");
         if (preview.recordedDayConflicts() > 0 || preview.approvedLeaveConflicts() > 0)
             throw error(HttpStatus.CONFLICT, "Schedule affects recorded attendance or approved leave; resolve conflicts first");
-        UUID batch = UUID.randomUUID();
+        if (preview.approvedOvertimeConflicts() > 0)
+            throw error(HttpStatus.CONFLICT, "Schedule affects approved OT; choose another date range");
         var affected = affected(request);
-        var history = new ScheduleBatch(); history.setId(batch); history.setScheduleRevision(lock.getRevision() + 1);
-        history.setActorUserId(actor.getName()); history.setRequestBody(mapper.writeValueAsString(request));
-        history.setReplacedRules(mapper.writeValueAsString(affected)); history.setOccurredAt(clock.instant());
+        var history = new ScheduleBatch();
+        history.recordAudit(actor.getName(), clock.instant());
+        UUID batch = history.getId();
+        history.setScheduleRevision(lock.getRevision() + 1);
+        history.setRequestBody(mapper.writeValueAsString(request));
+        history.setReplacedRules(mapper.writeValueAsString(affected));
         batches.saveAndFlush(history);
         for (var old : affected) {
             LocalDate from = old.getEffectiveFrom(), until = old.getEffectiveUntil();
@@ -75,13 +89,13 @@ public class ScheduleService {
         List<UUID> owners = request.scope() == ScheduleScope.SELECTED_EMPLOYEES
                 ? new ArrayList<>(request.employeeIds()) : Collections.singletonList(null);
         int created = 0;
-        var model = shifts.require(request.shiftId());
+        var revision = shifts.revision(request.shiftId(), request.shiftVersion());
         for (UUID owner : owners) for (DayOfWeek weekday : request.weekdays()) {
             var rule = new ScheduleRule(); rule.setId(UUID.randomUUID()); rule.setBatchId(batch);
-            rule.setEmployeeId(owner); rule.setShiftId(model.getId()); rule.setShiftVersion(model.getVersion());
-            rule.setDefinition(model.getDefinition()); rule.setWeekday(weekday.getValue());
+            rule.setEmployeeId(owner); rule.setShiftRevision(revision); rule.setWeekday(weekday.getValue());
             rule.setEffectiveFrom(request.from()); rule.setEffectiveUntil(until(request)); rules.save(rule); created++;
         }
+        validateChangedSchedule(request);
         lock.setRevision(lock.getRevision() + 1);
         var result = new Applied(batch, lock.getRevision(), affected.size(), created);
         operations.save(actor.getName(), "APPLY_SCHEDULE", key, request, result);
@@ -95,14 +109,18 @@ public class ScheduleService {
     public List<Day> schedule(UUID employee, LocalDate from, LocalDate until, JwtAuthenticationToken actor) {
         if (!employee.equals(employee(actor))) requireReviewer(actor);
         dateRange(from, until); source.employee(employee, actor);
+        Map<LocalDate, AttendanceDay> recordedDays = new HashMap<>();
+        days.findByEmployeeIdAndWorkDateBetweenOrderByWorkDate(employee, from, until)
+                .forEach(day -> recordedDays.put(day.getWorkDate(), day));
+        var candidates = effectiveRules(employee, from, until);
         List<Day> result = new ArrayList<>();
         for (LocalDate date = from; !date.isAfter(until); date = date.plusDays(1)) {
-            var recorded = days.findByEmployeeIdAndWorkDate(employee, date);
-            if (recorded.isPresent()) {
-                var d = recorded.get(); var definition = shifts.definition(d.getShiftDefinition());
+            var d = recordedDays.get(date);
+            if (d != null) {
+                var definition = shifts.definition(d.getShiftDefinition());
                 result.add(new Day(employee, date, d.getShiftId(), d.getShiftVersion(), definition, shifts.validate(definition), "RECORDED_SNAPSHOT"));
             } else {
-                var rule = effective(employee, date);
+                var rule = effective(employee, date, candidates);
                 result.add(rule.isEmpty() ? new Day(employee, date, null, null, null, 0, "NO_SCHEDULE")
                     : new Day(employee, date, rule.get().getShiftId(), rule.get().getShiftVersion(),
                         shifts.definition(rule.get().getDefinition()), shifts.validate(shifts.definition(rule.get().getDefinition())),
@@ -112,7 +130,20 @@ public class ScheduleService {
         return result;
     }
     public Optional<ScheduleRule> effective(UUID employee, LocalDate date) {
-        var found = rules.effective(employee, date, date.getDayOfWeek().getValue());
+        return effective(employee, date, rules.effective(employee, date, date.getDayOfWeek().getValue()));
+    }
+
+    public List<ScheduleRule> effectiveRules(UUID employee, LocalDate from, LocalDate until) {
+        return rules.applicable(employee, from, until);
+    }
+
+    /** Resolve the same personal-over-company precedence for single-day and range reads. */
+    public Optional<ScheduleRule> effective(UUID employee, LocalDate date, List<ScheduleRule> candidates) {
+        var found = candidates.stream()
+                .filter(r -> r.getEmployeeId() == null || r.getEmployeeId().equals(employee))
+                .filter(r -> r.getWeekday() == date.getDayOfWeek().getValue())
+                .filter(r -> !r.getEffectiveFrom().isAfter(date) && !r.getEffectiveUntil().isBefore(date))
+                .toList();
         var personal = found.stream().filter(r -> r.getEmployeeId() != null).toList();
         var selected = personal.isEmpty() ? found : personal;
         if (selected.size() > 1) throw error(HttpStatus.CONFLICT, "Overlapping schedule rules require correction");
@@ -140,6 +171,57 @@ public class ScheduleService {
         return rules.overlapping(request.from(), until(request)).stream()
                 .filter(r -> matches(request, r.getEmployeeId(), r.getWeekday())).toList();
     }
+    private int overtimeConflicts(ScheduleRequest request, ShiftRequest plan) {
+        int count = 0;
+        for (var ot : overtime.findByStatusAndWorkDateBetween("APPROVED", request.from().minusDays(1), until(request).plusDays(1))) {
+            if (request.scope() == ScheduleScope.SELECTED_EMPLOYEES && !request.employeeIds().contains(ot.getEmployeeId())) continue;
+            for (LocalDate date = ot.getWorkDate().minusDays(1); !date.isAfter(ot.getEndTime().toLocalDate()); date = date.plusDays(1)) {
+                if (date.isBefore(request.from()) || date.isAfter(until(request)) || !request.weekdays().contains(date.getDayOfWeek())) continue;
+                var existing = effective(ot.getEmployeeId(), date);
+                if (request.scope() == ScheduleScope.COMPANY_DEFAULT && existing.map(r -> r.getEmployeeId() != null).orElse(false)) continue;
+                if (date.isBefore(ot.getWorkDate()) && !plan.overnight()
+                        && !existing.map(r -> shifts.definition(r.getDefinition()).overnight()).orElse(false)) continue;
+                count++;
+                break;
+            }
+        }
+        return count;
+    }
+
+    private void validateChangedSchedule(ScheduleRequest request) {
+        var relevant = rules.overlapping(request.from().minusDays(1), until(request).plusDays(1));
+        Set<UUID> employees = new HashSet<>(request.employeeIds());
+        if (request.scope() != ScheduleScope.SELECTED_EMPLOYEES) {
+            // The zero UUID checks the company fallback without any personal override.
+            employees.add(new UUID(0, 0));
+            relevant.stream().map(ScheduleRule::getEmployeeId).filter(Objects::nonNull).forEach(employees::add);
+        }
+        // Schedules are weekly and only change at effective-range boundaries. Check a
+        // full week at every boundary rather than expanding an unbounded default.
+        Set<LocalDate> boundaries = new HashSet<>(Set.of(request.from()));
+        boundaries.add(until(request));
+        for (var rule : relevant) {
+            if (!rule.getEffectiveFrom().isBefore(request.from())) boundaries.add(rule.getEffectiveFrom());
+            if (!rule.getEffectiveUntil().isAfter(until(request))) boundaries.add(rule.getEffectiveUntil());
+        }
+        for (UUID employee : employees) for (LocalDate date : boundaries)
+            validateAdjacent(employee, date, date.plusDays(7));
+    }
+
+    /** Kiểm tra ca vừa phân công không chồng giờ với ca của ngày liền kề. */
+    private void validateAdjacent(UUID employee, LocalDate from, LocalDate until) {
+        for (LocalDate date = from.minusDays(1); !date.isAfter(until); date = date.plusDays(1)) {
+            var a = effective(employee, date);
+            var b = effective(employee, date.plusDays(1));
+            if (a.isEmpty() || b.isEmpty()) continue;
+            var first = shifts.definition(a.get().getDefinition());
+            var second = shifts.definition(b.get().getDefinition());
+            if (ShiftTimes.at(date, first, first.intervals().getLast().end())
+                    .isAfter(ShiftTimes.at(date.plusDays(1), second, second.intervals().getFirst().start())))
+                throw error(HttpStatus.CONFLICT, "Schedule overlaps an adjacent assigned shift");
+        }
+    }
+
     private boolean affectsLeave(ScheduleRequest request, WorkforceClient.Leave leave) {
         LocalDate first = leave.startDate().isAfter(request.from()) ? leave.startDate() : request.from();
         LocalDate last = leave.endDate().isBefore(until(request)) ? leave.endDate() : until(request);
@@ -160,8 +242,7 @@ public class ScheduleService {
     private LocalDate until(ScheduleRequest request) { return request.until() == null ? LAST_DATE : request.until(); }
     private ScheduleRule copy(ScheduleRule original, LocalDate from, LocalDate until) {
         var r = new ScheduleRule(); r.setId(UUID.randomUUID()); r.setEmployeeId(original.getEmployeeId());
-        r.setBatchId(original.getBatchId()); r.setShiftId(original.getShiftId()); r.setShiftVersion(original.getShiftVersion());
-        r.setDefinition(original.getDefinition()); r.setWeekday(original.getWeekday()); r.setEffectiveFrom(from); r.setEffectiveUntil(until);
+        r.setBatchId(original.getBatchId()); r.setShiftRevision(original.getShiftRevision()); r.setWeekday(original.getWeekday()); r.setEffectiveFrom(from); r.setEffectiveUntil(until);
         return r;
     }
 }

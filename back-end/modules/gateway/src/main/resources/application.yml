@@ -1,79 +1,79 @@
 server:
-  port: ${GATEWAY_PORT:8080}
-  address: ${GATEWAY_BIND_ADDRESS:127.0.0.1}
-  forward-headers-strategy: none
+    port: ${GATEWAY_PORT:8080}
+    address: ${GATEWAY_BIND_ADDRESS:127.0.0.1}
+    forward-headers-strategy: none
 
 spring:
-  application:
-    name: api-gateway
-  cloud:
-    gateway:
-      server:
-        webflux:
-          # This gateway is the Internet edge; never trust client forwarding headers.
-          forwarded:
-            enabled: false
-          x-forwarded:
-            enabled: false
-          httpclient:
-            connect-timeout: 3000
-            response-timeout: 15s
-          default-filters:
-            # CORS is handled at the gateway, before these routing filters.
-            - RemoveRequestHeader=Origin
-          routes:
-            - id: attendance-service
-              uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8085}
-              predicates:
-                - Path=/api/v1/attendance/**
-            - id: leave-health
-              uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
-              order: -1
-              predicates:
-                - Path=/api/v1/leave/health-check
-                - Method=GET
-              filters:
-                - SetPath=/actuator/health
-            - id: leave-service
-              uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
-              predicates:
-                - Path=/api/v1/leave/**
-            - id: auth-service
-              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
-              predicates:
-                - Path=/api/v1/auth/**,/activate,/activation/index.html,/activation/activate.js,/activation/style.css
-            - id: employee-service
-              uri: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
-              predicates:
-                - Path=/api/v1/employees/**,/api/v1/departments/**,/api/v1/positions/**
-            - id: workforce-health
-              uri: ${WORKFORCE_SERVICE_URL:http://localhost:8083}
-              order: -1
-              predicates:
-                - Path=/api/v1/calendar/health-check
-                - Method=GET
-              filters:
-                - SetPath=/actuator/health
-            - id: workforce-service
-              uri: ${WORKFORCE_SERVICE_URL:http://localhost:8083}
-              predicates:
-                - Path=/api/v1/calendar/**,/api/v1/calendar-events/**
+    application:
+        name: api-gateway
+    cloud:
+        gateway:
+            server:
+                webflux:
+                    # This gateway is the Internet edge; never trust client forwarding headers.
+                    forwarded:
+                        enabled: false
+                    x-forwarded:
+                        enabled: false
+                    httpclient:
+                        connect-timeout: 3000
+                        response-timeout: 15s
+                    default-filters:
+                        # CORS is handled at the gateway, before these routing filters.
+                        - RemoveRequestHeader=Origin
+                    routes:
+                        - id: attendance-service
+                          uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8085}
+                          predicates:
+                              - Path=/api/v1/attendance/**
+                        - id: leave-health
+                          uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
+                          order: -1
+                          predicates:
+                              - Path=/api/v1/leave/health-check
+                              - Method=GET
+                          filters:
+                              - SetPath=/actuator/health
+                        - id: leave-service
+                          uri: ${LEAVE_SERVICE_URL:http://localhost:8084}
+                          predicates:
+                              - Path=/api/v1/leave/**
+                        - id: auth-service
+                          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+                          predicates:
+                              - Path=/api/v1/auth/**,/activate,/activation/index.html,/activation/activate.js,/activation/style.css
+                        - id: employee-service
+                          uri: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
+                          predicates:
+                              - Path=/api/v1/employees/**,/api/v1/departments/**,/api/v1/positions/**
+                        - id: workforce-health
+                          uri: ${WORKFORCE_SERVICE_URL:http://localhost:8083}
+                          order: -1
+                          predicates:
+                              - Path=/api/v1/calendar/health-check
+                              - Method=GET
+                          filters:
+                              - SetPath=/actuator/health
+                        - id: workforce-service
+                          uri: ${WORKFORCE_SERVICE_URL:http://localhost:8083}
+                          predicates:
+                              - Path=/api/v1/calendar/**,/api/v1/calendar-events/**
 
 jwt:
-  access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
-  access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
-  access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
+    access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
+    access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
 
 gateway:
-  cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    cors:
+        allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
 management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-  endpoint:
-    health:
-      show-details: never
-      show-components: never
+    endpoints:
+        web:
+            exposure:
+                include: health
+    endpoint:
+        health:
+            show-details: never
+            show-components: never

@@ -1,5 +1,8 @@
 # Triển khai HRM qua gateway
 
+Để chạy toàn bộ hệ thống local cùng frontend và dữ liệu demo, dùng
+[Compose tại thư mục gốc](../../../../DOCKER.md).
+
 ```text
 Internet --HTTPS :443--> Gateway
                            |
@@ -82,7 +85,8 @@ Leave chỉ nhận access public key, không tham gia mạng dữ liệu của s
 
 Attendance chạy tại `attendance:8085`, sở hữu `attendance_db`; Gateway giữ nguyên
 đường dẫn `/api/v1/attendance/**`. Đã có API ca cố định, phân công, chấm công và CSV tạm tính. Database mới được init bằng
-`001_attendance_schema.sql`; volume cũ phải áp SQL thủ công theo README SQL.
+`001_attendance_schema.sql`. Khi đổi cấu trúc trong giai đoạn phát triển, tạo lại
+database Attendance theo README SQL; không có chuỗi migration.
 Cấu hình `ATTENDANCE_ALLOWED_NETWORKS` là IP/CIDR client công ty mà Gateway nhìn thấy,
 `ATTENDANCE_TRUSTED_PROXIES` là địa chỉ/CIDR riêng của Gateway. Danh sách rỗng sẽ
 từ chối chấm công; không dùng subnet Docker làm mạng client công ty.

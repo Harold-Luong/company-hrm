@@ -1,34 +1,80 @@
 # Attendance database
 
-PostgreSQL riêng `attendance_db`, JPA `ddl-auto=validate`, không query/FK chéo database.
-Áp `001_attendance_schema.sql` trước khi khởi động Attendance, kể cả database trống
-đã tạo cho scaffold trước đó.
+Attendance dùng PostgreSQL riêng `attendance_db`, JPA `ddl-auto=validate`, không
+query/FK chéo database. **Chỉ có một file khởi tạo:**
+[001_attendance_schema.sql](001_attendance_schema.sql).
+
+Trong giai đoạn phát triển, sửa cấu trúc trực tiếp trong file này rồi tạo lại
+database. Không cần chạy các file migration theo thứ tự. File dùng `CREATE IF NOT
+EXISTS` để có thể chạy lại trên cùng schema và giữ seed duy nhất; nó không chuyển
+đổi cấu trúc database cũ.
+
+## Tạo mới
+
+Tạo user/database bằng tài khoản quản trị PostgreSQL (mật khẩu ví dụ chỉ dùng local):
 
 ```sql
 CREATE USER attendance_user WITH PASSWORD 'attendance_password';
 CREATE DATABASE attendance_db OWNER attendance_user;
 ```
 
-Mật khẩu trên chỉ dùng local. Sau khi tạo database, chạy từ thư mục service:
+Nếu đã có user thì chỉ tạo database. Từ thư mục `attendance-service`, chạy:
 
 ```bash
 psql -h localhost -U attendance_user -d attendance_db -v ON_ERROR_STOP=1 -f docs/sql/001_attendance_schema.sql
 ```
 
-Schema gồm mẫu ca/phiên bản, quy tắc phân công, batch audit, hàng khóa điều phối,
-ngày công snapshot, sự kiện và idempotency. Seed ca mặc định UUID
-`00000000-0000-0000-0000-000000000001`, version 0, giờ `08:00–12:00, 13:30–17:30`;
-khoảng cho phép ghi nhận `06:00–22:00` có thể chỉnh bởi HR. **Chưa seed phân công**:
-HR phải chọn ngày hiệu lực/ngày trong tuần và preview/apply qua API/UI.
+Có thể mở file trong DBeaver, chọn kết nối `attendance_db` bằng `attendance_user`
+và chạy **toàn bộ script**, gồm cả `BEGIN`, function/trigger và `COMMIT`.
 
-Compose mount file vào `docker-entrypoint-initdb.d`; chỉ tự chạy khi volume PostgreSQL
-mới. Với volume đã có, áp SQL thủ công bằng user Attendance, không xóa volume:
+## Tạo lại database khi phát triển
+
+Dừng Attendance, đóng các kết nối tới `attendance_db`. Trên kết nối quản trị tới
+`postgres`, chạy từng lệnh dưới đây ngoài transaction. Thao tác này xóa toàn bộ
+dữ liệu Attendance; nếu cần giữ dữ liệu thì xuất bản sao lưu trước.
+
+```sql
+DROP DATABASE IF EXISTS attendance_db;
+CREATE DATABASE attendance_db OWNER attendance_user;
+```
+
+Sau đó chạy lại **duy nhất** `001_attendance_schema.sql` bằng lệnh phía trên và
+khởi động backend. Script schema không tự xóa database.
+
+Compose chỉ mount file này vào `docker-entrypoint-initdb.d`, tự chạy với volume
+PostgreSQL mới. Với database trống đã tạo lại trong Compose, từ `infra/gateway`:
 
 ```bash
-# Chạy từ back-end/modules/infra/gateway khi attendance-db đã chạy.
 docker compose exec -T attendance-db psql -U attendance_user -d attendance_db -v ON_ERROR_STOP=1 < ../../attendance-service/docs/sql/001_attendance_schema.sql
 ```
 
-File dùng CREATE IF NOT EXISTS/seed có điều kiện để chạy lại mà không reset dữ liệu;
-không phải công cụ tự sửa schema khác phiên bản. Thay đổi sau này cần migration mới
-và backup theo quy trình triển khai. [Contract và hướng dẫn cấu hình](../../README.md).
+## Nội dung schema
+
+- 11 bảng cho mẫu ca/phiên bản, phân công, ngày công, đơn đi trễ/về sớm, OT,
+  lịch sử và idempotency.
+- FK `(shift_id, shift_version)` từ ngày công, phân công và đơn tới revision;
+  không lưu JSON ca lặp trong các bảng này. Trigger chặn UPDATE revision, FK
+  ngăn xóa revision đang được sử dụng.
+- Unique nhân viên/ngày, ngày công/loại sự kiện và actor/type/idempotency key;
+  index phục vụ báo cáo theo khoảng ngày, lịch sử và kiểm tra OT trùng giờ.
+- `response_body` của operations cho phép null để dọn payload vào/ra hết hạn;
+  khóa chống trùng vẫn được giữ. Cấu hình job trong README service.
+- Seed hàng điều phối và mẫu ca UUID `00000000-0000-0000-0000-000000000001`,
+  giờ `08:00–12:00, 13:30–17:30`, cửa sổ chấm công `06:00–22:00`.
+  Khi backend khởi động, `DefaultScheduleInitializer` áp lịch thứ Hai–thứ Sáu
+  từ ngày khởi tạo, không ngày kết thúc, nếu chưa có lịch mặc định công ty.
+
+## Kiểm thử
+
+`./mvnw test` đọc schema chính; test H2 bỏ khối được đánh dấu `POSTGRESQL ONLY`
+cho partial index và trigger, không duy trì thêm file schema SQL riêng.
+
+Kiểm tra đầy đủ trên PostgreSQL, dùng một schema thử riêng và tự xóa sau khi chạy:
+
+```bash
+# Cấu hình PGHOST, PGPORT, PGUSER, PGDATABASE; xác thực qua PGPASSWORD hoặc .pgpass.
+scripts/verify-schema.sh
+```
+
+Script kiểm tra tạo đủ bảng, seed không trùng khi chạy lại, FK, revision bất biến
+và unique sự kiện chấm công. [Contract và cấu hình service](../../README.md).

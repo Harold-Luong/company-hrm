@@ -142,7 +142,8 @@ onMounted(load)
         <p class="eyebrow">QUẢN LÝ CHẤM CÔNG</p>
         <h1>Phân công ca</h1>
         <p class="muted">
-          Chọn ca, nhân viên và ngày hiệu lực. Xem trước ảnh hưởng trước khi áp dụng.
+          Phân công ca có giờ bắt đầu và kết thúc cụ thể. Lịch mặc định lặp hằng tuần; lịch riêng có
+          ngày hiệu lực.
         </p>
       </div>
       <button class="button button-secondary" :disabled="busy" @click="load">Tải lại</button>
@@ -153,7 +154,7 @@ onMounted(load)
     <form class="panel create-form" @submit.prevent="showPreview">
       <div class="attendance-section-heading">
         <div>
-          <h2>Thiết lập phân công</h2>
+          <h2>Ca mặc định và lịch riêng</h2>
           <p class="muted small">Hoàn thành thông tin bên dưới để xem trước lịch áp dụng.</p>
         </div>
         <span class="attendance-badge">{{ preview ? 'Sẵn sàng xem trước' : 'Phân công mới' }}</span>
@@ -179,6 +180,14 @@ onMounted(load)
             </select>
           </div>
         </div>
+        <p v-if="form.scope === 'COMPANY_DEFAULT'" class="info-strip">
+          Ca hành chính: chọn thứ Hai–thứ Sáu và để trống ngày kết thúc để tự lặp hằng tuần. Nhân
+          viên mới đủ điều kiện chấm công tự dùng lịch này nếu chưa có lịch riêng.
+        </p>
+        <p v-if="form.scope === 'SELECTED_EMPLOYEES'" class="info-strip">
+          Lịch riêng ưu tiên hơn mặc định công ty. Khi hết hiệu lực, nhân viên tự trở lại lịch mặc
+          định.
+        </p>
         <p v-if="selectedShift" class="muted">
           {{ minutesLabel(selectedShift.requiredMinutes) }} mỗi ngày được phân công.
         </p>
@@ -260,18 +269,31 @@ onMounted(load)
         </p>
         <p>{{ preview.affectedOverrides.length }} lịch nhân viên riêng bị ảnh hưởng.</p>
         <p
-          v-if="preview.recordedDayConflicts || preview.approvedLeaveConflicts"
+          v-if="
+            preview.recordedDayConflicts ||
+            preview.approvedLeaveConflicts ||
+            preview.approvedRequestConflicts ||
+            preview.approvedOvertimeConflicts
+          "
           class="alert alert-error"
           role="alert"
         >
           Có {{ preview.recordedDayConflicts }} ngày đã chấm công và
-          {{ preview.approvedLeaveConflicts }} đơn phép đã duyệt cần đối soát. Chọn ngày khác trước
-          khi áp dụng.
+          {{ preview.approvedLeaveConflicts }} đơn phép đã duyệt,
+          {{ preview.approvedRequestConflicts || 0 }} đơn đi trễ/về sớm và
+          {{ preview.approvedOvertimeConflicts || 0 }} đơn OT đã duyệt cần đối soát. Chọn ngày khác
+          trước khi áp dụng.
         </p>
         <button
           type="button"
           class="button button-primary"
-          :disabled="busy || preview.recordedDayConflicts > 0 || preview.approvedLeaveConflicts > 0"
+          :disabled="
+            busy ||
+            preview.recordedDayConflicts > 0 ||
+            preview.approvedLeaveConflicts > 0 ||
+            preview.approvedRequestConflicts > 0 ||
+            preview.approvedOvertimeConflicts > 0
+          "
           @click="apply"
         >
           Áp dụng phân công

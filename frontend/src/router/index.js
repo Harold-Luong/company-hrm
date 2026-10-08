@@ -30,6 +30,12 @@ export const routes = [
         meta: { title: 'Công của tôi' },
       },
       {
+        path: 'attendance/overtime',
+        name: 'attendance-overtime',
+        component: () => import('@/views/AttendanceOvertimeView.vue'),
+        meta: { title: 'Tăng ca (OT)' },
+      },
+      {
         path: 'attendance/requests',
         name: 'attendance-requests',
         component: () => import('@/views/AttendanceRequestsView.vue'),

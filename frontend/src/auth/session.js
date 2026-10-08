@@ -132,6 +132,7 @@ async function authorizedRequest(path, init = {}, request = authRequest) {
         }
     }
 }
+// Load the current user and store it in state.user. If the session is invalid, clear it.
 async function loadUser() {
     syncSession()
     const currentRevision = revision
@@ -140,7 +141,7 @@ async function loadUser() {
         if (!user.active) throw new ApiError(403, 'User is inactive')
         if (!Array.isArray(user.roles) || typeof user.email !== 'string')
             throw new ApiError(502, 'Invalid user response')
-        assertRevision(currentRevision)
+        assertRevision(currentRevision) 
         state.user = user
     } catch (error) {
         syncSession()

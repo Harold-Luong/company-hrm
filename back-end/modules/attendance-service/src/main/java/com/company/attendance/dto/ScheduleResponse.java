@@ -9,6 +9,7 @@ public final class ScheduleResponse {
     public record Day(UUID employeeId, LocalDate date, UUID shiftId, Long shiftVersion, ShiftRequest definition,
                       int requiredMinutes, String source) {}
     public record Preview(long scheduleRevision, ShiftResponse shift, int affectedRuleCount,
-                          List<UUID> affectedOverrides, int recordedDayConflicts, int approvedLeaveConflicts) {}
+                          List<UUID> affectedOverrides, int recordedDayConflicts, int approvedLeaveConflicts,
+                          int approvedRequestConflicts, int approvedOvertimeConflicts) {}
     public record Applied(UUID batchId, long scheduleRevision, int replacedRules, int createdRules) {}
 }

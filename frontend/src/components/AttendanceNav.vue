@@ -17,6 +17,12 @@ import AppIcon from './AppIcon.vue'
       active-class="attendance-current"
       ><AppIcon name="mail" :size="17" />Đi trễ / Về sớm</RouterLink
     >
+    <RouterLink
+      to="/attendance/overtime"
+      class="button button-secondary"
+      active-class="attendance-current"
+      >Tăng ca (OT)</RouterLink
+    >
     <template v-if="auth.hasRole(attendanceRoles)">
       <RouterLink
         to="/attendance/shifts"

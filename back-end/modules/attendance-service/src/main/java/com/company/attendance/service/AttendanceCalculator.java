@@ -21,7 +21,7 @@ public class AttendanceCalculator {
         List<UUID> applied = new ArrayList<>(), pending = new ArrayList<>();
         int base = 0, annual = 0, unpaid = 0;
         boolean overlap = false, leaveAttendanceConflict = false;
-        ZoneId zone = ZoneId.of(shift.timezone());
+
         BigDecimal leaveDays = BigDecimal.ZERO;
         var relevant = leaves.stream().filter(l -> !l.startDate().isAfter(date) && !l.endDate().isBefore(date))
                 .toList();
@@ -29,7 +29,7 @@ public class AttendanceCalculator {
             if ("PENDING".equals(leave.status()))
                 pending.add(leave.id());
         for (var interval : shift.intervals()) {
-            int minutes = (int) Duration.between(interval.start(), interval.end()).toMinutes();
+            int minutes = (int) Duration.between(ShiftTimes.at(date, shift, interval.start()), ShiftTimes.at(date, shift, interval.end())).toMinutes();
             if (holiday)
                 continue;
             base += minutes;
@@ -50,7 +50,7 @@ public class AttendanceCalculator {
                     leaveDays = leaveDays
                             .add("FULL_DAY".equals(leave.period()) ? BigDecimal.ONE : new BigDecimal("0.5"));
                 }
-                if (in != null && out != null && seconds(date, zone, interval, in, out) > 0)
+                if (in != null && out != null && seconds(date, shift, interval, in, out) > 0)
                     leaveAttendanceConflict = true;
             }
         }
@@ -66,7 +66,7 @@ public class AttendanceCalculator {
                     0L, 0, 0L, 0, in == null && out == null ? (holiday ? "HOLIDAY" : "ON_LEAVE") : "SOURCE_CONFLICT",
                     pending, applied);
         if (in == null || out == null) {
-            Instant cutoff = date.atTime(shift.checkOutUntil()).atZone(zone).toInstant();
+            Instant cutoff = ShiftTimes.windowEnd(date, shift);
             String status = in == null ? (now.isAfter(cutoff) ? "NO_RECORD" : "NOT_STARTED")
                     : (now.isAfter(cutoff) ? "MISSING_CHECK_OUT" : "OPEN");
             return new Result(base, annual, unpaid, leaveDays, remaining, null, null, null, null, null, null, status,
@@ -77,9 +77,9 @@ public class AttendanceCalculator {
                     null, null, null, null, null, null, "INVALID_RECORD", pending, applied);
         long actual = 0, late = 0, early = 0;
         for (var interval : work) {
-            Instant start = date.atTime(interval.start()).atZone(zone).toInstant();
-            Instant end = date.atTime(interval.end()).atZone(zone).toInstant();
-            actual += seconds(date, zone, interval, in, out);
+            Instant start = ShiftTimes.at(date, shift, interval.start());
+            Instant end = ShiftTimes.at(date, shift, interval.end());
+            actual += seconds(date, shift, interval, in, out);
             late += Math.max(0, Duration.between(start, in.isBefore(end) ? in : end).getSeconds());
             early += Math.max(0, Duration.between(out.isAfter(start) ? out : start, end).getSeconds());
         }
@@ -93,9 +93,9 @@ public class AttendanceCalculator {
         return Math.toIntExact((Math.max(0, seconds) + 899) / 900 * 15);
     }
 
-    private long seconds(LocalDate date, ZoneId zone, ShiftRequest.Interval interval, Instant in, Instant out) {
-        Instant start = date.atTime(interval.start()).atZone(zone).toInstant(),
-                end = date.atTime(interval.end()).atZone(zone).toInstant();
+    private long seconds(LocalDate date, ShiftRequest shift, ShiftRequest.Interval interval, Instant in, Instant out) {
+        Instant start = ShiftTimes.at(date, shift, interval.start()),
+                end = ShiftTimes.at(date, shift, interval.end());
         return Math.max(0,
                 Duration.between(in.isAfter(start) ? in : start, out.isBefore(end) ? out : end).getSeconds());
     }

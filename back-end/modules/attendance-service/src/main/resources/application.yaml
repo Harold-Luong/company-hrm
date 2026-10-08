@@ -1,60 +1,64 @@
 spring:
-  application:
-    name: attendance-service
-  jackson:
-    datatype:
-      enum:
-        fail-on-numbers-for-enums: true
-  datasource:
-    url: ${ATTENDANCE_DB_URL:jdbc:postgresql://localhost:5432/attendance_db}
-    username: ${ATTENDANCE_DB_USER:attendance_user}
-    password: ${ATTENDANCE_DB_PASSWORD:attendance_password}
-    driver-class-name: org.postgresql.Driver
-    hikari:
-      connection-timeout: 3000
-      validation-timeout: 2000
-  jpa:
-    open-in-view: false
-    hibernate:
-      ddl-auto: validate
-    show-sql: false
-    properties:
-      hibernate.jdbc.time_zone: UTC
-  sql:
-    init:
-      mode: never
+    application:
+        name: attendance-service
+    jackson:
+        datatype:
+            enum:
+                fail-on-numbers-for-enums: true
+    datasource:
+        url: ${ATTENDANCE_DB_URL:jdbc:postgresql://localhost:5432/attendance_db}
+        username: ${ATTENDANCE_DB_USER:attendance_user}
+        password: ${ATTENDANCE_DB_PASSWORD:attendance_password}
+        driver-class-name: org.postgresql.Driver
+        hikari:
+            connection-timeout: 3000
+            validation-timeout: 2000
+    jpa:
+        open-in-view: false
+        hibernate:
+            ddl-auto: validate
+        show-sql: false
+        properties:
+            hibernate.jdbc.time_zone: UTC
+    sql:
+        init:
+            mode: never
 
 jwt:
-  access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
-  access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
-  access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
+    access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
+    access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
 
 server:
-  port: ${ATTENDANCE_PORT:8085}
-  forward-headers-strategy: none
+    port: ${ATTENDANCE_PORT:8085}
+    forward-headers-strategy: none
 
 attendance:
-  employee-url: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
-  leave-url: ${LEAVE_SERVICE_URL:http://localhost:8084}
-  calendar-url: ${CALENDAR_SERVICE_URL:http://localhost:8083}
-  # Fail closed until the deployment's company network and proxy are configured.
-  allowed-networks: ${ATTENDANCE_ALLOWED_NETWORKS:}
-  trusted-proxies: ${ATTENDANCE_TRUSTED_PROXIES:}
+    # Giữ khóa chống trùng; chỉ dọn response của CHECK_IN/OUT và OT_CHECK_IN/OUT.
+    idempotency-response-retention-days: ${ATTENDANCE_IDEMPOTENCY_RETENTION_DAYS:180}
+    idempotency-cleanup-cron: ${ATTENDANCE_IDEMPOTENCY_CLEANUP_CRON:0 0 3 * * *}
+    employee-url: ${EMPLOYEE_SERVICE_URL:http://localhost:8082}
+    leave-url: ${LEAVE_SERVICE_URL:http://localhost:8084}
+    calendar-url: ${CALENDAR_SERVICE_URL:http://localhost:8083}
+    # Vite -> Gateway cùng máy chuyển IP loopback; giữ thêm các mạng công ty đã cấu hình.
+    allowed-networks: ${ATTENDANCE_ALLOWED_NETWORKS:127.0.0.1/32,::1/128,113.161.73.224/32}
+    # Gateway chạy cùng máy khi phát triển; môi trường khác ghi đè bằng IP/CIDR của proxy.
+    trusted-proxies: ${ATTENDANCE_TRUSTED_PROXIES:127.0.0.1/32,::1/128}
 
 management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-  endpoint:
-    health:
-      show-components: never
-      show-details: never
+    endpoints:
+        web:
+            exposure:
+                include: health
+    endpoint:
+        health:
+            show-components: never
+            show-details: never
 
 springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    disable-swagger-default-url: true
-    operations-sorter: method
+    api-docs:
+        path: /v3/api-docs
+    swagger-ui:
+        path: /swagger-ui.html
+        disable-swagger-default-url: true
+        operations-sorter: method

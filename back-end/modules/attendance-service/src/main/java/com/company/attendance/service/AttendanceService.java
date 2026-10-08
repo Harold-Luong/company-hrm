@@ -26,8 +26,11 @@ public class AttendanceService {
     private final ShiftService shifts;
     private final WorkforceClient source;
     private final AttendanceCalculator calculator;
+    private final AttendancePermissionService permissions;
+    private final OvertimeService overtime;
     private final OperationService operations;
     private final ObjectMapper mapper;
+    private final AttendanceSnapshots snapshots;
     private final Clock clock;
 
     @Transactional
@@ -42,6 +45,22 @@ public class AttendanceService {
         Instant now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         LocalDate date = LocalDate.now(clock);
         UUID employee = employee(actor);
+        var previous = days.findByEmployeeIdAndWorkDate(employee, date.minusDays(1));
+        if (previous.isPresent() && previous.get().getCheckOut() == null
+                && shifts.definition(previous.get().getShiftDefinition()).overnight()
+                && !now.isAfter(ShiftTimes.windowEnd(previous.get().getWorkDate(),
+                        shifts.definition(previous.get().getShiftDefinition())))) {
+            if (checkIn)
+                throw error(HttpStatus.CONFLICT, "Finish the previous overnight shift first");
+            date = date.minusDays(1);
+        } else if (checkIn && previous.isEmpty()) {
+            var priorRule = schedules.effective(employee, date.minusDays(1));
+            if (priorRule.isPresent()) {
+                var plan = shifts.definition(priorRule.get().getDefinition());
+                if (plan.overnight() && !now.isAfter(ShiftTimes.windowEnd(date.minusDays(1), plan)))
+                    date = date.minusDays(1);
+            }
+        }
         var person = source.employee(employee, actor);
         if (!source.eligible(person, date))
             throw error(HttpStatus.FORBIDDEN, "Employee is not eligible to record attendance");
@@ -56,9 +75,7 @@ public class AttendanceService {
             day.setId(UUID.randomUUID());
             day.setEmployeeId(employee);
             day.setWorkDate(date);
-            day.setShiftId(rule.getShiftId());
-            day.setShiftVersion(rule.getShiftVersion());
-            day.setShiftDefinition(rule.getDefinition());
+            day.setShiftRevision(rule.getShiftRevision());
             capture(day, person, actor);
             validateWindow(day, now);
             var planned = result(day);
@@ -77,12 +94,10 @@ public class AttendanceService {
             days.flush();
         }
         var event = new AttendanceEvent();
-        event.setId(UUID.randomUUID());
+        event.recordAudit(actor.getName(), now);
         event.setDayId(day.getId());
         event.setEventType(type);
-        event.setEventAt(now);
         event.setMethod("CORPORATE_NETWORK");
-        event.setActorUserId(actor.getName());
         event.setSourceIp(ip);
         events.save(event);
         var response = result(day);
@@ -108,7 +123,8 @@ public class AttendanceService {
                     .toList();
         long rows = people.size() * (ChronoUnit.DAYS.between(from, until) + 1);
         if (rows > 5000)
-            throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Report exceeds 5000 rows; narrow the date or employee scope");
+            throw error(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "Report exceeds 5000 rows; narrow the date or employee scope");
         List<AttendanceResponse> result = new ArrayList<>();
         var holidays = source.holidays(from, until, actor);
         for (var person : people) {
@@ -116,29 +132,33 @@ public class AttendanceService {
             Map<LocalDate, AttendanceDay> saved = new HashMap<>();
             days.findByEmployeeIdAndWorkDateBetweenOrderByWorkDate(person.id(), from, until)
                     .forEach(d -> saved.put(d.getWorkDate(), d));
+            var rules = schedules.effectiveRules(person.id(), from, until);
+            var activeRequests = permissions.activeRequests(person.id(), from, until);
+            var overtimeSummaries = overtime.summaries(person.id(), from, until);
+            String employeeSnapshot = snapshots.employee(person);
             for (LocalDate date = from; !date.isAfter(until); date = date.plusDays(1)) {
+                var requests = activeRequests.getOrDefault(date, List.of());
+                var ot = overtimeSummaries.getOrDefault(date, OvertimeModels.Summary.empty());
                 if (saved.containsKey(date)) {
-                    result.add(result(saved.get(date)));
+                    result.add(result(saved.get(date), requests, ot));
                     continue;
                 }
                 if (date.isBefore(person.hireDate()))
                     continue;
-                var rule = schedules.effective(person.id(), date);
+                var rule = schedules.effective(person.id(), date, rules);
                 if (rule.isEmpty()) {
-                    result.add(noSchedule(person, date));
+                    result.add(noSchedule(person, date, ot));
                     continue;
                 }
                 AttendanceDay transientDay = new AttendanceDay();
                 transientDay.setEmployeeId(person.id());
                 transientDay.setWorkDate(date);
-                transientDay.setShiftId(rule.get().getShiftId());
-                transientDay.setShiftVersion(rule.get().getShiftVersion());
-                transientDay.setShiftDefinition(rule.get().getDefinition());
-                transientDay.setEmployeeSnapshot(mapper.writeValueAsString(person));
-                transientDay.setLeaveSnapshot(mapper.writeValueAsString(leave));
-                transientDay.setHolidaySnapshot(mapper.writeValueAsString(holidays));
+                transientDay.setShiftRevision(rule.get().getShiftRevision());
+                transientDay.setEmployeeSnapshot(employeeSnapshot);
+                transientDay.setLeaveSnapshot(snapshots.leaves(person.id(), date, leave));
+                transientDay.setHolidaySnapshot(snapshots.holidays(date, holidays));
                 transientDay.setSourceObservedAt(clock.instant());
-                result.add(result(transientDay));
+                result.add(result(transientDay, requests, ot));
             }
         }
         return result;
@@ -156,8 +176,8 @@ public class AttendanceService {
                 "sourceObservedAt", day.getSourceObservedAt());
         // Explicit refresh updates external coverage only; the original assigned shift
         // and events are preserved.
-        day.setLeaveSnapshot(mapper.writeValueAsString(source.leaves(employee, date, date, actor)));
-        day.setHolidaySnapshot(mapper.writeValueAsString(source.holidays(date, date, actor)));
+        day.setLeaveSnapshot(snapshots.leaves(employee, date, source.leaves(employee, date, date, actor)));
+        day.setHolidaySnapshot(snapshots.holidays(date, source.holidays(date, date, actor)));
         day.setSourceObservedAt(clock.instant());
         days.flush();
         var response = result(day);
@@ -170,30 +190,39 @@ public class AttendanceService {
             requireReviewer(actor);
         var day = days.findByEmployeeIdAndWorkDate(employee, date)
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Recorded day not found"));
-        return events.findByDayIdOrderByEventAt(day.getId());
+        return events.findByDayIdOrderByOccurredAt(day.getId());
     }
 
     private void capture(AttendanceDay day, WorkforceClient.Employee person, JwtAuthenticationToken actor) {
-        day.setEmployeeSnapshot(mapper.writeValueAsString(person));
+        day.setEmployeeSnapshot(snapshots.employee(person));
         day.setLeaveSnapshot(
-                mapper.writeValueAsString(source.leaves(person.id(), day.getWorkDate(), day.getWorkDate(), actor)));
-        day.setHolidaySnapshot(mapper.writeValueAsString(source.holidays(day.getWorkDate(), day.getWorkDate(), actor)));
+                snapshots.leaves(person.id(), day.getWorkDate(),
+                        source.leaves(person.id(), day.getWorkDate(), day.getWorkDate(), actor)));
+        day.setHolidaySnapshot(
+                snapshots.holidays(day.getWorkDate(), source.holidays(day.getWorkDate(), day.getWorkDate(), actor)));
         day.setSourceObservedAt(clock.instant());
     }
 
     private void validateWindow(AttendanceDay day, Instant time) {
         var shift = shifts.definition(day.getShiftDefinition());
-        LocalTime local = time.atZone(ZoneId.of(shift.timezone())).toLocalTime();
-        if (local.isBefore(shift.checkInFrom()) || local.isAfter(shift.checkOutUntil()))
+        if (time.isBefore(ShiftTimes.windowStart(day.getWorkDate(), shift))
+                || time.isAfter(ShiftTimes.windowEnd(day.getWorkDate(), shift)))
             throw error(HttpStatus.FORBIDDEN, "Outside the assigned recording window");
     }
 
     private AttendanceResponse result(AttendanceDay day) {
+        return result(day, permissions.activeRequests(day.getEmployeeId(), day.getWorkDate(), day.getWorkDate())
+                .getOrDefault(day.getWorkDate(), List.of()),
+                overtime.summary(day.getEmployeeId(), day.getWorkDate()));
+    }
+
+    private AttendanceResponse result(AttendanceDay day, List<AttendanceRequest> requests, OvertimeModels.Summary ot) {
         var employee = mapper.readValue(day.getEmployeeSnapshot(), WorkforceClient.Employee.class);
-        var result = calculator.calculate(day.getWorkDate(), shifts.definition(day.getShiftDefinition()),
-                day.getCheckIn(), day.getCheckOut(),
-                List.of(mapper.readValue(day.getLeaveSnapshot(), WorkforceClient.Leave[].class)),
-                List.of(mapper.readValue(day.getHolidaySnapshot(), WorkforceClient.Holiday[].class)), clock.instant());
+        var shift = shifts.definition(day.getShiftDefinition());
+        var leaves = List.of(mapper.readValue(day.getLeaveSnapshot(), WorkforceClient.Leave[].class));
+        var holidays = List.of(mapper.readValue(day.getHolidaySnapshot(), WorkforceClient.Holiday[].class));
+        var result = calculator.calculate(day.getWorkDate(), shift,
+                day.getCheckIn(), day.getCheckOut(), leaves, holidays, clock.instant());
         return new AttendanceResponse(employee.id(), employee.employeeCode(),
                 employee.firstName() + " " + employee.lastName(),
                 employee.department() == null ? null : employee.department().id(), day.getWorkDate(), day.getShiftId(),
@@ -203,13 +232,17 @@ public class AttendanceService {
                 result.actualSeconds(), result.counted(), result.lateSeconds(), result.late(), result.earlySeconds(),
                 result.early(),
                 result.status(), result.pending(), result.applied(), day.getSourceObservedAt(),
-                day.getId() == null ? null : day.getVersion(), "DRAFT");
+                day.getId() == null ? null : day.getVersion(), "DRAFT",
+                permissions.coverage(day.getWorkDate(), day.getShiftId(), day.getShiftVersion(),
+                        shift, day.getCheckIn(), day.getCheckOut(), result, leaves, holidays, requests),
+                ot);
     }
 
-    private AttendanceResponse noSchedule(WorkforceClient.Employee person, LocalDate date) {
+    private AttendanceResponse noSchedule(WorkforceClient.Employee person, LocalDate date, OvertimeModels.Summary ot) {
         return new AttendanceResponse(person.id(), person.employeeCode(), person.firstName() + " " + person.lastName(),
                 person.department() == null ? null : person.department().id(), date, null, null, null, null,
                 0, 0, 0, BigDecimal.ZERO, 0, null, null, null, null, null, null,
-                "NO_SCHEDULE", List.of(), List.of(), clock.instant(), null, "DRAFT");
+                "NO_SCHEDULE", List.of(), List.of(), clock.instant(), null, "DRAFT",
+                AttendancePermissionCoverage.empty(), ot);
     }
 }

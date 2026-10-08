@@ -1,6 +1,20 @@
 # Company HRM — Kiến trúc hiện tại và định hướng phát triển
 
+**Chạy toàn bộ hệ thống bằng Docker:** xem [DOCKER.md](DOCKER.md).
+Tại thư mục gốc, chạy `docker compose up -d --build --wait --wait-timeout 600`,
+rồi mở `http://localhost:5173`. Bộ local gồm frontend, Gateway, Auth, Employee,
+Calendar, Leave, Attendance, PostgreSQL và Kafka, có sẵn dữ liệu demo.
+
 Tài liệu mô tả hiện trạng repository, các quyết định thiết kế và roadmap nghiệp vụ. **Có trong roadmap không đồng nghĩa đã triển khai.** Hệ thống hiện có Auth, Employee, Calendar, Leave, Attendance, API Gateway và frontend quản trị/lịch/phép/chấm công. Attendance đã có ca cố định, phân công, check-in/out và CSV tạm tính; điều chỉnh công, chốt kỳ, lịch linh hoạt và Device vẫn thuộc roadmap.
+
+## Hàm hỗ trợ tính công
+
+[WorkTimeSupport](back-end/modules/attendance-service/docs/WORKTIME-CALCULATION.md)
+là helper nội bộ của Attendance, nhận lịch ca, giờ chấm công, ngày nghỉ hưởng
+lương, phép và OT; trả kết quả một ngày hoặc tổng hợp kỳ. Code và kiểm thử được
+build cùng `attendance-service`, không cần cài thư viện Maven riêng. API/UI hiện
+hữu vẫn dùng `AttendanceCalculator`; các trường công hưởng lương của helper
+chưa được nối vào báo cáo hiện hành.
 
 ## 1. Bối cảnh dự án
 
@@ -460,8 +474,10 @@ Thiết kế chung tại [Attendance Design](back-end/modules/ATTENDANCE-DESIGN.
 `attendance-service` Java 21/JPA sở hữu lịch/ca và công, đã hỗ trợ `FIXED_SHIFT` (giờ cố
 định, kể cả part-time); thiết kế dự kiến mở rộng `FLEXIBLE_DURATION` (đủ thời lượng ngày). Hiện
 bật ca cố định do HR/Admin quản lý, có thể tùy chỉnh giờ và áp dụng toàn bộ
-hoặc một/vài nhân viên theo ngày hiệu lực; lịch linh hoạt được mở sau theo
-cùng mô hình policy/phân công. Leave tiếp tục sở hữu đơn và số dư phép theo ngày.
+hoặc một/vài nhân viên theo ngày hiệu lực. `FLEXIBLE_DURATION` để giai đoạn sau,
+thuộc nhóm tính năng nâng cao mặc định ẩn, chỉ ADMIN được mở khóa khi đã triển
+khai đầy đủ; hiện chưa có chức năng mở khóa. Leave tiếp tục sở hữu đơn và số dư
+phép theo ngày.
 
 Ca mặc định ban đầu (có thể chỉnh sửa):
 

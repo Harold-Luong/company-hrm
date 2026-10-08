@@ -13,6 +13,7 @@ const editing = ref(null),
   history = ref([])
 const defaults = () => ({
   name: '',
+  overnight: false,
   intervals: [
     { period: 'MORNING', start: '08:00', end: '12:00' },
     { period: 'AFTERNOON', start: '13:30', end: '17:30' },
@@ -27,7 +28,10 @@ const duration = computed(() =>
       const [h, m] = time.split(':').map(Number)
       return h * 60 + m
     }
-    return sum + Math.max(0, minutes(interval.end) - minutes(interval.start))
+    return (
+      sum +
+      Math.max(0, minutes(interval.end) - minutes(interval.start) + (form.overnight ? 1440 : 0))
+    )
   }, 0),
 )
 function reset() {
@@ -145,13 +149,20 @@ onMounted(() => load(0))
             required
           />
         </div>
+        <label
+          ><input v-model="form.overnight" type="checkbox" /> Ca qua đêm (kết thúc vào ngày hôm
+          sau)</label
+        >
+        <p v-if="form.overnight" class="muted">
+          Dùng một khoảng giờ, ví dụ 22:00–06:00. Ngày công là ngày bắt đầu ca.
+        </p>
         <h3 class="attendance-form-title">Khung giờ làm việc</h3>
         <div v-for="(interval, index) in form.intervals" :key="index" class="attendance-interval">
           <div class="field">
             <label :for="`period-${index}`">Buổi {{ index + 1 }}</label
             ><select :id="`period-${index}`" v-model="interval.period">
               <option value="MORNING">Sáng</option>
-              <option value="AFTERNOON">Chiều</option>
+              <option value="AFTERNOON">{{ form.overnight ? 'Ca đêm' : 'Chiều' }}</option>
             </select>
           </div>
           <div class="field">
