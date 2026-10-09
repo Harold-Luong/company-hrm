@@ -9,13 +9,14 @@ Cấu trúc controller → service → repository/entity giống Employee.
 - HR/ADMIN quản lý mẫu ca `FIXED_SHIFT`, phiên bản và lịch sử; vô hiệu hóa thay vì xóa lịch sử.
 - Phân công có ngày hiệu lực, ngày trong tuần, xem trước tác động và lịch sử. `COMPANY_DEFAULT` giữ lịch riêng; `SELECTED_EMPLOYEES` áp lịch riêng; `ALL_EMPLOYEES` thay cả lịch riêng trong phạm vi ngày/weekday đã chọn.
 - Đơn đi trễ/về sớm: gửi/sửa/rút PENDING, HR/ADMIN xét duyệt, lịch sử; kết nối UI `/attendance/requests`. Đơn duyệt ghi nhận có phép nhưng vẫn trừ công.
+- Đơn bổ sung/điều chỉnh: gửi/sửa/rút đơn chờ, HR/ADMIN duyệt/từ chối; giờ đã duyệt dùng tính công, giờ và sự kiện gốc được giữ nguyên.
 - Nhân viên tự check-in/out bằng thời gian server, một lần vào/ra mỗi ngày qua mạng công ty. Employee phải ACTIVE/PROBATION và đã tới ngày vào làm.
 - Bảng công cá nhân, báo cáo HR/ADMIN, lọc nhân viên/phòng ban/ngày, CSV UTF-8 BOM cùng quy tắc tính với API.
 - Kết hợp phép đã duyệt qua Leave và ngày nghỉ chung đã công bố qua Calendar. Chỉ đọc REST với Bearer token của người gọi, không truy vấn chéo database.
 - Tham chiếu phiên bản ca bất biến, snapshot nhân viên/phép/ngày nghỉ tối thiểu; ghi sự kiện, kết quả và idempotency trong cùng transaction. Phiên bản `If-Match` chống ghi đè; khóa DB bảo vệ phân công/check-in đồng thời.
 
 Chưa gồm `FLEXIBLE_DURATION`, nhiều lần vào/ra trong một ca,
-điều chỉnh giờ thủ công, khóa kỳ, payroll, tự đồng bộ Kafka hoặc thay đổi sổ số dư Leave.
+khóa kỳ, payroll, tự đồng bộ Kafka hoặc thay đổi sổ số dư Leave.
 Báo cáo luôn `reportState=DRAFT`; không phải bảng công đã chốt. Khóa ghi hiện dùng
 một hàng điều phối chung; cần đánh giá tải trước khi mở rộng quy mô.
 
@@ -344,3 +345,51 @@ Sau khi tạo database từ schema hiện tại, khởi động backend để t�
 còn thiếu. Khởi động lại nhiều lần không tạo thêm
 bản ghi hoặc thay phiên bản khi lịch mặc định đã tồn tại. Test fixture có thể tắt bước
 khởi tạo bằng `attendance.initialize-default-schedule=false`.
+
+
+## Đơn bổ sung / điều chỉnh chấm công
+
+Trang `/attendance/corrections`: nhân viên chọn ngày công, nhập đủ giờ vào/ra thực tế
+và lý do (1–1.000 ký tự). Liên kết từ lịch sử công mở sẵn ngày cần điều chỉnh.
+Giờ nhập theo `Asia/Ho_Chi_Minh`, chính xác đến giây; ca qua đêm dùng ngày bắt đầu ca,
+giờ ra thuộc ngày sau. Chỉ gửi và duyệt sau khi ca kết thúc; không nhận giờ tương lai,
+giờ ngoài cửa sổ ghi nhận, giờ đảo thứ tự hoặc cặp giờ không thay đổi.
+
+- Một đơn `PENDING` cho mỗi nhân viên/ngày; chủ đơn được sửa hoặc rút.
+- HR/ADMIN duyệt/từ chối, không tự xét duyệt; từ chối bắt buộc lý do.
+- Khi duyệt, kiểm tra lại điều kiện nhân viên, phiên bản ca/ngày công và phép/ngày nghỉ
+  mới nhất. Xung đột nguồn chặn duyệt. Nếu ngày công hoặc ca đã đổi, trả 412;
+  chủ đơn cần mở **Sửa đơn** để tải dữ liệu hiện tại rồi lưu lại trước khi HR duyệt.
+- `APPROVED` cập nhật cặp giờ hiệu lực trong cùng transaction với lịch sử đơn.
+  Có thể gửi đơn mới để thay thế lần điều chỉnh đã duyệt; mỗi lần đều giữ lịch sử.
+- `attendance_daily.check_in/check_out` và `attendance_events` là dữ liệu chấm gốc,
+  không bị sửa hoặc tạo giả. `corrected_check_in/corrected_check_out/correction_id`
+  lưu cặp giờ hiệu lực và đơn đã duyệt mới nhất. Nếu quên cả hai mốc, duyệt tạo ngày
+  công có giờ gốc null và không tạo sự kiện CHECK_IN/CHECK_OUT.
+- Bảng công/API/CSV dùng giờ hiệu lực để tính công và đối soát đi trễ/về sớm;
+  thêm `originalCheckIn`, `originalCheckOut`, `correctionId` (CSV dùng snake_case).
+  Lý do và ghi chú xét duyệt chỉ có trong đơn/lịch sử được kiểm tra quyền.
+  OT vẫn chấm riêng; đơn điều chỉnh này không sửa OT hoặc chốt bảng công.
+- Phép/ngày nghỉ mới nhất được chụp lại khi duyệt; nguồn thay đổi sau đó vẫn dùng
+  thao tác refresh coverage hiện có. Báo cáo tiếp tục là DRAFT.
+
+API dưới `/api/v1/attendance/corrections`:
+
+| Method / đường dẫn | Chức năng |
+| --- | --- |
+| `GET /` | Đơn của mình; `status`, `page`, `size` |
+| `GET /inbox` | HR/ADMIN; lọc và phân trang |
+| `GET /{id}` | Chi tiết; chủ đơn hoặc HR/ADMIN |
+| `GET /{id}/history` | Lịch sử có snapshot trước/sau, phân trang |
+| `POST /` | Gửi đơn; `Idempotency-Key` |
+| `PUT /{id}` | Chủ đơn sửa PENDING; `If-Match` |
+| `POST /{id}/cancel` | Chủ đơn rút PENDING; `If-Match` |
+| `POST /{id}/decision` | HR/ADMIN duyệt/từ chối; `If-Match` |
+
+Body tạo/sửa: `workDate`, `shiftId`, `shiftVersion`, `recordVersion` (null khi chưa
+có ngày công), `proposedCheckIn`, `proposedCheckOut` (ISO-8601 có offset), `reason`.
+Lấy phiên bản ca từ API lịch cá nhân, phiên bản ngày công từ API `/mine`.
+Body xét duyệt: `status` (`APPROVED`/`REJECTED`), `reviewNote`.
+Tạo đơn dùng idempotency; thay đổi dùng optimistic version và khóa điều phối DB.
+Schema chính bổ sung hai bảng `attendance_corrections`, `attendance_correction_history`;
+áp trên database mới theo quy trình phát triển trong `docs/sql/README.md`.

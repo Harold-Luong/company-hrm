@@ -1,5 +1,10 @@
 # Company HRM — Kiến trúc hiện tại và định hướng phát triển
 
+**Chạy toàn bộ hệ thống bằng Docker:** xem [DOCKER.md](DOCKER.md).
+Tại thư mục gốc, chạy `docker compose up -d --build --wait --wait-timeout 600`,
+rồi mở `http://localhost:5173`. Bộ local gồm frontend, Gateway, Auth, Employee,
+Calendar, Leave, Attendance, PostgreSQL và Kafka, có sẵn dữ liệu demo.
+
 Tài liệu mô tả hiện trạng repository, các quyết định thiết kế và roadmap nghiệp vụ. **Có trong roadmap không đồng nghĩa đã triển khai.** Hệ thống hiện có Auth, Employee, Calendar, Leave, Attendance, API Gateway và frontend quản trị/lịch/phép/chấm công. Attendance đã có ca cố định, phân công, check-in/out và CSV tạm tính; điều chỉnh công, chốt kỳ, lịch linh hoạt và Device vẫn thuộc roadmap.
 
 ## Hàm hỗ trợ tính công

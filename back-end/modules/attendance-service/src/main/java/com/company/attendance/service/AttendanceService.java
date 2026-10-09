@@ -46,7 +46,7 @@ public class AttendanceService {
         LocalDate date = LocalDate.now(clock);
         UUID employee = employee(actor);
         var previous = days.findByEmployeeIdAndWorkDate(employee, date.minusDays(1));
-        if (previous.isPresent() && previous.get().getCheckOut() == null
+        if (previous.isPresent() && previous.get().getEffectiveCheckOut() == null
                 && shifts.definition(previous.get().getShiftDefinition()).overnight()
                 && !now.isAfter(ShiftTimes.windowEnd(previous.get().getWorkDate(),
                         shifts.definition(previous.get().getShiftDefinition())))) {
@@ -85,10 +85,10 @@ public class AttendanceService {
             days.saveAndFlush(day);
         } else {
             day = existing.orElseThrow(() -> error(HttpStatus.CONFLICT, "Check-in is required first"));
-            if (day.getCheckOut() != null)
+            if (day.getEffectiveCheckOut() != null)
                 throw error(HttpStatus.CONFLICT, "Already checked out");
             validateWindow(day, now);
-            if (!now.isAfter(day.getCheckIn()))
+            if (!now.isAfter(day.getEffectiveCheckIn()))
                 throw error(HttpStatus.CONFLICT, "Check-out must be after check-in");
             day.setCheckOut(now);
             days.flush();
@@ -222,20 +222,20 @@ public class AttendanceService {
         var leaves = List.of(mapper.readValue(day.getLeaveSnapshot(), WorkforceClient.Leave[].class));
         var holidays = List.of(mapper.readValue(day.getHolidaySnapshot(), WorkforceClient.Holiday[].class));
         var result = calculator.calculate(day.getWorkDate(), shift,
-                day.getCheckIn(), day.getCheckOut(), leaves, holidays, clock.instant());
+                day.getEffectiveCheckIn(), day.getEffectiveCheckOut(), leaves, holidays, clock.instant());
         return new AttendanceResponse(employee.id(), employee.employeeCode(),
                 employee.firstName() + " " + employee.lastName(),
                 employee.department() == null ? null : employee.department().id(), day.getWorkDate(), day.getShiftId(),
                 day.getShiftVersion(),
-                day.getCheckIn(), day.getCheckOut(), result.base(), result.annual(), result.unpaid(),
+                day.getEffectiveCheckIn(), day.getEffectiveCheckOut(), result.base(), result.annual(), result.unpaid(),
                 result.leaveDays(), result.remaining(),
                 result.actualSeconds(), result.counted(), result.lateSeconds(), result.late(), result.earlySeconds(),
                 result.early(),
                 result.status(), result.pending(), result.applied(), day.getSourceObservedAt(),
                 day.getId() == null ? null : day.getVersion(), "DRAFT",
                 permissions.coverage(day.getWorkDate(), day.getShiftId(), day.getShiftVersion(),
-                        shift, day.getCheckIn(), day.getCheckOut(), result, leaves, holidays, requests),
-                ot);
+                        shift, day.getEffectiveCheckIn(), day.getEffectiveCheckOut(), result, leaves, holidays, requests),
+                ot, day.getCheckIn(), day.getCheckOut(), day.getCorrectionId());
     }
 
     private AttendanceResponse noSchedule(WorkforceClient.Employee person, LocalDate date, OvertimeModels.Summary ot) {
@@ -243,6 +243,6 @@ public class AttendanceService {
                 person.department() == null ? null : person.department().id(), date, null, null, null, null,
                 0, 0, 0, BigDecimal.ZERO, 0, null, null, null, null, null, null,
                 "NO_SCHEDULE", List.of(), List.of(), clock.instant(), null, "DRAFT",
-                AttendancePermissionCoverage.empty(), ot);
+                AttendancePermissionCoverage.empty(), ot, null, null, null);
     }
 }

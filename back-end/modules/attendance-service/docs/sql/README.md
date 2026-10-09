@@ -50,8 +50,8 @@ docker compose exec -T attendance-db psql -U attendance_user -d attendance_db -v
 
 ## Nội dung schema
 
-- 11 bảng cho mẫu ca/phiên bản, phân công, ngày công, đơn đi trễ/về sớm, OT,
-  lịch sử và idempotency.
+- 13 bảng cho mẫu ca/phiên bản, phân công, ngày công, đơn đi trễ/về sớm, OT,
+  đơn bổ sung/điều chỉnh, lịch sử và idempotency.
 - FK `(shift_id, shift_version)` từ ngày công, phân công và đơn tới revision;
   không lưu JSON ca lặp trong các bảng này. Trigger chặn UPDATE revision, FK
   ngăn xóa revision đang được sử dụng.

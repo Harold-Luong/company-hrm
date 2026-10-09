@@ -179,6 +179,7 @@ onMounted(load)
                                 : 'Chưa có lịch làm việc. Liên hệ HR để được phân ca.'
                     }}
                 </p>
+                <RouterLink to="/attendance/corrections" class="text-button attendance-related-link">Bổ sung / Điều chỉnh chấm công</RouterLink>
                 <RouterLink to="/attendance/requests" class="text-button attendance-related-link">Xin đi trễ / về sớm
                     <AppIcon name="arrow" :size="16" />
                 </RouterLink>

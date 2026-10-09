@@ -167,6 +167,12 @@ services:
     depends_on:
       attendance-db:
         condition: service_healthy
+      employee:
+        condition: service_started
+      workforce:
+        condition: service_started
+      leave:
+        condition: service_started
 
   attendance-db:
     image: postgres:16
@@ -179,7 +185,7 @@ services:
       - ../../attendance-service/docs/sql/001_attendance_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     networks: [attendance-data]
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U attendance_user -d attendance_db']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U attendance_user -d attendance_db']
       interval: 5s
       timeout: 5s
       retries: 20

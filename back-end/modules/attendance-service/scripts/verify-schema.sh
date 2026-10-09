@@ -17,7 +17,7 @@ done
 psql -X -v ON_ERROR_STOP=1 -q >> "$log_file" 2>&1 <<'SQL'
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM pg_tables WHERE schemaname=current_schema()) <> 11
+    IF (SELECT count(*) FROM pg_tables WHERE schemaname=current_schema()) <> 13
         OR (SELECT count(*) FROM work_shifts) <> 1
         OR (SELECT count(*) FROM shift_revisions) <> 1
         OR (SELECT count(*) FROM attendance_schedule_state) <> 1 THEN

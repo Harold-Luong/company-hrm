@@ -91,6 +91,16 @@ function dateLabel(value) {
           <td class="attendance-date">{{ dateLabel(row.workDate) }}</td>
           <td>
             {{ timeLabel(row.checkIn) }}<small>{{ timeLabel(row.checkOut) }}</small>
+            <small v-if="row.correctionId"
+              >Đã điều chỉnh · Gốc: {{ timeLabel(row.originalCheckIn) }} /
+              {{ timeLabel(row.originalCheckOut) }}</small
+            >
+            <RouterLink
+              v-if="!management"
+              :to="{ path: '/attendance/corrections', query: { date: row.workDate } }"
+              class="text-button"
+              >Bổ sung / Điều chỉnh</RouterLink
+            >
           </td>
           <td>{{ secondsLabel(row.workedActualSeconds) }}</td>
           <td>{{ minutesLabel(row.workMinutesCounted) }}</td>

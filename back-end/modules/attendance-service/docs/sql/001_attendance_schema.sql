@@ -52,6 +52,50 @@ CREATE TABLE IF NOT EXISTS work_schedule_rules (
 );
 CREATE INDEX IF NOT EXISTS schedule_rule_lookup_idx ON work_schedule_rules(employee_id, weekday, effective_from, effective_until);
 
+-- Corrections retain the proposal, the previously effective pair and its attendance version.
+CREATE TABLE IF NOT EXISTS attendance_corrections (
+    id UUID PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    employee_id UUID NOT NULL,
+    requester_user_id VARCHAR(255) NOT NULL,
+    employee_code VARCHAR(255) NOT NULL,
+    employee_name VARCHAR(255) NOT NULL,
+    work_date DATE NOT NULL,
+    shift_id UUID NOT NULL,
+    shift_version BIGINT NOT NULL,
+    base_record_version BIGINT CHECK (base_record_version >= 0),
+    before_check_in TIMESTAMP WITH TIME ZONE,
+    before_check_out TIMESTAMP WITH TIME ZONE,
+    proposed_check_in TIMESTAMP WITH TIME ZONE NOT NULL,
+    proposed_check_out TIMESTAMP WITH TIME ZONE NOT NULL,
+    reason VARCHAR(1000) NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('PENDING','APPROVED','REJECTED','CANCELLED')),
+    active_slot VARCHAR(10),
+    review_note VARCHAR(1000),
+    reviewed_by VARCHAR(255),
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CHECK (proposed_check_out > proposed_check_in),
+    CHECK ((status = 'PENDING' AND active_slot IS NOT NULL AND active_slot = 'PENDING')
+        OR (status <> 'PENDING' AND active_slot IS NULL)),
+    UNIQUE (employee_id, work_date, active_slot),
+    FOREIGN KEY (shift_id, shift_version) REFERENCES shift_revisions (shift_id, shift_version)
+);
+CREATE INDEX IF NOT EXISTS correction_owner_idx ON attendance_corrections(employee_id, created_at, id);
+CREATE INDEX IF NOT EXISTS correction_inbox_idx ON attendance_corrections(status, created_at, id);
+CREATE INDEX IF NOT EXISTS correction_revision_idx ON attendance_corrections(shift_id, shift_version);
+CREATE TABLE IF NOT EXISTS attendance_correction_history (
+    id UUID PRIMARY KEY,
+    request_id UUID NOT NULL REFERENCES attendance_corrections(id),
+    request_version BIGINT NOT NULL,
+    action VARCHAR(30) NOT NULL,
+    actor_user_id VARCHAR(255) NOT NULL,
+    snapshot TEXT NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (request_id, request_version)
+);
+
 CREATE TABLE IF NOT EXISTS attendance_daily (
     id UUID PRIMARY KEY,
     version BIGINT NOT NULL DEFAULT 0,
@@ -65,6 +109,12 @@ CREATE TABLE IF NOT EXISTS attendance_daily (
     source_observed_at TIMESTAMP WITH TIME ZONE NOT NULL,
     check_in TIMESTAMP WITH TIME ZONE,
     check_out TIMESTAMP WITH TIME ZONE,
+    corrected_check_in TIMESTAMP WITH TIME ZONE,
+    corrected_check_out TIMESTAMP WITH TIME ZONE,
+    correction_id UUID REFERENCES attendance_corrections(id),
+    CHECK ((correction_id IS NULL AND corrected_check_in IS NULL AND corrected_check_out IS NULL)
+        OR (correction_id IS NOT NULL AND corrected_check_in IS NOT NULL AND corrected_check_out IS NOT NULL
+            AND corrected_check_out > corrected_check_in)),
     UNIQUE (employee_id, work_date),
     CHECK (check_out IS NULL OR (check_in IS NOT NULL AND check_out > check_in)),
     CONSTRAINT attendance_daily_revision_fk FOREIGN KEY (shift_id, shift_version)

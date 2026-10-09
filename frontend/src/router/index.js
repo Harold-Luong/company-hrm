@@ -36,6 +36,12 @@ export const routes = [
         meta: { title: 'Tăng ca (OT)' },
       },
       {
+        path: 'attendance/corrections',
+        name: 'attendance-corrections',
+        component: () => import('@/views/AttendanceCorrectionsView.vue'),
+        meta: { title: 'Bổ sung / Điều chỉnh công' },
+      },
+      {
         path: 'attendance/requests',
         name: 'attendance-requests',
         component: () => import('@/views/AttendanceRequestsView.vue'),

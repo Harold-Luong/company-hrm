@@ -4,7 +4,7 @@ export function safeDestination(value) {
   return typeof value === 'string' &&
     (['/', '/account', '/accounts/new', '/forbidden', '/services', '/calendar'].includes(value) ||
       /^\/calendar-events(\/(new|\d+))?$/.test(value) ||
-      /^\/attendance(\/(shifts|schedules|reports|requests|overtime))?$/.test(value) ||
+      /^\/attendance(\/(shifts|schedules|reports|requests|corrections|overtime))?$/.test(value) ||
       /^\/leave(\/inbox|\/requests\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i.test(
         value,
       ) ||

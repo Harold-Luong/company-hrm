@@ -4,6 +4,31 @@ const base = '/api/v1/attendance'
 const query = (values) =>
   new URLSearchParams(Object.entries(values).filter(([, value]) => value !== '' && value != null))
 export const attendance = {
+  corrections: (inbox = false, status = '', page = 0) =>
+    auth.request(
+      `${base}/corrections${inbox ? '/inbox' : ''}?${query({ status, page, size: 20 })}`,
+    ),
+  saveCorrection: (id, body, version, key) =>
+    auth.request(`${base}/corrections${id ? `/${encodeURIComponent(id)}` : ''}`, {
+      method: id ? 'PUT' : 'POST',
+      headers: id ? { 'If-Match': `"${version}"` } : { 'Idempotency-Key': key },
+      body: JSON.stringify(body),
+    }),
+  cancelCorrection: (row) =>
+    auth.request(`${base}/corrections/${encodeURIComponent(row.id)}/cancel`, {
+      method: 'POST',
+      headers: { 'If-Match': `"${row.version}"` },
+    }),
+  decideCorrection: (row, status, reviewNote) =>
+    auth.request(`${base}/corrections/${encodeURIComponent(row.id)}/decision`, {
+      method: 'POST',
+      headers: { 'If-Match': `"${row.version}"` },
+      body: JSON.stringify({ status, reviewNote }),
+    }),
+  correctionHistory: (id, page = 0) =>
+    auth.request(
+      `${base}/corrections/${encodeURIComponent(id)}/history?${query({ page, size: 20 })}`,
+    ),
   overtime: (inbox = false, status = '', page = 0) =>
     auth.request(`${base}/overtime${inbox ? '/inbox' : ''}?${query({ status, page, size: 20 })}`),
   createOvertime: (body, key) =>

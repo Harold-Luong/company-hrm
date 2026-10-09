@@ -17,18 +17,31 @@ public class ResendMailSender {
     private final ObjectMapper mapper;
     private final HttpClient client;
     private final URI endpoint;
+
     @org.springframework.beans.factory.annotation.Autowired
     public ResendMailSender(ActivationSettings settings, ActivationTokens tokens, ObjectMapper mapper) {
-        this(settings, tokens, mapper, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(), URI.create("https://api.resend.com/emails"));
+        this(settings, tokens, mapper, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
+                URI.create("https://api.resend.com/emails"));
     }
-    // Package-private transport seam for tests; production destination cannot be overridden by a request.
-    ResendMailSender(ActivationSettings settings, ActivationTokens tokens, ObjectMapper mapper, HttpClient client, URI endpoint) {
-        this.settings = settings; this.tokens = tokens; this.mapper = mapper; this.client = client; this.endpoint = endpoint;
+
+    // Package-private transport seam for tests; production destination cannot be
+    // overridden by a request.
+    ResendMailSender(ActivationSettings settings, ActivationTokens tokens, ObjectMapper mapper, HttpClient client,
+            URI endpoint) {
+        this.settings = settings;
+        this.tokens = tokens;
+        this.mapper = mapper;
+        this.client = client;
+        this.endpoint = endpoint;
     }
-    public record Delivery(String id, String error, boolean retryable, long retryAfter) {}
+
+    public record Delivery(String id, String error, boolean retryable, long retryAfter) {
+    }
+
     public Delivery send(ActivationMailQueue.Mail mail) {
         String link = mail.frontendUrl() + "?token=" + tokens.derive(mail.id());
-        // Version 1 template must remain stable for in-flight retries using the same idempotency key.
+        // Version 1 template must remain stable for in-flight retries using the same
+        // idempotency key.
         String body = mapper.writeValueAsString(Map.of("from", mail.sender(), "to", List.of(mail.recipient()),
                 "subject", "Kích hoạt tài khoản Company HRM",
                 "text", "Bạn được mời sử dụng Company HRM. Mở liên kết để đặt mật khẩu và kích hoạt tài khoản:\n\n"
@@ -44,15 +57,20 @@ public class ResendMailSender {
             int status = response.statusCode();
             if (status >= 200 && status < 300) {
                 String id = mapper.readTree(response.body()).path("id").asText();
-                if (id.isBlank() || id.length() > 255) return new Delivery(null, "INVALID_PROVIDER_RESPONSE", true, 0);
+                if (id.isBlank() || id.length() > 255)
+                    return new Delivery(null, "INVALID_PROVIDER_RESPONSE", true, 0);
                 return new Delivery(id, null, false, 0);
             }
-            if (status == 409 && "invalid_idempotent_request".equals(mapper.readTree(response.body()).path("name").asText()))
+            if (status == 409
+                    && "invalid_idempotent_request".equals(mapper.readTree(response.body()).path("name").asText()))
                 return new Delivery(null, "RESEND_IDEMPOTENCY_CONFLICT", false, 0);
-            // Persist only an HTTP code; provider response bodies can contain credentials/recipient data.
+            // Persist only an HTTP code; provider response bodies can contain
+            // credentials/recipient data.
             long retryAfter = 0;
-            try { retryAfter = Long.parseLong(response.headers().firstValue("Retry-After").orElse("0")); }
-            catch (NumberFormatException ignored) { /* use bounded exponential backoff */ }
+            try {
+                retryAfter = Long.parseLong(response.headers().firstValue("Retry-After").orElse("0"));
+            } catch (NumberFormatException ignored) {
+                /* use bounded exponential backoff */ }
             return new Delivery(null, "RESEND_HTTP_" + status,
                     status == 408 || status == 409 || status == 429 || status >= 500, retryAfter);
         } catch (InterruptedException e) {

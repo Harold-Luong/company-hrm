@@ -35,6 +35,12 @@ public class AttendanceDay extends VersionedEntity {
     @Column(nullable = false) private Instant sourceObservedAt;
     private Instant checkIn;
     private Instant checkOut;
+    /** Approved effective times; original checkIn/checkOut and events remain untouched. */
+    private Instant correctedCheckIn;
+    private Instant correctedCheckOut;
+    private UUID correctionId;
+    public Instant getEffectiveCheckIn() { return correctionId == null ? checkIn : correctedCheckIn; }
+    public Instant getEffectiveCheckOut() { return correctionId == null ? checkOut : correctedCheckOut; }
     public UUID getShiftId() { return shiftRevision.getShiftId(); }
     public long getShiftVersion() { return shiftRevision.getShiftVersion(); }
     public String getShiftDefinition() { return shiftRevision.getDefinition(); }

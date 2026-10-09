@@ -1,5 +1,8 @@
 # Triển khai HRM qua gateway
 
+Để chạy toàn bộ hệ thống local cùng frontend và dữ liệu demo, dùng
+[Compose tại thư mục gốc](../../../../DOCKER.md).
+
 ```text
 Internet --HTTPS :443--> Gateway
                            |

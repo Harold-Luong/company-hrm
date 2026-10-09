@@ -84,6 +84,8 @@ class GatewayApplicationTests {
             "/api/v1/calendar-events/42,workforce",
             "/api/v1/leave/requests/mine,leave",
             "/api/v1/leave/requests/inbox,leave",
+            "/api/v1/attendance/shifts,attendance",
+            "/api/v1/attendance/mine,attendance",
             "/api/v1/attendance/health-check,attendance"
     })
     void routesOriginalPathQueryAndBearerToken(String path, String backend) throws Exception {
@@ -118,7 +120,8 @@ class GatewayApplicationTests {
     @ParameterizedTest
     @ValueSource(strings = {"/api/v1/auth/register", "/api/v1/auth/logout-all", "/api/v1/auth/activation-invitations/42",
             "/api/v1/employees", "/api/v1/departments", "/api/v1/positions", "/api/v1/calendar", "/api/v1/calendar-events",
-            "/api/v1/leave/requests", "/api/v1/leave/requests/inbox", "/api/v1/attendance/health-check"})
+            "/api/v1/leave/requests", "/api/v1/leave/requests/inbox", "/api/v1/attendance/health-check",
+            "/api/v1/attendance/check-in"})
     void protectedApisNeverReachBackendWithoutToken(String path) {
         int calls = UPSTREAM_CALLS.get();
         client.post().uri(path).exchange().expectStatus().isUnauthorized()

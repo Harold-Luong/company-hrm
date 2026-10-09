@@ -23,6 +23,12 @@ import AppIcon from './AppIcon.vue'
       active-class="attendance-current"
       >Tăng ca (OT)</RouterLink
     >
+    <RouterLink
+      to="/attendance/corrections"
+      class="button button-secondary"
+      active-class="attendance-current"
+      >Bổ sung / Điều chỉnh</RouterLink
+    >
     <template v-if="auth.hasRole(attendanceRoles)">
       <RouterLink
         to="/attendance/shifts"

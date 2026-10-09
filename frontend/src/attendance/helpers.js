@@ -96,6 +96,8 @@ export function shiftBody(form) {
 }
 export function attendanceError(error) {
   if (!(error?.status >= 0)) return error.message || 'Không thể xử lý yêu cầu.'
+  if (error.status === 412 && /correction/i.test(error.message))
+    return 'Ngày công hoặc ca đã thay đổi. Người gửi cần sửa đơn theo dữ liệu mới trước khi HR duyệt.'
   if (error.status === 412 || error.status === 428)
     return 'Dữ liệu đã thay đổi hoặc thiếu phiên bản. Hãy tải lại và xem trước trước khi lưu.'
   if (error.status === 0)
@@ -105,6 +107,27 @@ export function attendanceError(error) {
   if (error.status === 422)
     return 'Phạm vi dữ liệu quá lớn. Hãy chọn ít nhân viên hoặc rút ngắn khoảng ngày.'
   const messages = {
+    'You cannot review your own attendance correction':
+      'Bạn không được tự xét duyệt đơn điều chỉnh của mình.',
+    'Only pending corrections can be reviewed': 'Đơn đã được xử lý. Hãy tải lại danh sách.',
+    'Only pending corrections can be edited or cancelled':
+      'Chỉ được sửa hoặc rút đơn đang chờ duyệt.',
+    'Only the owner may edit or cancel a correction': 'Chỉ người gửi mới được sửa hoặc rút đơn.',
+    'A pending correction already exists for this date':
+      'Ngày này đã có đơn chờ duyệt. Hãy sửa hoặc rút đơn hiện tại.',
+    'Correction date cannot be in the future': 'Không thể điều chỉnh ngày công trong tương lai.',
+    'No assigned schedule for correction date': 'Chưa có lịch làm việc cho ngày cần điều chỉnh.',
+    'Corrections can only be submitted after the shift ends':
+      'Chỉ gửi hoặc duyệt đơn bổ sung sau khi ca làm việc kết thúc.',
+    'Corrected times must be ordered, not in the future and inside the recording window (whole seconds)':
+      'Giờ vào/ra phải đúng thứ tự, nằm trong cửa sổ chấm công của ca và không ở tương lai.',
+    'Corrected times are unchanged': 'Giờ đề nghị trùng với giờ đang tính công.',
+    'Employee is not eligible on the correction date':
+      'Nhân viên không đủ điều kiện ghi công cho ngày này.',
+    'Corrected times conflict with leave or company holidays':
+      'Giờ đề nghị xung đột với nghỉ phép hoặc ngày nghỉ chung.',
+    'Attendance correction not found': 'Không tìm thấy đơn điều chỉnh.',
+
     'Schedule overlaps an adjacent assigned shift':
       'Lịch mới chồng giờ với ca liền kề đang được phân công.',
     'Schedule affects approved OT; choose another date range':

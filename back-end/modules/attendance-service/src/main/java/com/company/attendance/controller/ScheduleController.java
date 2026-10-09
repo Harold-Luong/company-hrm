@@ -18,16 +18,21 @@ import static com.company.attendance.service.ApiRules.employee;
 @RequiredArgsConstructor
 public class ScheduleController {
     private final ScheduleService service;
+
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('HR','ADMIN')")
     public PageResponse<com.company.attendance.entity.ScheduleBatch> history(@RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) { return service.history(page, size); }
+            @RequestParam(defaultValue = "20") int size) {
+        return service.history(page, size);
+    }
+
     @PostMapping("/preview")
     @PreAuthorize("hasAnyRole('HR','ADMIN')")
     public ResponseEntity<Preview> preview(@Valid @RequestBody ScheduleRequest body, JwtAuthenticationToken actor) {
         var result = service.preview(body, actor);
         return ResponseEntity.ok().eTag("\"" + result.scheduleRevision() + "\"").body(result);
     }
+
     @PostMapping("/apply")
     @PreAuthorize("hasAnyRole('HR','ADMIN')")
     public Applied apply(@Valid @RequestBody ScheduleRequest body,
@@ -35,10 +40,12 @@ public class ScheduleController {
             @RequestHeader(value = "Idempotency-Key", required = false) String key, JwtAuthenticationToken actor) {
         return service.apply(body, match, key, actor);
     }
+
     @GetMapping("/mine")
     public List<Day> mine(@RequestParam LocalDate from, @RequestParam LocalDate until, JwtAuthenticationToken actor) {
         return service.schedule(employee(actor), from, until, actor);
     }
+
     @GetMapping("/employees/{employeeId}")
     @PreAuthorize("hasAnyRole('HR','ADMIN')")
     public List<Day> employeeSchedule(@PathVariable UUID employeeId, @RequestParam LocalDate from,

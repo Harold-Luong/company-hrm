@@ -12,7 +12,7 @@ import java.util.List;
 public class AttendanceCsvExporter {
     public byte[] export(List<AttendanceResponse> rows) {
         StringBuilder csv = new StringBuilder(
-                "\uFEFFemployee_id,employee_code,employee_name,department_id,work_date,shift_id,shift_version,check_in,check_out,required_minutes,annual_leave_minutes,unpaid_leave_minutes,leave_days,remaining_minutes,actual_seconds,counted_minutes,late_seconds,late_minutes,early_seconds,early_minutes,status,pending_leave_ids,applied_leave_ids,source_observed_at,record_version,report_state,pending_request_ids,approved_request_ids,conflicting_request_ids,approved_late_minutes,approved_early_minutes,covered_late_seconds,covered_early_seconds,unapproved_rounded_late_minutes,unapproved_rounded_early_minutes,approved_ot_minutes,counted_ot_minutes\r\n");
+                "\uFEFFemployee_id,employee_code,employee_name,department_id,work_date,shift_id,shift_version,check_in,check_out,required_minutes,annual_leave_minutes,unpaid_leave_minutes,leave_days,remaining_minutes,actual_seconds,counted_minutes,late_seconds,late_minutes,early_seconds,early_minutes,status,pending_leave_ids,applied_leave_ids,source_observed_at,record_version,report_state,pending_request_ids,approved_request_ids,conflicting_request_ids,approved_late_minutes,approved_early_minutes,covered_late_seconds,covered_early_seconds,unapproved_rounded_late_minutes,unapproved_rounded_early_minutes,approved_ot_minutes,counted_ot_minutes,original_check_in,original_check_out,correction_id\r\n");
         for (var r : rows) {
             Object[] values = { r.employeeId(), r.employeeCode(), r.employeeName(), r.departmentId(), r.workDate(),
                     r.shiftId(), r.shiftVersion(),
@@ -29,7 +29,7 @@ public class AttendanceCsvExporter {
                     r.permissionCoverage().coveredLateSeconds(), r.permissionCoverage().coveredEarlySeconds(),
                     r.permissionCoverage().unapprovedRoundedLateMinutes(),
                     r.permissionCoverage().unapprovedRoundedEarlyMinutes(), r.overtime().approvedMinutes(),
-                    r.overtime().countedMinutes() };
+                    r.overtime().countedMinutes(), r.originalCheckIn(), r.originalCheckOut(), r.correctionId() };
             csv.append(String.join(",", Arrays.stream(values).map(AttendanceCsvExporter::csvCell).toList()))
                     .append("\r\n");
         }

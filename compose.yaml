@@ -1,0 +1,362 @@
+# Local development stack with demo data; see DOCKER.md.
+name: company-hrm
+
+x-app: &app
+    restart: unless-stopped
+    mem_limit: 768m
+    security_opt:
+        - no-new-privileges:true
+    healthcheck:
+        test:
+            [
+                "CMD-SHELL",
+                "curl --fail --silent --max-time 4 http://localhost:$${SERVER_PORT}/actuator/health >/dev/null",
+            ]
+        interval: 10s
+        timeout: 5s
+        start_period: 90s
+        retries: 30
+
+x-app-env: &app-env
+    JWT_ACCESS_PUBLIC_KEY: file:/keys/public/access-public.pem
+    SPRING_JPA_SHOW_SQL: "false"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75.0"
+
+services:
+    keys-init:
+        image: node:24-alpine
+        entrypoint: ["node", "/init-keys.mjs"]
+        volumes:
+            - ./docker/init-keys.mjs:/init-keys.mjs:ro
+            - jwt-public:/keys/public
+            - jwt-private:/keys/private
+        restart: "no"
+
+    frontend:
+        build: ./frontend
+        ports:
+            - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
+        networks:
+            default:
+                ipv4_address: 172.30.80.10
+        depends_on:
+            gateway:
+                condition: service_healthy
+        restart: unless-stopped
+
+    gateway:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: gateway
+        ports:
+            - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+        networks:
+            default:
+                ipv4_address: 172.30.80.20
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8080
+            GATEWAY_BIND_ADDRESS: 0.0.0.0
+            AUTH_SERVICE_URL: http://auth:8081
+            EMPLOYEE_SERVICE_URL: http://employee:8082
+            WORKFORCE_SERVICE_URL: http://calendar:8083
+            LEAVE_SERVICE_URL: http://leave:8084
+            ATTENDANCE_SERVICE_URL: http://attendance:8085
+            CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
+        volumes:
+            - jwt-public:/keys/public:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            auth:
+                condition: service_healthy
+            employee:
+                condition: service_healthy
+            calendar:
+                condition: service_healthy
+            leave:
+                condition: service_healthy
+            attendance:
+                condition: service_healthy
+
+    auth:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: auth-service-main
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8081
+            SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
+            SPRING_DATASOURCE_USERNAME: auth_user
+            SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD:-auth_local_password}
+            SERVER_FORWARD_HEADERS_STRATEGY: framework
+            JWT_ACCESS_PRIVATE_KEY: file:/keys/private/access-private.pem
+            JWT_REFRESH_PRIVATE_KEY: file:/keys/private/refresh-private.pem
+            JWT_REFRESH_PUBLIC_KEY: file:/keys/public/refresh-public.pem
+            KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+            HRM_EVENTS_ENABLED: "true"
+            AUTH_ACTIVATION_ENABLED: ${AUTH_ACTIVATION_ENABLED:-false}
+            AUTH_ACTIVATION_TOKEN_SECRET: ${AUTH_ACTIVATION_TOKEN_SECRET:-}
+            AUTH_ACTIVATION_FRONTEND_URL: http://localhost:${FRONTEND_PORT:-5173}/activate
+            RESEND_FROM: ${RESEND_FROM:-}
+            RESEND_API_KEY: ${RESEND_API_KEY:-}
+        volumes:
+            - jwt-public:/keys/public:ro
+            - jwt-private:/keys/private:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            auth-db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "curl --fail --silent --max-time 4 http://localhost:8081/api/v1/auth/health-check >/dev/null",
+                ]
+            interval: 10s
+            timeout: 5s
+            start_period: 90s
+            retries: 30
+
+    auth-db:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: auth_db
+            POSTGRES_USER: auth_user
+            POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-auth_local_password}
+        volumes:
+            - auth-data:/var/lib/postgresql/data
+            - ./back-end/modules/auth-service-main/docs/sql/001_auth_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+            - ./back-end/modules/auth-service-main/docs/sql/002_auth_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+        healthcheck:
+            # TCP stays unavailable until entrypoint init scripts have completed.
+            test:
+                ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U auth_user -d auth_db"]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        restart: unless-stopped
+
+    employee:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: employee-service
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8082
+            SPRING_DATASOURCE_URL: jdbc:postgresql://employee-db:5432/employee_db
+            SPRING_DATASOURCE_USERNAME: employee_user
+            SPRING_DATASOURCE_PASSWORD: ${EMPLOYEE_DB_PASSWORD:-employee_local_password}
+            KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+            HRM_EVENTS_ENABLED: "true"
+        volumes:
+            - jwt-public:/keys/public:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            employee-db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+
+    employee-db:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: employee_db
+            POSTGRES_USER: employee_user
+            POSTGRES_PASSWORD: ${EMPLOYEE_DB_PASSWORD:-employee_local_password}
+        volumes:
+            - employee-data:/var/lib/postgresql/data
+            - ./back-end/modules/employee-service/docs/sql/001_employee_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+            - ./back-end/modules/employee-service/docs/sql/002_employee_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+        healthcheck:
+            # TCP stays unavailable until entrypoint init scripts have completed.
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -h 127.0.0.1 -U employee_user -d employee_db",
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        restart: unless-stopped
+
+    calendar:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: calendar-service
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8083
+            SPRING_DATASOURCE_URL: jdbc:postgresql://calendar-db:5432/calendar_db
+            SPRING_DATASOURCE_USERNAME: calendar_user
+            SPRING_DATASOURCE_PASSWORD: ${CALENDAR_DB_PASSWORD:-calendar_local_password}
+        volumes:
+            - jwt-public:/keys/public:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            calendar-db:
+                condition: service_healthy
+
+    calendar-db:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: calendar_db
+            POSTGRES_USER: calendar_user
+            POSTGRES_PASSWORD: ${CALENDAR_DB_PASSWORD:-calendar_local_password}
+        volumes:
+            - calendar-data:/var/lib/postgresql/data
+            - ./back-end/modules/calendar-service/docs/sql/001_calendar_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+            - ./back-end/modules/calendar-service/docs/sql/002_calendar_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+        healthcheck:
+            # TCP stays unavailable until entrypoint init scripts have completed.
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -h 127.0.0.1 -U calendar_user -d calendar_db",
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        restart: unless-stopped
+
+    leave:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: leave-service
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8084
+            SPRING_DATASOURCE_URL: jdbc:postgresql://leave-db:5432/leave_db
+            SPRING_DATASOURCE_USERNAME: leave_user
+            SPRING_DATASOURCE_PASSWORD: ${LEAVE_DB_PASSWORD:-leave_local_password}
+        volumes:
+            - jwt-public:/keys/public:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            leave-db:
+                condition: service_healthy
+
+    leave-db:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: leave_db
+            POSTGRES_USER: leave_user
+            POSTGRES_PASSWORD: ${LEAVE_DB_PASSWORD:-leave_local_password}
+        volumes:
+            - leave-data:/var/lib/postgresql/data
+            - ./back-end/modules/leave-service/docs/sql/001_leave_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+        healthcheck:
+            # TCP stays unavailable until entrypoint init scripts have completed.
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -h 127.0.0.1 -U leave_user -d leave_db",
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        restart: unless-stopped
+
+    attendance:
+        <<: *app
+        build:
+            context: ./back-end/modules
+            dockerfile: infra/gateway/Dockerfile
+            args:
+                MODULE: attendance-service
+        environment:
+            <<: *app-env
+            SERVER_PORT: 8085
+            SPRING_DATASOURCE_URL: jdbc:postgresql://attendance-db:5432/attendance_db
+            SPRING_DATASOURCE_USERNAME: attendance_user
+            SPRING_DATASOURCE_PASSWORD: ${ATTENDANCE_DB_PASSWORD:-attendance_local_password}
+            EMPLOYEE_SERVICE_URL: http://employee:8082
+            LEAVE_SERVICE_URL: http://leave:8084
+            CALENDAR_SERVICE_URL: http://calendar:8083
+            # Local demo only: the gateway observes the frontend proxy as its TCP peer.
+            ATTENDANCE_ALLOWED_NETWORKS: ${ATTENDANCE_ALLOWED_NETWORKS-172.30.80.10/32}
+            ATTENDANCE_TRUSTED_PROXIES: 172.30.80.20/32
+        volumes:
+            - jwt-public:/keys/public:ro
+        depends_on:
+            keys-init:
+                condition: service_completed_successfully
+            attendance-db:
+                condition: service_healthy
+            employee:
+                condition: service_healthy
+            calendar:
+                condition: service_healthy
+            leave:
+                condition: service_healthy
+
+    attendance-db:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: attendance_db
+            POSTGRES_USER: attendance_user
+            POSTGRES_PASSWORD: ${ATTENDANCE_DB_PASSWORD:-attendance_local_password}
+        volumes:
+            - attendance-data:/var/lib/postgresql/data
+            - ./back-end/modules/attendance-service/docs/sql/001_attendance_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+        healthcheck:
+            # TCP stays unavailable until entrypoint init scripts have completed.
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -h 127.0.0.1 -U attendance_user -d attendance_db",
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        restart: unless-stopped
+
+    kafka:
+        extends:
+            file: ./back-end/modules/infra/kafka/compose.yaml
+            service: kafka
+        ports: !reset []
+
+    kafka-init:
+        extends:
+            file: ./back-end/modules/infra/kafka/compose.yaml
+            service: kafka-init
+
+networks:
+    default:
+        ipam:
+            config:
+                - subnet: 172.30.80.0/24
+                  # Keep dynamic allocations away from frontend .10 and gateway .20.
+                  ip_range: 172.30.80.128/25
+
+volumes:
+    jwt-public:
+    jwt-private:
+    kafka-data:
+    auth-data:
+    employee-data:
+    calendar-data:
+    leave-data:
+    attendance-data:

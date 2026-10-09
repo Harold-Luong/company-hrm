@@ -56,7 +56,7 @@ class AttendanceApiTests extends JwtTestSupport {
 
     @BeforeEach
     void reset() {
-        for (String table : List.of("attendance_overtime_requests", "attendance_request_history", "attendance_requests", "attendance_events", "attendance_daily", "work_schedule_rules", "attendance_schedule_batches", "attendance_operations", "shift_revisions", "work_shifts"))
+        for (String table : List.of("attendance_overtime_requests", "attendance_request_history", "attendance_requests", "attendance_events", "attendance_daily", "attendance_correction_history", "attendance_corrections", "work_schedule_rules", "attendance_schedule_batches", "attendance_operations", "shift_revisions", "work_shifts"))
             jdbc.update("DELETE FROM " + table);
         jdbc.update("UPDATE attendance_schedule_state SET revision=0, version=0 WHERE id=1");
         source.leaves = List.of(); source.holidays = List.of(); source.fail = false; source.active = true;
@@ -645,6 +645,188 @@ class AttendanceApiTests extends JwtTestSupport {
         punch("check-in", "old-in").andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_daily", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_events", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void correctionLifecycleAddsMissingPairWithoutFabricatingPunches() throws Exception {
+        String shift = assignedRequestShift(); clock.at("18:00");
+        String body = correctionBody(shift, null, "13:00", "15:00");
+        String first = submitCorrection(body, "correction-1").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING")).andReturn().getResponse().getContentAsString();
+        String id = mapper.readTree(first).get("id").asString();
+        assertThat(submitCorrection(body, "correction-1").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).isEqualTo(first);
+        submitCorrection(body, "duplicate").andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_daily", Integer.class)).isZero();
+        mvc.perform(get(BASE + "/corrections/" + id).with(other())).andExpect(status().isNotFound());
+        mvc.perform(get(BASE + "/corrections/" + id + "/history").with(other())).andExpect(status().isNotFound());
+        mvc.perform(get(BASE + "/corrections/inbox").with(employee())).andExpect(status().isForbidden());
+        correctionDecision(id, 0, "APPROVED", null, actor(EMPLOYEE, "HR")).andExpect(status().isForbidden());
+        correctionDecision(id, 0, "APPROVED", null, employee()).andExpect(status().isForbidden());
+        correctionDecision(id, 0, "REJECTED", " ", hr()).andExpect(status().isBadRequest());
+        correctionDecision(id, 0, "APPROVED", "Verified", hr()).andExpect(status().isOk());
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isPreconditionFailed());
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].workMinutesCounted").value(120))
+                .andExpect(jsonPath("$[0].correctionId").value(id)).andExpect(jsonPath("$[0].originalCheckIn").isEmpty());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_events", Integer.class)).isZero();
+        mvc.perform(get(BASE + "/corrections/" + id + "/history").with(employee()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2));
+        mvc.perform(post(BASE + "/corrections/" + id + "/cancel").with(employee()).header("If-Match", "\"1\""))
+                .andExpect(status().isConflict());
+        punch("check-out", "after-correction").andExpect(status().isConflict());
+        String csv = mvc.perform(get(BASE + "/reports/export.csv?from=" + DATE + "&until=" + DATE + "&employeeId=" + EMPLOYEE).with(hr()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(csv).contains("original_check_in,original_check_out,correction_id", id).doesNotContain("Verified");
+    }
+
+    @Test
+    void correctionsPreserveRawPunchesAndCanBeSuperseded() throws Exception {
+        String shift = assignedRequestShift();
+        clock.at("13:10"); punch("check-in", "raw-in").andExpect(status().isOk());
+        clock.at("14:50"); punch("check-out", "raw-out").andExpect(status().isOk());
+        var original = jdbc.queryForList("SELECT * FROM attendance_events ORDER BY event_at");
+        clock.at("18:00");
+        String id = permissionId(submitCorrection(correctionBody(shift, 1L, "13:00", "15:00"), "fix"));
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isOk());
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+                .andExpect(jsonPath("$[0].originalCheckIn").value("2030-01-07T06:10:00Z"))
+                .andExpect(jsonPath("$[0].originalCheckOut").value("2030-01-07T07:50:00Z"))
+                .andExpect(jsonPath("$[0].checkIn").value("2030-01-07T06:00:00Z"));
+        String second = permissionId(submitCorrection(correctionBody(shift, 2L, "13:05", "15:00"), "fix-again"));
+        correctionDecision(second, 0, "APPROVED", null, hr()).andExpect(status().isOk());
+        assertThat(jdbc.queryForList("SELECT * FROM attendance_events ORDER BY event_at")).isEqualTo(original);
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+                .andExpect(jsonPath("$[0].workMinutesCounted").value(105)).andExpect(jsonPath("$[0].correctionId").value(second));
+    }
+
+    @Test
+    void changedPunchBlocksApprovalUntilOwnerRebasesPendingCorrection() throws Exception {
+        String shift = assignedRequestShift(); clock.at("13:00"); punch("check-in", "in"); clock.at("18:00");
+        String id = permissionId(submitCorrection(correctionBody(shift, 0L, "13:00", "15:00"), "missing-out"));
+        punch("check-out", "new-out").andExpect(status().isOk());
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isPreconditionFailed());
+        mvc.perform(put(BASE + "/corrections/" + id).with(employee()).header("If-Match", "\"0\"")
+                .contentType("application/json").content(correctionBody(shift, 1L, "13:00", "15:00")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.beforeCheckOut").value("2030-01-07T11:00:00Z"));
+        correctionDecision(id, 1, "APPROVED", null, hr()).andExpect(status().isOk());
+    }
+
+    @Test
+    void correctionRejectCancelAndResubmitAreVersioned() throws Exception {
+        String shift = assignedRequestShift(); clock.at("18:00");
+        String body = correctionBody(shift, null, "13:00", "15:00");
+        String id = permissionId(submitCorrection(body, "cancel-me"));
+        mvc.perform(post(BASE + "/corrections/" + id + "/cancel").with(hr()).header("If-Match", "\"0\""))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(BASE + "/corrections/" + id + "/cancel").with(employee())).andExpect(status().isPreconditionRequired());
+        mvc.perform(post(BASE + "/corrections/" + id + "/cancel").with(employee()).header("If-Match", "\"0\""))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+        String next = permissionId(submitCorrection(body, "reject-me"));
+        correctionDecision(next, 0, "REJECTED", "Insufficient evidence", hr()).andExpect(status().isOk());
+        submitCorrection(body, "resubmit").andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_daily", Integer.class)).isZero();
+    }
+
+    @Test
+    void correctionValidatesWindowFutureAndFreshCoverageWithAtomicApproval() throws Exception {
+        String shift = assignedRequestShift();
+        String body = correctionBody(shift, null, "13:00", "15:00");
+        clock.at("14:00"); submitCorrection(body, "early").andExpect(status().isConflict());
+        clock.at("18:00");
+        submitCorrection(correctionBody(shift, null, "05:00", "15:00"), "window").andExpect(status().isBadRequest());
+        submitCorrection(correctionBody(shift, null, "13:00", "19:00"), "future").andExpect(status().isBadRequest());
+        submitCorrection(correctionBody(shift, null, "15:00", "13:00"), "reverse").andExpect(status().isBadRequest());
+        String id = permissionId(submitCorrection(body, "coverage"));
+        source.fail = true;
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isServiceUnavailable()); source.fail = false;
+        source.leaves = List.of(new WorkforceClient.Leave(UUID.randomUUID(), EMPLOYEE, "ANNUAL", DATE, DATE, "AFTERNOON", "APPROVED", 1));
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isConflict()); source.leaves = List.of();
+        jdbc.execute("ALTER TABLE attendance_correction_history ADD CONSTRAINT test_correction_audit CHECK (action <> 'APPROVED')");
+        try { correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isConflict()); }
+        finally { jdbc.execute("ALTER TABLE attendance_correction_history DROP CONSTRAINT test_correction_audit"); }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_daily", Integer.class)).isZero();
+        mvc.perform(get(BASE + "/corrections/" + id).with(employee())).andExpect(jsonPath("$.status").value("PENDING"));
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isOk());
+    }
+
+    @Test
+    void concurrentCorrectionSubmissionsHaveOneWinner() throws Exception {
+        String shift = assignedRequestShift(); clock.at("18:00");
+        String body = correctionBody(shift, null, "13:00", "15:00");
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var a = pool.submit(() -> submitCorrection(body, "concurrent-a").andReturn().getResponse().getStatus());
+            var b = pool.submit(() -> submitCorrection(body, "concurrent-b").andReturn().getResponse().getStatus());
+            assertThat(List.of(a.get(), b.get())).containsExactlyInAnyOrder(201, 409);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_correction_history", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void overnightCorrectionUsesStartingDateAndNextDayCheckout() throws Exception {
+        String body = """
+            {"name":"Night","mode":"FIXED_SHIFT","timezone":"Asia/Ho_Chi_Minh","overnight":true,
+             "intervals":[{"period":"AFTERNOON","start":"22:00","end":"06:00"}],"checkInFrom":"21:00","checkOutUntil":"07:00"}
+            """;
+        String shift = permissionId(mvc.perform(post(BASE + "/shifts").with(hr()).contentType("application/json").content(body)));
+        apply(schedule(shift, "COMPANY_DEFAULT", List.of(), DATE, null), "night-plan", 0);
+        clock.time = DATE.plusDays(1).atTime(8, 0).atZone(clock.getZone()).toInstant();
+        String proposal = correctionBody(shift, null, "22:00", "06:00").replace("2030-01-07T06:00", "2030-01-08T06:00");
+        String id = permissionId(submitCorrection(proposal, "night-correction"));
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isOk());
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+                .andExpect(jsonPath("$[0].workDate").value(DATE.toString()))
+                .andExpect(jsonPath("$[0].workMinutesCounted").value(480));
+    }
+
+    @Test
+    void pendingCorrectionRequiresRebaseWhenScheduleChangesAndApprovalHasOneWinner() throws Exception {
+        String shift = assignedRequestShift(); clock.at("18:00");
+        String id = permissionId(submitCorrection(correctionBody(shift, null, "13:00", "15:00"), "stale-schedule"));
+        String replacement = createShift("13:00", "16:00");
+        apply(schedule(replacement, "COMPANY_DEFAULT", List.of(), DATE, null), "replacement", 1);
+        correctionDecision(id, 0, "APPROVED", null, hr()).andExpect(status().isPreconditionFailed());
+        mvc.perform(put(BASE + "/corrections/" + id).with(employee()).header("If-Match", "\"0\"")
+                .contentType("application/json").content(correctionBody(replacement, null, "13:00", "16:00")))
+                .andExpect(status().isOk());
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var a = pool.submit(() -> correctionDecision(id, 1, "APPROVED", null, hr()).andReturn().getResponse().getStatus());
+            var b = pool.submit(() -> correctionDecision(id, 1, "APPROVED", null, hr()).andReturn().getResponse().getStatus());
+            assertThat(List.of(a.get(), b.get())).containsExactlyInAnyOrder(200, 412);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_correction_history WHERE action='APPROVED'", Integer.class)).isEqualTo(1);
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+                .andExpect(jsonPath("$[0].workMinutesCounted").value(180));
+    }
+
+    @Test
+    void correctionRejectsNoOpInvalidPayloadAndMissingIdempotencyKey() throws Exception {
+        String shift = assignedRequestShift(); clock.at("13:00"); punch("check-in", "in");
+        clock.at("15:00"); punch("check-out", "out"); clock.at("18:00");
+        String body = correctionBody(shift, 1L, "13:00", "15:00");
+        submitCorrection(body, "no-op").andExpect(status().isConflict());
+        submitCorrection(body.replace("Forgot to record attendance", " "), "blank").andExpect(status().isBadRequest());
+        submitCorrection(body.replace("\"workDate\":\"2030-01-07\"", "\"workDate\":\"2030-01-08\""), "future-date")
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(BASE + "/corrections").with(employee()).contentType("application/json").content(body))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_corrections", Integer.class)).isZero();
+    }
+
+    private String correctionBody(String shift, Long version, String in, String out) {
+        return """
+            {"workDate":"%s","shiftId":"%s","shiftVersion":0,"recordVersion":%s,
+             "proposedCheckIn":"%sT%s:00+07:00","proposedCheckOut":"%sT%s:00+07:00","reason":"Forgot to record attendance"}
+            """.formatted(DATE, shift, version, DATE, in, DATE, out);
+    }
+    private ResultActions submitCorrection(String body, String key) throws Exception {
+        return mvc.perform(post(BASE + "/corrections").with(employee()).header("Idempotency-Key", key)
+                .contentType("application/json").content(body));
+    }
+    private ResultActions correctionDecision(String id, long version, String status, String note, RequestPostProcessor actor) throws Exception {
+        Map<String,Object> body = new HashMap<>(); body.put("status", status); body.put("reviewNote", note);
+        return mvc.perform(post(BASE + "/corrections/" + id + "/decision").with(actor).header("If-Match", "\"" + version + "\"")
+                .contentType("application/json").content(mapper.writeValueAsString(body)));
     }
 
     private String permissionId(ResultActions action) throws Exception {

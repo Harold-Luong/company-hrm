@@ -11,4 +11,5 @@ public record AttendanceResponse(UUID employeeId, String employeeCode, String em
         Long workedActualSeconds, Integer workMinutesCounted, Long lateActualSeconds,
         Integer roundedLateMinutes, Long earlyActualSeconds, Integer roundedEarlyMinutes,
         String status, List<UUID> pendingLeaveIds, List<UUID> appliedLeaveIds,
-        Instant sourceObservedAt, Long recordVersion, String reportState, AttendancePermissionCoverage permissionCoverage, OvertimeModels.Summary overtime) {}
+        Instant sourceObservedAt, Long recordVersion, String reportState, AttendancePermissionCoverage permissionCoverage, OvertimeModels.Summary overtime,
+        Instant originalCheckIn, Instant originalCheckOut, UUID correctionId) {}
