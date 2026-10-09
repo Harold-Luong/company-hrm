@@ -8,7 +8,11 @@ const employee = {
   employeeCode: 'NV001',
   lastName: 'Nguyễn Văn',
   firstName: 'An',
-  email: 'an@company.com',
+  personalEmail: 'an@company.com',
+  gender: 'MALE',
+  address: '12 Nguyễn Trãi',
+  contactRelative: 'Nguyễn Văn Nam',
+  contactRelativePhone: '0901111222',
   phone: '0901234567',
   dateOfBirth: '1995-05-20',
   hireDate: '2026-01-01',
@@ -77,6 +81,7 @@ async function setup(page, roles = ['HR']) {
     } else if (path === '/api/v1/employees' && req.method() === 'POST') {
       state.saves.push(req.postDataJSON())
       Object.assign(state.employee, req.postDataJSON())
+      state.employee.employeeCode = 'EMP000007'
       body = state.employee
       status = 201
     } else if (path === `/api/v1/departments/${departmentId}`) {
@@ -146,8 +151,9 @@ async function mockInvitations(page) {
 test('employee create, edit and status update follow backend payloads', async ({ page }) => {
   const state = await setup(page)
   await page.goto('/employees/new')
-  await page.getByLabel('Mã nhân viên').fill('NV002')
-  await page.getByLabel('Email công việc').fill('new@company.com')
+  await expect(page.getByLabel('Mã nhân viên')).toHaveCount(0)
+  await page.getByLabel('Email cá nhân').fill('new@company.com')
+  await page.getByLabel('Giới tính').selectOption('FEMALE')
   await page.getByLabel('Họ và tên đệm').fill('Trần')
   await page.getByLabel('Tên *', { exact: true }).fill('Bình')
   await page.getByLabel('Ngày vào làm').fill('2026-09-01')
@@ -155,21 +161,79 @@ test('employee create, edit and status update follow backend payloads', async ({
   await page.getByRole('button', { name: 'Tạo nhân viên', exact: true }).click()
   await expect(page).toHaveURL(`/employees/${id}`)
   expect(state.saves[0]).toMatchObject({
-    employeeCode: 'NV002',
+    personalEmail: 'new@company.com',
+    gender: 'FEMALE',
+    address: null,
+    contactRelative: null,
+    contactRelativePhone: null,
     departmentId,
     positionId: null,
     managerId: null,
     dateOfBirth: null,
     phone: null,
   })
+  expect(state.saves[0]).not.toHaveProperty('email')
+  expect(state.saves[0]).not.toHaveProperty('employeeCode')
+  await expect(page.getByLabel('Mã nhân viên')).toHaveCount(0)
+  await expect(page.locator('.page-heading')).not.toContainText('EMP000007')
+  await expect(page.getByLabel('Email cá nhân')).toHaveValue('new@company.com')
+  await expect(page.getByLabel('Giới tính')).toHaveValue('FEMALE')
+  await expect(page.getByLabel('Email cấp tài khoản')).toHaveValue('new@company.com')
   await page.screenshot({ path: 'test-results/employee-desktop.png', fullPage: true })
   await page.getByLabel('Số điện thoại').fill('0912345678')
   await page.getByRole('button', { name: 'Lưu hồ sơ', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Đã lưu hồ sơ nhân viên.')
+  expect(state.saves[1]).not.toHaveProperty('employeeCode')
+  expect(state.employee.employeeCode).toBe('EMP000007')
   await page.getByLabel('Trạng thái mới').selectOption('ACTIVE')
   await page.getByRole('button', { name: 'Cập nhật trạng thái', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Đã cập nhật trạng thái công việc.')
   expect(state.employee.status).toBe('ACTIVE')
+})
+test('employee creation requires gender before sending the request', async ({ page }) => {
+  const state = await setup(page)
+  await page.goto('/employees/new')
+  await page.getByLabel('Email cá nhân').fill('new@company.com')
+  await page.getByLabel('Họ và tên đệm').fill('Trần')
+  await page.getByLabel('Tên *', { exact: true }).fill('Bình')
+  await page.getByLabel('Ngày vào làm').fill('2026-09-01')
+  await page.getByRole('button', { name: 'Tạo nhân viên', exact: true }).click()
+  expect(
+    await page.getByLabel('Giới tính').evaluate((element) => element.validity.valueMissing),
+  ).toBe(true)
+  expect(state.saves).toHaveLength(0)
+})
+test('editing an employee preserves and clears the new profile fields', async ({ page }) => {
+  const state = await setup(page)
+  await page.goto(`/employees/${id}`)
+  await expect(page.getByLabel('Email cá nhân')).toHaveValue(employee.personalEmail)
+  await expect(page.getByLabel('Giới tính')).toHaveValue(employee.gender)
+  await expect(page.getByLabel('Địa chỉ')).toHaveValue(employee.address)
+  await expect(page.getByRole('textbox', { name: 'Người thân liên hệ', exact: true })).toHaveValue(
+    employee.contactRelative,
+  )
+  await expect(page.getByLabel('Điện thoại người thân')).toHaveValue(employee.contactRelativePhone)
+  await page.getByLabel('Số điện thoại').fill('0912345678')
+  await page.getByRole('button', { name: 'Lưu hồ sơ', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Đã lưu hồ sơ nhân viên.')
+  expect(state.saves[0]).toMatchObject({
+    personalEmail: employee.personalEmail,
+    gender: employee.gender,
+    address: employee.address,
+    contactRelative: employee.contactRelative,
+    contactRelativePhone: employee.contactRelativePhone,
+    phone: '0912345678',
+  })
+  await page.getByLabel('Địa chỉ').fill('')
+  await page.getByRole('textbox', { name: 'Người thân liên hệ', exact: true }).fill('')
+  await page.getByLabel('Điện thoại người thân').fill('')
+  await page.getByRole('button', { name: 'Lưu hồ sơ', exact: true }).click()
+  await expect.poll(() => state.saves.length).toBe(2)
+  expect(state.saves[1]).toMatchObject({
+    address: null,
+    contactRelative: null,
+    contactRelativePhone: null,
+  })
 })
 test('catalog forms, empty state, pagination and list recovery work', async ({ page }) => {
   const state = await setup(page)
@@ -190,6 +254,7 @@ test('catalog forms, empty state, pagination and list recovery work', async ({ p
   state.listError = false
   await page.getByRole('button', { name: 'Tải lại', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Nguyễn Văn An', exact: true })).toBeVisible()
+  await expect(page.getByText(employee.personalEmail, { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Trang sau', exact: true }).click()
   await expect(page.getByText('21 bản ghi · Trang 2 / 2')).toBeVisible()
 })

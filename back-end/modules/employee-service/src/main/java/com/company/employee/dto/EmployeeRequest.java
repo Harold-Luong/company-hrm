@@ -1,6 +1,7 @@
 package com.company.employee.dto;
 
 import com.company.employee.enums.EmployeeStatus;
+import com.company.employee.enums.Gender;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,12 +12,15 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 public record EmployeeRequest(
-        @NotBlank @Size(max = 50) String employeeCode,
         @NotBlank @Size(max = 100) String firstName,
         @NotBlank @Size(max = 100) String lastName,
-        @NotBlank @Email @Size(max = 255) String email,
+        @NotBlank @Email @Size(max = 255) String personalEmail,
         @Size(max = 30) String phone,
         @Past LocalDate dateOfBirth,
+        @NotNull Gender gender,
+        @Size(max = 255) String address,
+        @Size(max = 255) String contactRelative,
+        @Size(max = 30) String contactRelativePhone,
         @NotNull LocalDate hireDate,
         @NotNull EmployeeStatus status,
         UUID departmentId,
@@ -24,10 +28,12 @@ public record EmployeeRequest(
         UUID managerId
 ) {
     public EmployeeRequest {
-        employeeCode = strip(employeeCode);
         firstName = strip(firstName);
         lastName = strip(lastName);
-        email = strip(email);
+        personalEmail = strip(personalEmail);
+        address = strip(address);
+        contactRelative = strip(contactRelative);
+        contactRelativePhone = strip(contactRelativePhone);
         phone = strip(phone);
     }
 

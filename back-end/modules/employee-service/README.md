@@ -29,7 +29,8 @@ tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequeste
 employee-service/
 ├── docs/sql/
 │   ├── 001_employee_schema.sql
-│   └── 002_employee_seed.sql
+│   ├── 002_employee_seed.sql
+│   └── 003_employee_code_sequence.sql
 ├── src/
 │   └── main/
 │       ├── java/
@@ -39,6 +40,7 @@ employee-service/
 │       │       ├── repository/
 │       │       ├── dto/
 │       │       ├── entity/
+│       │       │   ├── AuditableEntity.java
 │       │       │   ├── Employee.java
 │       │       │   ├── Department.java
 │       │       │   └── Position.java
@@ -56,6 +58,20 @@ employee-service/
 ```
 
 ---
+
+`Employee`, `Department` và `Position` kế thừa `AuditableEntity` (`@MappedSuperclass`).
+Spring Data JPA Auditing điền `createdAt`/`updatedAt` dạng UTC `Instant` và
+`createdBy`/`updatedBy` dạng UUID lấy từ claim `employee_id` của JWT. Các thao tác
+SQL trực tiếp dùng timestamp mặc định của database; actor có thể null.
+`@SuperBuilder` hỗ trợ các trường kế thừa; `Employee` dùng `@DynamicUpdate` để sửa
+hồ sơ không ghi đè trạng thái tài khoản vừa được cập nhật qua event.
+
+Bảy bảng thường trực đều có entity: `Department`, `Position`, `Employee`,
+`AccountProvisioningRequest`, `ProvisioningProcessedEvent`, `EmployeeAccountVersion`
+và `OutboxEvent`. Các bảng tạm `employee_demo_*` chỉ phục vụ seed, không phải entity.
+Luồng provisioning/outbox tiếp tục dùng JDBC cho khóa hàng, idempotency và claim/lease;
+entity mới cho phép Hibernate kiểm tra mapping của các bảng này khi khởi động.
+`EmployeeAccountVersion.version` là version từ Auth, không dùng `@Version` của JPA.
 
 ## 3. Database
 
@@ -151,6 +167,21 @@ spring:
 
 Chạy theo thứ tự: [001_employee_schema.sql](docs/sql/001_employee_schema.sql) →
 [002_employee_seed.sql](docs/sql/002_employee_seed.sql) (seed chỉ dành cho local development).
+
+Database đã tồn tại cần chạy [003_employee_code_sequence.sql](docs/sql/003_employee_code_sequence.sql)
+trước khi triển khai phiên bản tự cấp mã nhân viên:
+
+```bash
+psql -X -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f docs/sql/003_employee_code_sequence.sql
+```
+
+Script chỉ tạo sequence nếu chưa có; không đổi mã hoặc dữ liệu nhân viên cũ.
+Database mới dùng `001_employee_schema.sql` đã có sequence này. Mã mới có tiền tố
+`EMP` và phần số tối thiểu 6 chữ số. Sequence cấp số riêng cho các request đồng thời,
+kể cả khi chạy nhiều instance; backend bỏ qua mã đã tồn tại từ dữ liệu cũ.
+Không reset sequence khi khởi động lại hoặc xóa nhân viên. Số có thể bị khuyết nếu
+transaction thất bại, đây là hành vi bình thường.
+
 Các file nằm trong `docs/sql`, không đóng gói vào tài nguyên static của ứng dụng.
 
 Schema đầy đủ gồm 7 bảng:
@@ -168,11 +199,18 @@ Schema đầy đủ gồm 7 bảng:
 `employees.department_id`, `position_id`, `manager_id` tham chiếu phòng ban,
 chức danh và nhân viên quản lý. Không cho nhân viên tự quản lý chính mình.
 
-Schema dùng `IF NOT EXISTS`, có thể chạy lại để tạo bảng/index còn thiếu; không
-xóa dữ liệu, không tự ALTER cấu trúc bảng cũ. Database còn `has_account`, thiếu
-`account_status` hoặc dùng constraint cho `UNKNOWN` cần migration riêng sau khi
-đối chiếu schema; chạy script này không nâng cấp được các cột/constraint đó.
-Hibernate dùng `ddl-auto: validate`, SQL không tự chạy khi service khởi động.
+Trong giai đoạn phát triển, hai file nền tảng là: `001_employee_schema.sql` chứa
+toàn bộ cấu trúc hiện tại và `002_employee_seed.sql` chứa dữ liệu mẫu. Khi entity
+thay đổi, cập nhật trực tiếp hai file này.
+
+Schema dùng `IF NOT EXISTS`, có thể chạy lại để tạo bảng/index còn thiếu nhưng
+không cập nhật cấu trúc bảng đã tồn tại. Nếu database phát triển đang dùng schema
+cũ, tạo lại database `employee_db` rỗng rồi chạy schema → seed; dữ liệu cũ sẽ bị
+xóa khi tạo lại database. Hibernate dùng `ddl-auto: validate`, SQL không tự chạy
+khi service khởi động.
+
+API hồ sơ nhận/trả `personalEmail` và bắt buộc `gender`; client cũ cần cập nhật
+payload. Endpoint yêu cầu cấp tài khoản vẫn nhận `email` đăng nhập.
 
 Seed tạo **4 phòng ban, 5 chức danh, 6 nhân viên**, với UUID giữ nguyên để khớp
 [seed Auth](../auth-service-main/docs/sql/002_auth_seed.sql):
@@ -191,7 +229,7 @@ còn lại có trạng thái lao động `ACTIVE`. Trạng thái lao động đ�
 
 Email hồ sơ và email đăng nhập là hai trường riêng, liên kết hai service bằng UUID
 `employeeId`. Role và mật khẩu thuộc Auth; chạy Employee seed không tạo tài khoản.
-Mọi hồ sơ mới trong seed đều có `account_status=NOT_CREATED`: seed trực tiếp không
+Mọi hồ sơ mới trong seed đều có `employee_account_status=NOT_CREATED`: seed trực tiếp không
 phát sự kiện, nên dù đã chạy seed Auth, trạng thái tại Employee vẫn chưa đồng bộ.
 EMP004 được chừa để thử luồng cấp tài khoản → email kích hoạt → `ACTIVE` thực tế.
 
@@ -225,9 +263,14 @@ id
 employeeCode
 firstName
 lastName
-email
+personalEmail
+accountStatus
 phone
 dateOfBirth
+gender
+address
+contactRelative
+contactRelativePhone
 hireDate
 status
 department
@@ -279,7 +322,7 @@ public enum EmployeeStatus {
     ACTIVE,
     INACTIVE,
     PROBATION,
-    RESIGNED,
+    SUSPENDED,
     TERMINATED
 }
 ```
@@ -557,10 +600,10 @@ Auth. Trên Swagger, chọn **Authorize** và dán access token (không thêm ti
 curl -H "Authorization: Bearer $ACCESS_TOKEN" -i -X POST http://localhost:8082/api/v1/employees \
   -H 'Content-Type: application/json' \
   -d '{
-    "employeeCode": "EMP007",
     "firstName": "Minh",
     "lastName": "Nguyen",
-    "email": "minh.nguyen@company.com",
+    "personalEmail": "minh.nguyen@company.com",
+    "gender": "OTHER",
     "phone": "0901000007",
     "dateOfBirth": "1999-05-20",
     "hireDate": "2026-09-01",
@@ -574,15 +617,17 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" -i -X POST http://localhost:8082/a
 Các ID trong ví dụ lấy từ `docs/sql/002_employee_seed.sql`.
 Trả về `201 Created`, header `Location` và thông tin nhân viên vừa tạo.
 
-- Bắt buộc: `employeeCode`, `firstName`, `lastName`, `email`, `hireDate`, `status`.
-- Tùy chọn: `phone`, `dateOfBirth`, `departmentId`, `positionId`, `managerId`.
-- `employeeCode` tối đa 50 ký tự; họ/tên tối đa 100; email tối đa 255; điện thoại tối đa 30.
-- Chuỗi được bỏ khoảng trắng ở đầu/cuối. Mã nhân viên và email phải duy nhất theo phép so sánh của database (có phân biệt hoa/thường với schema hiện tại).
+- Bắt buộc: `firstName`, `lastName`, `personalEmail`, `gender`, `hireDate`, `status`.
+- Tùy chọn: `phone`, `dateOfBirth`, `address`, `contactRelative`, `contactRelativePhone`, `departmentId`, `positionId`, `managerId`.
+- `gender`: `MALE`, `FEMALE`, `OTHER`; địa chỉ/tên người thân tối đa 255 ký tự, số điện thoại người thân tối đa 30.
+- Backend tự cấp `employeeCode` dạng `EMP000001`, `EMP000002`… bằng sequence `employee_code_seq`. Client không gửi mã khi tạo/sửa; mã gửi từ client bị bỏ qua. Mã đã cấp không thay đổi khi sửa hồ sơ.
+- Họ/tên tối đa 100; email tối đa 255; điện thoại tối đa 30.
+- Chuỗi được bỏ khoảng trắng ở đầu/cuối. Mã nhân viên phải duy nhất theo phép so sánh của database. `personalEmail` không bắt buộc duy nhất và độc lập với email đăng nhập trong yêu cầu cấp tài khoản.
 - Ngày theo định dạng `yyyy-MM-dd`; ngày sinh phải trong quá khứ và trước ngày vào làm.
-- `status`: `ACTIVE`, `INACTIVE`, `PROBATION`, `RESIGNED`, `TERMINATED`.
+- `status`: `ACTIVE`, `INACTIVE`, `PROBATION`, `SUSPENDED`, `TERMINATED`.
 - Các ID tham chiếu phải tồn tại; không được tự quản lý hoặc tạo vòng lặp quản lý.
 
-Response có các trường thông tin nhân viên, `id`, `createdAt`, `updatedAt` và:
+Response có các trường thông tin nhân viên, `id`, `employeeCode` do backend cấp, `createdAt`, `updatedAt` và:
 
 ```json
 {
@@ -620,6 +665,7 @@ chính về tài khoản. Trạng thái tại Employee chỉ là bản sao để
 | `NOT_CREATED` | Chưa có tài khoản theo thông tin hiện biết |
 | `PENDING_ACTIVATION` | Đã có tài khoản, chờ đặt mật khẩu/kích hoạt qua email |
 | `ACTIVE` | Tài khoản đang hoạt động |
+| `SUSPENDED` | Tài khoản tạm đình chỉ |
 | `DISABLED` | Tài khoản bị vô hiệu hóa |
 
 Đã nhận `AccountCreated` / `AccountCreationFailed` để hoàn tất yêu cầu cấp tài khoản.
@@ -628,8 +674,8 @@ Consumer `AccountStatusChanged` đã nhận trạng thái sau kích hoạt, ch�
 quá trình cấp tài khoản vào enum này.
 
 Schema [001_employee_schema.sql](docs/sql/001_employee_schema.sql) dùng
-`account_status` mặc định `NOT_CREATED`, không dùng `has_account` hoặc `UNKNOWN`.
-Database cũ cần đối chiếu và migration riêng như mục 5. Frontend đọc `accountStatus`
+`employee_account_status` mặc định `NOT_CREATED`, không dùng `has_account` hoặc `UNKNOWN`.
+Database phát triển dùng schema cũ cần tạo lại theo mục 5. Frontend đọc `accountStatus`
 thay cho trường `hasAccount` đã bị loại khỏi response.
 
 ### Cấp tài khoản qua sự kiện
@@ -707,7 +753,7 @@ Lỗi validation của body có thêm `errors` chứa thông báo theo tên trư
 | --- | --- |
 | 400 | Thiếu/sai dữ liệu, UUID/ngày/status không hợp lệ, phân trang sai, vòng lặp quản lý |
 | 404 | Nhân viên hoặc department/position/manager được tham chiếu không tồn tại |
-| 409 | Trùng mã/email hoặc xung đột ràng buộc dữ liệu |
+| 409 | Trùng mã hoặc xung đột ràng buộc dữ liệu |
 
 ### Test
 

@@ -121,7 +121,7 @@ export const routes = [
         path: 'account',
         name: 'account',
         component: () => import('@/views/AccountView.vue'),
-        meta: { title: 'Tài khoản của tôi' },
+        meta: { title: 'Hồ sơ của tôi' },
       },
       {
         path: 'accounts/new',

@@ -84,7 +84,7 @@ onMounted(() => load())
                                 <RouterLink class="record-link" :to="`/${resource}/${row.id}`">{{
                                     resource === 'employees' ? fullName(row) : row.name
                                     }}</RouterLink><small v-if="resource === 'employees'" class="cell-secondary">{{
-                                        row.email
+                                        row.personalEmail
                                     }}</small>
                             </td>
                             <template v-if="resource === 'employees'">

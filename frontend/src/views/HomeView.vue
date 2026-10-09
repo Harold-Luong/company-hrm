@@ -92,8 +92,8 @@ const today = new Intl.DateTimeFormat('vi-VN', {
             <AppIcon name="user" />
           </span>
           <div>
-            <h3>Tài khoản của tôi</h3>
-            <p>Xem thông tin đăng nhập, vai trò và quản lý phiên truy cập.</p>
+            <h3>Hồ sơ của tôi</h3>
+            <p>Xem thông tin cá nhân, công việc và quản lý tài khoản.</p>
           </div>
           <AppIcon name="arrow" :size="19" />
         </RouterLink>

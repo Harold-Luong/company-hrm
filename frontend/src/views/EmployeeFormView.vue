@@ -11,12 +11,15 @@ import ProvisioningPanel from '@/components/ProvisioningPanel.vue'
 const props = defineProps({ id: { type: String, default: '' } })
 const router = useRouter()
 const form = reactive({
-  employeeCode: '',
   firstName: '',
   lastName: '',
-  email: '',
+  personalEmail: '',
   phone: '',
   dateOfBirth: '',
+  gender: '',
+  address: '',
+  contactRelative: '',
+  contactRelativePhone: '',
   hireDate: '',
   status: 'PROBATION',
   departmentId: '',
@@ -99,7 +102,11 @@ onMounted(() => {
         <p class="eyebrow">HỒ SƠ NHÂN SỰ</p>
         <h1>{{ employee ? fullName(employee) : 'Thêm nhân viên' }}</h1>
         <p class="muted">
-          {{ employee ? employee.employeeCode : 'Tạo hồ sơ và phân công vị trí trong tổ chức.' }}
+          {{
+            employee
+              ? 'Thông tin cá nhân và công việc của nhân viên.'
+              : 'Tạo hồ sơ và phân công vị trí trong tổ chức.'
+          }}
         </p>
       </div>
       <span v-if="employee" class="status-chip">{{ accountStatuses[employee.accountStatus] }}</span>
@@ -108,93 +115,143 @@ onMounted(() => {
     <div v-if="success" class="alert alert-success" role="status">{{ success }}</div>
     <p v-if="loading" role="status">Đang tải hồ sơ…</p>
     <button v-else-if="!loaded" class="button button-secondary" @click="load">Thử lại</button>
-    <div v-if="loaded" class="employee-layout">
+    <div v-if="loaded" class="employee-layout" :class="{ 'employee-layout-new': !id }">
       <form class="panel create-form" :aria-busy="busy" @submit.prevent="save()">
         <div class="panel-heading">
           <h2>Thông tin nhân viên</h2>
           <span class="small muted">* Bắt buộc</span>
         </div>
-        <fieldset class="form-fields form-grid" :disabled="busy">
-          <div class="field">
-            <label for="employee-code">Mã nhân viên *</label
-            ><input
-              id="employee-code"
-              v-model="form.employeeCode"
-              required
-              maxlength="50"
-              pattern=".*\S.*"
-            />
-          </div>
-          <div class="field">
-            <label for="employee-email">Email công việc *</label
-            ><input
-              id="employee-email"
-              v-model="form.email"
-              required
-              type="email"
-              maxlength="255"
-            />
-          </div>
-          <div class="field">
-            <label for="last-name">Họ và tên đệm *</label
-            ><input
-              id="last-name"
-              v-model="form.lastName"
-              required
-              maxlength="100"
-              pattern=".*\S.*"
-            />
-          </div>
-          <div class="field">
-            <label for="first-name">Tên *</label
-            ><input
-              id="first-name"
-              v-model="form.firstName"
-              required
-              maxlength="100"
-              pattern=".*\S.*"
-            />
-          </div>
-          <div class="field">
-            <label for="phone">Số điện thoại</label
-            ><input id="phone" v-model="form.phone" type="tel" maxlength="30" />
-          </div>
-          <div class="field">
-            <label for="birth-date">Ngày sinh</label
-            ><input id="birth-date" v-model="form.dateOfBirth" type="date" :max="yesterday" />
-          </div>
-          <div class="field">
-            <label for="hire-date">Ngày vào làm *</label
-            ><input id="hire-date" v-model="form.hireDate" type="date" required />
-          </div>
-          <div class="field">
-            <label for="employee-status">Trạng thái công việc *</label
-            ><select id="employee-status" v-model="form.status" required>
-              <option v-for="(label, value) in employeeStatuses" :key="value" :value="value">
-                {{ label }}
-              </option>
-            </select>
-          </div>
-          <ReferencePicker
-            v-model="form.departmentId"
-            resource="departments"
-            label="Phòng ban"
-            :selected-label="employee?.department?.name"
-          />
-          <ReferencePicker
-            v-model="form.positionId"
-            resource="positions"
-            label="Chức danh"
-            :selected-label="employee?.position?.name"
-          />
-          <ReferencePicker
-            v-model="form.managerId"
-            resource="employees"
-            label="Người quản lý"
-            :exclude="id"
-            :selected-label="employee?.manager ? fullName(employee.manager) : ''"
-          />
-          <div class="form-footer span-all">
+        <fieldset class="form-fields employee-form-sections" :disabled="busy">
+          <section class="employee-form-section" aria-labelledby="personal-heading">
+            <div class="employee-section-heading">
+              <h3 id="personal-heading">Thông tin cá nhân</h3>
+              <p class="muted small">Họ tên và thông tin cơ bản của nhân viên.</p>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="last-name">Họ và tên đệm *</label
+                ><input
+                  id="last-name"
+                  v-model="form.lastName"
+                  required
+                  maxlength="100"
+                  pattern=".*\S.*"
+                />
+              </div>
+              <div class="field">
+                <label for="first-name">Tên *</label
+                ><input
+                  id="first-name"
+                  v-model="form.firstName"
+                  required
+                  maxlength="100"
+                  pattern=".*\S.*"
+                />
+              </div>
+              <div class="field">
+                <label for="birth-date">Ngày sinh</label
+                ><input id="birth-date" v-model="form.dateOfBirth" type="date" :max="yesterday" />
+              </div>
+              <div class="field">
+                <label for="employee-gender">Giới tính *</label>
+                <select id="employee-gender" v-model="form.gender" required>
+                  <option disabled value="">Chọn giới tính</option>
+                  <option value="MALE">Nam</option>
+                  <option value="FEMALE">Nữ</option>
+                  <option value="OTHER">Khác</option>
+                </select>
+              </div>
+            </div>
+          </section>
+          <section class="employee-form-section" aria-labelledby="contact-heading">
+            <div class="employee-section-heading">
+              <h3 id="contact-heading">Thông tin liên hệ</h3>
+              <p class="muted small">Email, số điện thoại và địa chỉ của nhân viên.</p>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="employee-email">Email cá nhân *</label
+                ><input
+                  id="employee-email"
+                  v-model="form.personalEmail"
+                  required
+                  type="email"
+                  maxlength="255"
+                />
+              </div>
+              <div class="field">
+                <label for="phone">Số điện thoại</label
+                ><input id="phone" v-model="form.phone" type="tel" maxlength="30" />
+              </div>
+              <div class="field span-all">
+                <label for="employee-address">Địa chỉ</label>
+                <input id="employee-address" v-model="form.address" maxlength="255" />
+              </div>
+            </div>
+          </section>
+          <section class="employee-form-section" aria-labelledby="work-heading">
+            <div class="employee-section-heading">
+              <h3 id="work-heading">Thông tin công việc</h3>
+              <p class="muted small">Thời gian làm việc và phân công trong tổ chức.</p>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="hire-date">Ngày vào làm *</label
+                ><input id="hire-date" v-model="form.hireDate" type="date" required />
+              </div>
+              <div class="field">
+                <label for="employee-status">Trạng thái công việc *</label
+                ><select id="employee-status" v-model="form.status" required>
+                  <option v-for="(label, value) in employeeStatuses" :key="value" :value="value">
+                    {{ label }}
+                  </option>
+                </select>
+              </div>
+              <ReferencePicker
+                v-model="form.departmentId"
+                resource="departments"
+                label="Phòng ban"
+                :selected-label="employee?.department?.name"
+              />
+              <ReferencePicker
+                v-model="form.positionId"
+                resource="positions"
+                label="Chức danh"
+                :selected-label="employee?.position?.name"
+              />
+              <ReferencePicker
+                v-model="form.managerId"
+                resource="employees"
+                label="Người quản lý"
+                :exclude="id"
+                :selected-label="employee?.manager ? fullName(employee.manager) : ''"
+              />
+            </div>
+          </section>
+          <section class="employee-form-section" aria-labelledby="relative-heading">
+            <div class="employee-section-heading">
+              <h3 id="relative-heading">Người thân liên hệ</h3>
+              <p class="muted small">
+                Thông tin người có thể liên hệ khi cần hỗ trợ nhân viên. Không bắt buộc.
+              </p>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="contact-relative">Người thân liên hệ</label>
+                <input id="contact-relative" v-model="form.contactRelative" maxlength="255" />
+              </div>
+              <div class="field">
+                <label for="contact-relative-phone">Điện thoại người thân</label>
+                <input
+                  id="contact-relative-phone"
+                  v-model="form.contactRelativePhone"
+                  type="tel"
+                  maxlength="30"
+                />
+              </div>
+            </div>
+          </section>
+          <div class="form-footer">
             <RouterLink to="/employees" class="button button-secondary">Quay lại</RouterLink
             ><button type="submit" class="button button-primary">
               {{ busy ? 'Đang lưu…' : id ? 'Lưu hồ sơ' : 'Tạo nhân viên' }}
@@ -244,3 +301,39 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.employee-layout-new {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1000px;
+}
+
+.employee-form-sections {
+  display: grid;
+  gap: 28px;
+}
+
+.employee-form-section + .employee-form-section {
+  border-top: 1px solid var(--border);
+  padding-top: 28px;
+}
+
+.employee-section-heading {
+  margin-bottom: 20px;
+}
+
+.employee-section-heading h3 {
+  margin: 0 0 6px;
+  color: var(--primary-dark);
+  font-size: 15px;
+}
+
+.employee-section-heading p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.employee-form-sections > .form-footer {
+  margin-top: 0;
+}
+</style>

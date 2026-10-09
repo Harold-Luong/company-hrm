@@ -1,61 +1,94 @@
 package com.company.employee.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-import com.company.employee.enums.AccountStatus;
+import org.hibernate.annotations.DynamicUpdate;
+
+import com.company.employee.enums.EmployeeAccountStatus;
 import com.company.employee.enums.EmployeeStatus;
+import com.company.employee.enums.Gender;
 
 @Entity
-@org.hibernate.annotations.DynamicUpdate
 @Table(name = "employees")
+@DynamicUpdate
 @Getter
 @Setter
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Employee {
+public class Employee extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @NotBlank
+    @Size(max = 50)
     @Column(name = "employee_code", nullable = false, unique = true, length = 50)
     private String employeeCode;
 
+    @NotBlank
+    @Size(max = 100)
     @Column(name = "first_name", nullable = false, length = 100)
     private String firstName;
 
+    @NotBlank
+    @Size(max = 100)
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
 
-    @Column(nullable = false, unique = true)
-    private String email;
+    @NotBlank
+    @Email
+    @Size(max = 255)
+    @Column(name = "personal_email", nullable = false, length = 255)
+    private String personalEmail;
 
     @Builder.Default
+    @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "account_status", nullable = false, length = 30)
-    private AccountStatus accountStatus = AccountStatus.NOT_CREATED;
+    @Column(name = "employee_account_status", nullable = false, length = 30)
+    private EmployeeAccountStatus accountStatus = EmployeeAccountStatus.NOT_CREATED;
 
-    @Column(length = 30)
+    @Column(name = "phone", length = 30)
     private String phone;
 
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender", nullable = false, length = 20)
+    private Gender gender;
+
+    @Column(name = "address", length = 255)
+    private String address;
+
+    @Column(name = "contact_relative", length = 255)
+    private String contactRelative;
+
+    @Column(name = "contact_relative_phone", length = 30)
+    private String contactRelativePhone;
+
+    @NotNull
     @Column(name = "hire_date", nullable = false)
     private LocalDate hireDate;
 
+    @Builder.Default
+    @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
-    private EmployeeStatus status;
+    @Column(name = "status", nullable = false, length = 30)
+    private EmployeeStatus status = EmployeeStatus.PROBATION;
 
+    //---Organizational Structure---
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_id")
     private Department department;
@@ -67,22 +100,4 @@ public class Employee {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manager_id")
     private Employee manager;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
-
-    @Column(name = "updated_at", nullable = false)
-    private OffsetDateTime updatedAt;
-
-    @PrePersist
-    void onCreate() {
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
-        createdAt = now;
-        updatedAt = now;
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
-    }
 }

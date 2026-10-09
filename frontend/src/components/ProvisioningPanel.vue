@@ -7,7 +7,7 @@ import ActivationInvitationPanel from '@/components/ActivationInvitationPanel.vu
 const props = defineProps({ employee: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
 const storageKey = `company-hrm.provisioning.${auth.state.user.id}.${props.employee.id}`
-const email = ref(props.employee.email)
+const email = ref(props.employee.personalEmail ?? '')
 const lookupId = ref('')
 const attempt = ref(null)
 const result = ref(null)

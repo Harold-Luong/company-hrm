@@ -409,7 +409,7 @@ paths:
             tags: [Employees]
             operationId: createEmployee
             summary: Tạo nhân viên
-            description: Mã nhân viên và email phải duy nhất. Các ID tham chiếu phải tồn tại.
+            description: Backend tự cấp mã nhân viên duy nhất dạng EMP000001 bằng database sequence. employeeCode do client gửi bị bỏ qua; personalEmail có thể trùng. Các ID tham chiếu phải tồn tại.
             requestBody:
                 $ref: "#/components/requestBodies/EmployeeRequest"
             responses:
@@ -493,7 +493,7 @@ paths:
             description: >-
                 Thay thế toàn bộ thông tin có thể chỉnh sửa. Phải gửi đủ trường bắt buộc;
                 trường tùy chọn bị bỏ qua hoặc gửi null sẽ được xóa, bao gồm các quan hệ.
-                Giữ nguyên id và createdAt. Không được tạo vòng lặp quản lý.
+                Giữ nguyên id, employeeCode và createdAt. employeeCode do client gửi bị bỏ qua. Không được tạo vòng lặp quản lý.
             requestBody:
                 $ref: "#/components/requestBodies/EmployeeRequest"
             responses:
@@ -607,7 +607,7 @@ components:
                         detail: Request validation failed
                         instance: /api/v1/employees
                         errors:
-                            employeeCode: must not be blank
+                            firstName: must not be blank
         NotFound:
             description: Nhân viên, phòng ban, chức danh hoặc department/position/manager được tham chiếu không tồn tại
             content:
@@ -615,7 +615,7 @@ components:
                     schema:
                         $ref: "#/components/schemas/ProblemDetail"
         Conflict:
-            description: Trùng mã chức danh, mã phòng ban, mã nhân viên/email hoặc xung đột ràng buộc dữ liệu
+            description: Trùng mã chức danh, mã phòng ban, mã nhân viên hoặc xung đột ràng buộc dữ liệu
             content:
                 application/problem+json:
                     schema:
@@ -633,7 +633,7 @@ components:
                     type: string
                     nullable: true
                     enum: [ACCOUNT_ALREADY_EXISTS, EMAIL_ALREADY_USED]
-                accountStatus: {type: string, enum: [NOT_CREATED, PENDING_ACTIVATION, ACTIVE, DISABLED]}
+                accountStatus: {type: string, enum: [NOT_CREATED, PENDING_ACTIVATION, ACTIVE, SUSPENDED, DISABLED]}
                 createdAt: {type: string, format: date-time}
 
         DepartmentRequest:
@@ -767,20 +767,14 @@ components:
 
         EmployeeStatus:
             type: string
-            enum: [ACTIVE, INACTIVE, PROBATION, RESIGNED, TERMINATED]
+            enum: [ACTIVE, INACTIVE, PROBATION, SUSPENDED, TERMINATED]
             example: PROBATION
 
         EmployeeRequest:
             type: object
             required:
-                [employeeCode, firstName, lastName, email, hireDate, status]
+                [firstName, lastName, personalEmail, gender, hireDate, status]
             properties:
-                employeeCode:
-                    type: string
-                    minLength: 1
-                    maxLength: 50
-                    description: Mã nhân viên duy nhất, không được chỉ chứa khoảng trắng
-                    example: EMP007
                 firstName:
                     type: string
                     minLength: 1
@@ -793,12 +787,12 @@ components:
                     maxLength: 100
                     description: Họ nhân viên, không được chỉ chứa khoảng trắng
                     example: Nguyen
-                email:
+                personalEmail:
                     type: string
                     format: email
                     minLength: 1
                     maxLength: 255
-                    description: Email duy nhất
+                    description: Email cá nhân, không bắt buộc duy nhất
                     example: minh.nguyen@company.com
                 phone:
                     type: string
@@ -811,6 +805,21 @@ components:
                     nullable: true
                     description: Ngày sinh trong quá khứ và trước ngày vào làm
                     example: "1999-05-20"
+                gender:
+                    type: string
+                    enum: [MALE, FEMALE, OTHER]
+                address:
+                    type: string
+                    nullable: true
+                    maxLength: 255
+                contactRelative:
+                    type: string
+                    nullable: true
+                    maxLength: 255
+                contactRelativePhone:
+                    type: string
+                    nullable: true
+                    maxLength: 30
                 hireDate:
                     type: string
                     format: date
@@ -849,7 +858,7 @@ components:
             properties:
                 accountStatus:
                     type: string
-                    enum: [NOT_CREATED, PENDING_ACTIVATION, ACTIVE, DISABLED]
+                    enum: [NOT_CREATED, PENDING_ACTIVATION, ACTIVE, SUSPENDED, DISABLED]
                     readOnly: true
                     description: Trạng thái tài khoản đã ghi nhận từ Auth, chỉ phục vụ hiển thị. Mặc định NOT_CREATED. Nhận kết quả cấp tài khoản và AccountStatusChanged qua Kafka khi bật HRM_EVENTS_ENABLED.
                     example: NOT_CREATED
@@ -858,14 +867,16 @@ components:
                     format: uuid
                 employeeCode:
                     type: string
-                    example: EMP007
+                    readOnly: true
+                    description: Backend tự cấp khi tạo mới; không thay đổi khi cập nhật. Mã cũ được giữ nguyên.
+                    example: EMP000007
                 firstName:
                     type: string
                     example: Minh
                 lastName:
                     type: string
                     example: Nguyen
-                email:
+                personalEmail:
                     type: string
                     format: email
                     example: minh.nguyen@company.com
@@ -876,6 +887,21 @@ components:
                     type: string
                     format: date
                     nullable: true
+                gender:
+                    type: string
+                    enum: [MALE, FEMALE, OTHER]
+                address:
+                    type: string
+                    nullable: true
+                    maxLength: 255
+                contactRelative:
+                    type: string
+                    nullable: true
+                    maxLength: 255
+                contactRelativePhone:
+                    type: string
+                    nullable: true
+                    maxLength: 30
                 hireDate:
                     type: string
                     format: date

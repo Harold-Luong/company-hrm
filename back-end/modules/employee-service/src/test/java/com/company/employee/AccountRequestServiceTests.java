@@ -2,6 +2,7 @@ package com.company.employee;
 
 import com.company.employee.entity.Employee;
 import com.company.employee.enums.EmployeeStatus;
+import com.company.employee.enums.ProvisioningStatus;
 import com.company.employee.provisioning.*;
 import com.company.employee.repository.EmployeeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,8 +51,9 @@ class AccountRequestServiceTests extends JwtTestSupport {
             jdbc.update("DELETE FROM " + table);
         }
         var employee = new Employee();
-        employee.setEmployeeCode("EMP-PROVISION"); employee.setEmail("contact@example.com");
+        employee.setEmployeeCode("EMP-PROVISION"); employee.setPersonalEmail("contact@example.com");
         employee.setFirstName("An"); employee.setLastName("Nguyen");
+        employee.setGender(com.company.employee.enums.Gender.OTHER);
         employee.setHireDate(LocalDate.now()); employee.setStatus(EmployeeStatus.ACTIVE);
         employeeId = employees.saveAndFlush(employee).getId();
     }
@@ -60,7 +62,7 @@ class AccountRequestServiceTests extends JwtTestSupport {
     void recordsRequestAndOutboxOnceForIdempotentRetries() {
         UUID key = UUID.randomUUID();
         var response = service.request(employeeId, key, new AccountRequestService.Request(" Login@example.com "));
-        assertThat(response.provisioningStatus()).isEqualTo("PENDING");
+        assertThat(response.provisioningStatus()).isEqualTo(ProvisioningStatus.PENDING);
         assertThat(response.accountStatus()).isEqualTo("NOT_CREATED");
         assertThat(service.request(employeeId, key, new AccountRequestService.Request("login@example.com")).requestId()).isEqualTo(response.requestId());
         assertThat(count("event_outbox")).isEqualTo(1);
@@ -113,7 +115,7 @@ class AccountRequestServiceTests extends JwtTestSupport {
             employees.saveAndFlush(staleEmployee);
         });
         service.apply(result);
-        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo("SUCCEEDED");
+        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo(ProvisioningStatus.SUCCEEDED);
         assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("PENDING_ACTIVATION");
         assertThat(count("provisioning_processed_events")).isEqualTo(1);
     }
@@ -122,10 +124,10 @@ class AccountRequestServiceTests extends JwtTestSupport {
     void oldAccountVersionDoesNotOverwriteNewerStatusButCompletesMatchingRequest() {
         var response = service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("login@example.com"));
         jdbc.update("INSERT INTO employee_account_versions (employee_id, version) VALUES (?, 2)", employeeId);
-        jdbc.update("UPDATE employees SET account_status = 'DISABLED' WHERE id = ?", employeeId);
+        jdbc.update("UPDATE employees SET employee_account_status = 'DISABLED' WHERE id = ?", employeeId);
         service.apply(AccountProvisioningResult.of(requestEvent(), null, 1L));
         var current = service.find(employeeId, response.requestId());
-        assertThat(current.provisioningStatus()).isEqualTo("SUCCEEDED");
+        assertThat(current.provisioningStatus()).isEqualTo(ProvisioningStatus.SUCCEEDED);
         assertThat(current.accountStatus()).isEqualTo("DISABLED");
     }
 
@@ -134,10 +136,10 @@ class AccountRequestServiceTests extends JwtTestSupport {
         var first = service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("login@example.com"));
         var failure = AccountProvisioningResult.of(requestEvent(), "EMAIL_ALREADY_USED", null);
         service.apply(failure);
-        assertThat(service.find(employeeId, first.requestId()).provisioningStatus()).isEqualTo("FAILED");
+        assertThat(service.find(employeeId, first.requestId()).provisioningStatus()).isEqualTo(ProvisioningStatus.FAILED);
         var next = service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("new@example.com"));
         service.apply(failure);
-        assertThat(service.find(employeeId, next.requestId()).provisioningStatus()).isEqualTo("PENDING");
+        assertThat(service.find(employeeId, next.requestId()).provisioningStatus()).isEqualTo(ProvisioningStatus.PENDING);
         assertThat(service.find(employeeId, next.requestId()).accountStatus()).isEqualTo("NOT_CREATED");
     }
 
@@ -148,7 +150,7 @@ class AccountRequestServiceTests extends JwtTestSupport {
         var mismatched = new AccountProvisioningResult(event.eventId(), event.eventType(), 1, Instant.now(),
                 "auth-service", UUID.randomUUID(), event.requestId(), event.data());
         assertThatThrownBy(() -> service.apply(mismatched)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo("PENDING");
+        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo(ProvisioningStatus.PENDING);
     }
 
     @Test
@@ -173,7 +175,7 @@ class AccountRequestServiceTests extends JwtTestSupport {
         lifecycle.apply(active);
         service.apply(AccountProvisioningResult.of(requestEvent(), null, 1L));
         assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("ACTIVE");
-        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo("SUCCEEDED");
+        assertThat(service.find(employeeId, response.requestId()).provisioningStatus()).isEqualTo(ProvisioningStatus.SUCCEEDED);
         lifecycle.apply(new AccountLifecycleService.Event(UUID.randomUUID(), "AccountStatusChanged", 1, Instant.now(),
                 "auth-service", new AccountLifecycleService.Data(employeeId, "PENDING_ACTIVATION", 1L)));
         assertThat(service.find(employeeId, response.requestId()).accountStatus()).isEqualTo("ACTIVE");

@@ -20,7 +20,7 @@ public class AccountLifecycleService {
                 || !"AccountStatusChanged".equals(event.eventType()) || !"auth-service".equals(event.producer())
                 || event.data() == null || event.data().employeeId() == null || event.data().accountVersion() == null
                 || event.data().accountVersion() < 1 || event.data().accountStatus() == null
-                || !Set.of("ACTIVE", "DISABLED", "PENDING_ACTIVATION").contains(event.data().accountStatus()))
+                || !Set.of("ACTIVE", "DISABLED", "SUSPENDED", "PENDING_ACTIVATION").contains(event.data().accountStatus()))
             throw new IllegalArgumentException("Invalid account lifecycle event");
         var data = event.data();
         if (jdbc.queryForList("SELECT id FROM employees WHERE id = ? FOR UPDATE", UUID.class, data.employeeId()).isEmpty())
@@ -32,7 +32,7 @@ public class AccountLifecycleService {
         // Monotonic versions also handle lifecycle arriving before the AccountCreated result.
         int changed = jdbc.update("UPDATE employee_account_versions SET version = ? WHERE employee_id = ? AND version < ?",
                 data.accountVersion(), data.employeeId(), data.accountVersion());
-        if (changed == 1) jdbc.update("UPDATE employees SET account_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        if (changed == 1) jdbc.update("UPDATE employees SET employee_account_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 data.accountStatus(), data.employeeId());
     }
 }

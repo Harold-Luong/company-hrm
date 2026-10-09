@@ -1,4 +1,8 @@
 spring:
+  sql:
+    init:
+      mode: always
+      schema-locations: file:docs/sql/003_employee_code_sequence.sql
   datasource:
     url: jdbc:h2:mem:employee-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
     username: sa
@@ -8,3 +12,10 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+
+# Tests exercise persistence and event handlers without an external Kafka broker.
+hrm:
+  events:
+    enabled: false
+    listeners-enabled: false
+    publisher-enabled: false

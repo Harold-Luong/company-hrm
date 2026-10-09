@@ -10,6 +10,18 @@ const baseUser = {
   updatedAt: '2026-09-25T01:00:00Z',
 }
 async function mockAuth(page, roles = ['ADMIN']) {
+  await page.route(`**/api/v1/employees/${baseUser.employeeId}`, (route) =>
+    route.fulfill({
+      json: {
+        id: baseUser.employeeId,
+        employeeCode: 'EMP001',
+        firstName: 'An',
+        lastName: 'Nguyễn',
+        personalEmail: 'personal@example.com',
+        status: 'ACTIVE',
+      },
+    }),
+  )
   await page.route('**/api/v1/leave/requests/pending-count', (route) =>
     route.fulfill({ json: { count: 0 } }),
   )
@@ -194,6 +206,7 @@ test('logout-all requires confirmation and clears the session', async ({ page })
   const state = await mockAuth(page)
   await page.goto('/account')
   await login(page)
+  await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click()
   await page.getByRole('button', { name: 'Đăng xuất tất cả phiên' }).click()
   expect(state.logoutAllCount).toBe(0)
   await page.getByRole('button', { name: 'Xác nhận đăng xuất' }).click()
@@ -212,7 +225,7 @@ test('mobile layout has no horizontal overflow and provides working navigation',
   await login(page)
   await expect(page.getByRole('heading', { name: 'Tổng quan', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation')).not.toBeVisible()
-  await page.getByRole('button', { name: 'Mở menu' }).click()
+  await page.getByRole('button', { name: 'Mở menu', exact: true }).click()
   await page.getByRole('navigation').getByRole('link', { name: 'Tạo tài khoản' }).click()
   await expect(page.getByRole('heading', { name: 'Tạo tài khoản', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation')).not.toBeVisible()
@@ -229,8 +242,12 @@ test('desktop screens render without runtime errors', async ({ page }) => {
   await login(page)
   await expect(page.getByRole('heading', { name: 'Tổng quan', exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/dashboard-desktop.png', fullPage: true })
-  await page.getByRole('navigation').getByRole('link', { name: 'Tài khoản của tôi' }).click()
-  await expect(page.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
+  await page
+    .getByRole('navigation', { name: 'Tài khoản', exact: true })
+    .getByRole('link', { name: 'Hồ sơ của tôi' })
+    .click()
+  await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/account-desktop.png', fullPage: true })
   expect(errors).toEqual([])
 })

@@ -22,11 +22,27 @@ test('live Auth: login, /me, restore with refresh, role-gated page and logout', 
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Tổng quan', exact: true })).toBeVisible()
-  await page.getByRole('navigation').getByRole('link', { name: 'Tài khoản của tôi' }).click()
-  await expect(page.getByRole('heading', { name: email, exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
+  await page
+    .getByRole('navigation', { name: 'Tài khoản', exact: true })
+    .getByRole('link', { name: 'Hồ sơ của tôi' })
+    .click()
+  await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click()
+  await expect(
+    page
+      .getByRole('tabpanel', { name: 'Tài khoản', exact: true })
+      .getByText(email, { exact: true }),
+  ).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: email, exact: true })).toBeVisible()
-  const createLink = page.getByRole('navigation').getByRole('link', { name: 'Tạo tài khoản' })
+  await page.getByRole('tab', { name: 'Tài khoản', exact: true }).click()
+  await expect(
+    page
+      .getByRole('tabpanel', { name: 'Tài khoản', exact: true })
+      .getByText(email, { exact: true }),
+  ).toBeVisible()
+  const createLink = page
+    .getByRole('navigation', { name: 'Điều hướng chính' })
+    .getByRole('link', { name: 'Tạo tài khoản' })
   if (await createLink.count()) {
     await createLink.click()
     await expect(page.getByRole('heading', { name: 'Tạo tài khoản', exact: true })).toBeVisible()

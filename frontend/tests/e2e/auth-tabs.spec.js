@@ -9,6 +9,18 @@ const user = {
 }
 
 async function setup(context, page) {
+  await context.route(`**/api/v1/employees/${user.employeeId}`, (route) =>
+    route.fulfill({
+      json: {
+        id: user.employeeId,
+        employeeCode: 'EMP001',
+        firstName: 'An',
+        lastName: 'Nguyễn',
+        personalEmail: 'personal@example.com',
+        status: 'ACTIVE',
+      },
+    }),
+  )
   const state = { token: null, version: 0, expiredThrough: -1, used: [], logoutToken: null }
   const issue = () => {
     state.version++
@@ -47,7 +59,7 @@ async function setup(context, page) {
   await page.getByLabel('Email công việc', { exact: true }).fill(user.email)
   await page.getByLabel('Mật khẩu', { exact: true }).fill('password')
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
   return state
 }
 
@@ -71,7 +83,7 @@ test('new tabs share login and simultaneous refreshes use distinct current token
   const third = await context.newPage()
   await Promise.all([second.goto('/account'), third.goto('/account')])
   for (const tab of [second, third])
-    await expect(tab.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+    await expect(tab.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
   state.expiredThrough = state.version
   expect(await Promise.all([loadUser(page), loadUser(second), loadUser(third)])).toEqual([
     true,
@@ -81,7 +93,7 @@ test('new tabs share login and simultaneous refreshes use distinct current token
   expect(new Set(state.used).size).toBe(state.used.length)
   expect(state.used).toHaveLength(5)
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
 })
 
 for (const allSessions of [false, true]) {
@@ -89,9 +101,7 @@ for (const allSessions of [false, true]) {
     await setup(context, page)
     const second = await context.newPage()
     await second.goto('/account')
-    await expect(
-      second.getByRole('heading', { name: 'Tài khoản của tôi', exact: true }),
-    ).toBeVisible()
+    await expect(second.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
     await page.evaluate(async (all) => {
       const { auth } = await import('/src/auth/session.js')
       await auth.logout(all)
@@ -110,7 +120,7 @@ test('logout waits for another tab to rotate and revokes its latest token', asyn
   const state = await setup(context, page)
   const second = await context.newPage()
   await second.goto('/account')
-  await expect(second.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+  await expect(second.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
   let release
   state.beforeRefreshReply = () =>
     new Promise((resolve) => {
@@ -137,7 +147,7 @@ test('an old profile response cannot restore a tab after logout elsewhere', asyn
   const state = await setup(context, page)
   const second = await context.newPage()
   await second.goto('/account')
-  await expect(second.getByRole('heading', { name: 'Tài khoản của tôi', exact: true })).toBeVisible()
+  await expect(second.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
   let release
   state.beforeMeReply = () =>
     new Promise((resolve) => {
@@ -146,7 +156,9 @@ test('an old profile response cannot restore a tab after logout elsewhere', asyn
   const pending = loadUser(second)
   await expect.poll(() => typeof release).toBe('function')
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('company-hrm.session'))).toBeNull()
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('company-hrm.session')))
+    .toBeNull()
   state.beforeMeReply = null
   release()
   expect(await pending).toBe(false)

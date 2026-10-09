@@ -258,8 +258,8 @@ class PositionApiTests extends JwtTestSupport {
                 .get("id").asText();
         String employeeBody = mvc.perform(post("/api/v1/employees").contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
-                                "employeeCode", "EMP001", "firstName", "An", "lastName", "Nguyen",
-                                "email", "an@company.com", "hireDate", "2024-01-10",
+                                "firstName", "An", "lastName", "Nguyen",
+                                "personalEmail", "an@company.com", "gender", "OTHER", "hireDate", "2024-01-10",
                                 "status", "ACTIVE", "positionId", positionId))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.position.id").value(positionId))

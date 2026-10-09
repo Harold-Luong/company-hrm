@@ -5,7 +5,6 @@ import com.company.employee.dto.EmployeeResponse;
 import com.company.employee.dto.PageResponse;
 import com.company.employee.entity.Employee;
 import com.company.employee.enums.EmployeeStatus;
-import com.company.employee.exception.DuplicateEmployeeException;
 import com.company.employee.exception.InvalidEmployeeException;
 import com.company.employee.exception.ResourceNotFoundException;
 import com.company.employee.repository.DepartmentRepository;
@@ -28,12 +27,13 @@ public class EmployeeService {
     private final EmployeeRepository employeeRepository;
     private final DepartmentRepository departmentRepository;
     private final PositionRepository positionRepository;
+    private final EmployeeCodeGenerator employeeCodeGenerator;
 
     @Transactional
     public EmployeeResponse create(EmployeeRequest request) {
-        validateUniqueFields(request, null);
         Employee employee = new Employee();
         applyRequest(employee, request);
+        employee.setEmployeeCode(employeeCodeGenerator.nextCode());
         employeeRepository.save(employee);
         return EmployeeResponse.from(employee);
     }
@@ -52,9 +52,8 @@ public class EmployeeService {
     @Transactional
     public EmployeeResponse update(UUID id, EmployeeRequest request) {
         Employee employee = requireEmployee(id);
-        validateUniqueFields(request, id);
         applyRequest(employee, request);
-
+        employeeRepository.flush();
         return EmployeeResponse.from(employee);
     }
 
@@ -62,27 +61,13 @@ public class EmployeeService {
     public EmployeeResponse updateStatus(UUID id, EmployeeStatus status) {
         Employee employee = requireEmployee(id);
         employee.setStatus(status);
+        employeeRepository.flush();
         return EmployeeResponse.from(employee);
     }
 
     private Employee requireEmployee(UUID id) {
         return employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", id));
-    }
-
-    private void validateUniqueFields(EmployeeRequest request, UUID id) {
-        boolean duplicateCode = id == null
-                ? employeeRepository.existsByEmployeeCode(request.employeeCode())
-                : employeeRepository.existsByEmployeeCodeAndIdNot(request.employeeCode(), id);
-        if (duplicateCode) {
-            throw new DuplicateEmployeeException("employeeCode");
-        }
-        boolean duplicateEmail = id == null
-                ? employeeRepository.existsByEmail(request.email())
-                : employeeRepository.existsByEmailAndIdNot(request.email(), id);
-        if (duplicateEmail) {
-            throw new DuplicateEmployeeException("email");
-        }
     }
 
     private void applyRequest(Employee employee, EmployeeRequest request) {
@@ -98,10 +83,13 @@ public class EmployeeService {
                         .orElseThrow(() -> new ResourceNotFoundException("Position", request.positionId()));
         Employee manager = resolveManager(employee.getId(), request.managerId());
 
-        employee.setEmployeeCode(request.employeeCode());
         employee.setFirstName(request.firstName());
         employee.setLastName(request.lastName());
-        employee.setEmail(request.email());
+        employee.setPersonalEmail(request.personalEmail());
+        employee.setGender(request.gender());
+        employee.setAddress(request.address());
+        employee.setContactRelative(request.contactRelative());
+        employee.setContactRelativePhone(request.contactRelativePhone());
         employee.setPhone(request.phone());
         employee.setDateOfBirth(request.dateOfBirth());
         employee.setHireDate(request.hireDate());

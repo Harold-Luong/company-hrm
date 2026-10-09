@@ -1,5 +1,6 @@
 package com.company.employee.provisioning;
 
+import com.company.employee.enums.ProvisioningStatus;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -38,7 +39,7 @@ public class AccountRequestService {
         }
     }
 
-    public record Response(UUID requestId, UUID employeeId, String provisioningStatus, String errorCode,
+    public record Response(UUID requestId, UUID employeeId, ProvisioningStatus provisioningStatus, String errorCode,
             String accountStatus, OffsetDateTime createdAt) {
     }
 
@@ -71,8 +72,8 @@ public class AccountRequestService {
             return read(employeeId, existing.getFirst());
         }
         if (jdbc.queryForObject(
-                "SELECT COUNT(*) FROM account_provisioning_requests WHERE employee_id = ? AND status = 'PENDING'",
-                Integer.class, employeeId) > 0) {
+                "SELECT COUNT(*) FROM account_provisioning_requests WHERE employee_id = ? AND status = ?",
+                Integer.class, employeeId, ProvisioningStatus.PENDING.name()) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "An account request is already pending");
         }
         UUID requestId = UUID.randomUUID();
@@ -81,9 +82,10 @@ public class AccountRequestService {
                 """
                         INSERT INTO account_provisioning_requests
                         (request_id, employee_id, pending_employee_id, email, requested_by, idempotency_key, correlation_id, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                requestId, employeeId, employeeId, email, actor, idempotencyKey, event.correlationId());
+                requestId, employeeId, employeeId, email, actor, idempotencyKey, event.correlationId(),
+                ProvisioningStatus.PENDING.name());
         outbox.append(event.eventId(), topic, employeeId, mapper.writeValueAsString(event));
         return read(employeeId, requestId);
     }
@@ -98,11 +100,11 @@ public class AccountRequestService {
 
     private Response read(UUID employeeId, UUID requestId) {
         var results = jdbc.query("""
-                SELECT r.request_id, r.employee_id, r.status, r.error_code, e.account_status, r.created_at
+                SELECT r.request_id, r.employee_id, r.status, r.error_code, e.employee_account_status, r.created_at
                 FROM account_provisioning_requests r JOIN employees e ON e.id = r.employee_id
                 WHERE r.request_id = ? AND r.employee_id = ?
                 """, (rs, row) -> new Response(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                rs.getString(3), rs.getString(4), rs.getString(5), rs.getObject(6, OffsetDateTime.class)), requestId,
+                ProvisioningStatus.valueOf(rs.getString(3)), rs.getString(4), rs.getString(5), rs.getObject(6, OffsetDateTime.class)), requestId,
                 employeeId);
         if (results.isEmpty())
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account request not found");
@@ -117,7 +119,7 @@ public class AccountRequestService {
         }
         boolean success = "AccountCreated".equals(event.eventType());
         if (success) {
-            if (!java.util.Set.of("PENDING_ACTIVATION", "ACTIVE", "DISABLED")
+            if (!java.util.Set.of("PENDING_ACTIVATION", "ACTIVE", "SUSPENDED", "DISABLED")
                     .contains(Objects.toString(event.data().accountStatus(), ""))
                     || event.data().accountVersion() == null || event.data().accountVersion() < 1
                     || event.data().errorCode() != null) {
@@ -146,7 +148,7 @@ public class AccountRequestService {
                 throw new IllegalArgumentException("Event ID reused across requests");
             return;
         }
-        if (!"PENDING".equals(requests.getFirst().get("status"))) {
+        if (ProvisioningStatus.valueOf((String) requests.getFirst().get("status")) != ProvisioningStatus.PENDING) {
             throw new IllegalArgumentException("Conflicting terminal result for account request");
         }
         if (success) {
@@ -158,12 +160,13 @@ public class AccountRequestService {
                     "UPDATE employee_account_versions SET version = ? WHERE employee_id = ? AND version < ?",
                     event.data().accountVersion(), employeeId, event.data().accountVersion());
             if (applied == 1)
-                jdbc.update("UPDATE employees SET account_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                jdbc.update("UPDATE employees SET employee_account_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         event.data().accountStatus(), employeeId);
         }
         jdbc.update(
                 "UPDATE account_provisioning_requests SET pending_employee_id = NULL, status = ?, error_code = ?, result_event_id = ?, updated_at = CURRENT_TIMESTAMP WHERE request_id = ?",
-                success ? "SUCCEEDED" : "FAILED", event.data().errorCode(), event.eventId(), event.requestId());
+                (success ? ProvisioningStatus.SUCCEEDED : ProvisioningStatus.FAILED).name(),
+                event.data().errorCode(), event.eventId(), event.requestId());
         jdbc.update("INSERT INTO provisioning_processed_events (event_id, request_id) VALUES (?, ?)", event.eventId(),
                 event.requestId());
     }
