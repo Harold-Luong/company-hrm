@@ -40,6 +40,13 @@ public class AttendanceRequestController {
         return response(service.get(id, actor));
     }
 
+    @GetMapping("/pending-count")
+    @PreAuthorize("hasAnyRole('HR','ADMIN')")
+    public ResponseEntity<PendingCount> pendingCount(JwtAuthenticationToken actor) {
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(service.pendingCount(actor));
+    }
+
     @GetMapping("/{id}/history")
     public PageResponse<AttendanceRequestHistory> history(@PathVariable UUID id,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,

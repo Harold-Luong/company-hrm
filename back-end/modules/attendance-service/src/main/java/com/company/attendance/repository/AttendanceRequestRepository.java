@@ -8,6 +8,8 @@ import java.time.LocalDate;
 import java.util.*;
 
 public interface AttendanceRequestRepository extends JpaRepository<AttendanceRequest, UUID> {
+    long countByStatus(AttendanceRequestStatus status);
+
     @Override
     @EntityGraph(attributePaths = "shiftRevision")
     Optional<AttendanceRequest> findById(UUID id);

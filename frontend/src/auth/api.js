@@ -60,13 +60,26 @@ export async function apiRequest(path, init = {}) {
                 ...(init.body ? { 'Content-Type': 'application/json' } : {}),
                 ...init.headers,
             },
-            signal: AbortSignal.timeout(15_000),
+            signal: AbortSignal.any([
+                AbortSignal.timeout(responseType === 'stream' ? 75_000 : 15_000),
+                ...(init.signal ? [init.signal] : []),
+            ]),
             cache: 'no-store',
         })
     } catch {
         throw new ApiError(0, 'Network unavailable')
     }
     if (response.ok && responseType === 'blob') return response.blob()
+    if (response.ok && responseType === 'stream') {
+        if (
+            !response.headers.get('Content-Type')?.startsWith('text/event-stream') ||
+            !response.body
+        ) {
+            await response.body?.cancel()
+            throw new ApiError(502, 'Invalid event stream')
+        }
+        return response.body
+    }
     const data = await response.json().catch(() => null)
     if (!response.ok) {
         const message =

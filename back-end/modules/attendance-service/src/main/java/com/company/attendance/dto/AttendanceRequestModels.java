@@ -17,6 +17,9 @@ public final class AttendanceRequestModels {
     public record Decision(@NotNull AttendanceRequestStatus status, @Size(max = 1000) String reviewNote) {
     }
 
+    public record PendingCount(long count) {
+    }
+
     public record Response(UUID id, long version, UUID employeeId, String employeeCode, String employeeName,
             LocalDate workDate, UUID shiftId, long shiftVersion, ShiftRequest definition,
             AttendanceRequestType requestType,

@@ -27,12 +27,17 @@ public class AttendanceRequestService {
     private final OperationService operations;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final com.company.attendance.notifications.NotificationOutbox notifications;
 
     public PageResponse<Response> list(boolean inbox, AttendanceRequestStatus status, int page, int size, JwtAuthenticationToken actor) {
         page(page,size); if(inbox) requireReviewer(actor);
         var result = requests.search(inbox ? null : employee(actor), status,
             PageRequest.of(page,size,Sort.by(Sort.Order.desc("createdAt"),Sort.Order.desc("id"))));
         return PageResponse.from(result.map(this::response));
+    }
+    public PendingCount pendingCount(JwtAuthenticationToken actor) {
+        requireReviewer(actor);
+        return new PendingCount(requests.countByStatus(PENDING));
     }
     public Response get(UUID id, JwtAuthenticationToken actor) { return response(read(id,actor)); }
     public PageResponse<AttendanceRequestHistory> history(UUID id,int page,int size,JwtAuthenticationToken actor) {
@@ -133,5 +138,6 @@ public class AttendanceRequestService {
     private void audit(AttendanceRequest row,String action,JwtAuthenticationToken actor) {
         var event=new AttendanceRequestHistory(); event.recordAudit(actor.getName(), clock.instant()); event.setRequestId(row.getId()); event.setRequestVersion(row.getVersion());
         event.setAction(action); event.setSnapshot(mapper.writeValueAsString(response(row))); history.save(event);
+        notifications.append(row.getId(), row.getVersion(), row.getRequesterUserId(), row.getEmployeeId(), actor.getName(), action);
     }
 }

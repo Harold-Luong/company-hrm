@@ -1,4 +1,15 @@
 spring:
+    kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        producer:
+            key-serializer: org.apache.kafka.common.serialization.StringSerializer
+            value-serializer: org.apache.kafka.common.serialization.StringSerializer
+            acks: all
+            properties:
+                "[enable.idempotence]": true
+                "[max.block.ms]": 3000
+                "[delivery.timeout.ms]": 10000
+                "[request.timeout.ms]": 5000
     application:
         name: attendance-service
     jackson:
@@ -41,7 +52,7 @@ attendance:
     leave-url: ${LEAVE_SERVICE_URL:http://localhost:8084}
     calendar-url: ${CALENDAR_SERVICE_URL:http://localhost:8083}
     # Vite -> Gateway cùng máy chuyển IP loopback; giữ thêm các mạng công ty đã cấu hình.
-    allowed-networks: ${ATTENDANCE_ALLOWED_NETWORKS:127.0.0.1/32,::1/128,113.161.73.224/32}
+    allowed-networks: ${ATTENDANCE_ALLOWED_NETWORKS:127.0.0.1/32,::1/128,113.161.73.224/32,192.168.1.5/32}
     # Gateway chạy cùng máy khi phát triển; môi trường khác ghi đè bằng IP/CIDR của proxy.
     trusted-proxies: ${ATTENDANCE_TRUSTED_PROXIES:127.0.0.1/32,::1/128}
 
@@ -62,3 +73,7 @@ springdoc:
         path: /swagger-ui.html
         disable-swagger-default-url: true
         operations-sorter: method
+
+hrm:
+    notifications:
+        enabled: ${HRM_NOTIFICATIONS_ENABLED:false}

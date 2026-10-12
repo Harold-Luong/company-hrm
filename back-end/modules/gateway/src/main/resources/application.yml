@@ -22,6 +22,17 @@ spring:
                         # CORS is handled at the gateway, before these routing filters.
                         - RemoveRequestHeader=Origin
                     routes:
+                        - id: notification-stream
+                          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+                          order: -1
+                          predicates:
+                              - Path=/api/v1/notifications/stream
+                          metadata:
+                              response-timeout: -1
+                        - id: notification-service
+                          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+                          predicates:
+                              - Path=/api/v1/notifications,/api/v1/notifications/**
                         - id: attendance-service
                           uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8085}
                           predicates:

@@ -17,10 +17,12 @@ public class LeaveService {
     static final int ANNUAL_ENTITLEMENT_UNITS = 24;
     private final LeaveRepository repository;
     private final Clock clock;
+    private final com.company.leave.notifications.NotificationOutbox notifications;
 
-    public LeaveService(LeaveRepository repository, Clock clock) {
+    public LeaveService(LeaveRepository repository, Clock clock, com.company.leave.notifications.NotificationOutbox notifications) {
         this.repository = repository;
         this.clock = clock;
+        this.notifications = notifications;
     }
 
     static UUID employee(JwtAuthenticationToken actor) {
@@ -60,6 +62,7 @@ public class LeaveService {
         }
         Request request = repository.insert(employeeId, actor.getName(), body, period, totalUnits);
         repository.audit(request.id(), "SUBMITTED", actor.getName(), null);
+        notifications.append(request.id(), request.version(), request.requesterUserId(), request.employeeId(), actor.getName(), "SUBMITTED");
         return request;
     }
 
@@ -148,6 +151,7 @@ public class LeaveService {
             throw error(HttpStatus.PRECONDITION_FAILED, "Leave request has changed; reload before retrying");
         }
         repository.audit(id, target.name(), actor.getName(), cleanNote);
+        notifications.append(id, request.version() + 1, request.requesterUserId(), request.employeeId(), actor.getName(), target.name());
         return repository.find(id).orElseThrow();
     }
 }

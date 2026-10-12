@@ -44,6 +44,40 @@ async function login() {
   return auth
 }
 describe('Auth contract and session lifecycle', () => {
+  it('reauthenticates SSE with a Bearer header and preserves caller cancellation', async () => {
+    const auth = await login()
+    const controller = new AbortController()
+    const streamResponse = new Response('event: notifications\ndata: {"revision":1}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+    fetchMock
+      .mockResolvedValueOnce(response({}, 401))
+      .mockResolvedValueOnce(response({ accessToken: 'access-2', refreshToken: 'refresh-2' }))
+      .mockResolvedValueOnce(streamResponse)
+    const body = await auth.request('/api/v1/notifications/stream', {
+      responseType: 'stream',
+      signal: controller.signal,
+      headers: { Accept: 'text/event-stream' },
+    })
+    expect(body).toBe(streamResponse.body)
+    const [url, options] = fetchMock.mock.calls.at(-1)
+    expect(url).toBe('/api/v1/notifications/stream')
+    expect(options.headers).toMatchObject({
+      Authorization: 'Bearer access-2',
+      Accept: 'text/event-stream',
+    })
+    expect(options.signal.aborted).toBe(false)
+    controller.abort()
+    expect(options.signal.aborted).toBe(true)
+    await body.cancel()
+  })
+  it('rejects a successful JSON response when an SSE stream was requested', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(response({ count: 1 }))
+    await expect(
+      auth.request('/api/v1/notifications/stream', { responseType: 'stream' }),
+    ).rejects.toMatchObject({ status: 502, message: 'Invalid event stream' })
+  })
   it('does not rotate without a cross-tab lock on unsupported browsers', async () => {
     seedSession('existing')
     Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined })

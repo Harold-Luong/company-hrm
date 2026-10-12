@@ -1,4 +1,5 @@
 import { auth } from '@/auth/session.js'
+import { notifyRequestChange } from '@/notifications/changes.js'
 
 const base = '/api/v1/attendance'
 const query = (values) =>
@@ -55,26 +56,33 @@ export const attendance = {
     }),
   requests: (inbox = false, status = '', page = 0) =>
     auth.request(`${base}/requests${inbox ? '/inbox' : ''}?${query({ status, page, size: 20 })}`),
+  pendingRequestCount: () => auth.request(`${base}/requests/pending-count`),
   saveRequest: (id, body, version, key) => {
     const payload = { ...body }
     delete payload.requestedMinutes
-    return auth.request(`${base}/requests${id ? `/${encodeURIComponent(id)}` : ''}`, {
-      method: id ? 'PUT' : 'POST',
-      headers: id ? { 'If-Match': `"${version}"` } : { 'Idempotency-Key': key },
-      body: JSON.stringify(payload),
-    })
+    return auth
+      .request(`${base}/requests${id ? `/${encodeURIComponent(id)}` : ''}`, {
+        method: id ? 'PUT' : 'POST',
+        headers: id ? { 'If-Match': `"${version}"` } : { 'Idempotency-Key': key },
+        body: JSON.stringify(payload),
+      })
+      .then(notifyRequestChange)
   },
   cancelRequest: (row) =>
-    auth.request(`${base}/requests/${encodeURIComponent(row.id)}/cancel`, {
-      method: 'POST',
-      headers: { 'If-Match': `"${row.version}"` },
-    }),
+    auth
+      .request(`${base}/requests/${encodeURIComponent(row.id)}/cancel`, {
+        method: 'POST',
+        headers: { 'If-Match': `"${row.version}"` },
+      })
+      .then(notifyRequestChange),
   decideRequest: (row, status, reviewNote) =>
-    auth.request(`${base}/requests/${encodeURIComponent(row.id)}/decision`, {
-      method: 'POST',
-      headers: { 'If-Match': `"${row.version}"` },
-      body: JSON.stringify({ status, reviewNote }),
-    }),
+    auth
+      .request(`${base}/requests/${encodeURIComponent(row.id)}/decision`, {
+        method: 'POST',
+        headers: { 'If-Match': `"${row.version}"` },
+        body: JSON.stringify({ status, reviewNote }),
+      })
+      .then(notifyRequestChange),
   requestHistory: (id) => auth.request(`${base}/requests/${encodeURIComponent(id)}/history`),
   shifts: (page = 0) => auth.request(`${base}/shifts?page=${page}&size=20`),
   shift: (id) => auth.request(`${base}/shifts/${encodeURIComponent(id)}`),

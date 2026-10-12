@@ -209,6 +209,30 @@ class AttendanceApiTests extends JwtTestSupport {
     }
 
     @Test
+    void pendingRequestCountIsReviewerOnlyAndTracksBothRequestTypes() throws Exception {
+        String countUrl = BASE + "/requests/pending-count";
+        mvc.perform(get(countUrl)).andExpect(status().isUnauthorized());
+        mvc.perform(get(countUrl).with(employee())).andExpect(status().isForbidden());
+        mvc.perform(get(countUrl).with(hr())).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.count").value(0));
+        String shift = assignedRequestShift();
+        String late = permissionId(submitPermission(permissionBody(shift, "LATE_ARRIVAL", "13:08"), "late", employee()));
+        String early = permissionId(submitPermission(permissionBody(shift, "EARLY_DEPARTURE", "14:45"), "early", employee()));
+        mvc.perform(get(countUrl).with(hr())).andExpect(jsonPath("$.count").value(2));
+        decidePermission(late, "APPROVED", null, hr()).andExpect(status().isOk());
+        mvc.perform(get(countUrl).with(hr())).andExpect(jsonPath("$.count").value(1));
+        decidePermission(early, "REJECTED", "Coverage needed", hr()).andExpect(status().isOk());
+        mvc.perform(get(countUrl).with(hr())).andExpect(jsonPath("$.count").value(0));
+        String cancelled = permissionId(submitPermission(permissionBody(shift, "LATE_ARRIVAL", "13:08"), "other", other()));
+        mvc.perform(get(countUrl).with(hr())).andExpect(jsonPath("$.count").value(1));
+        mvc.perform(post(BASE + "/requests/" + cancelled + "/cancel").with(other()).header("If-Match", "\"0\""))
+                .andExpect(status().isOk());
+        mvc.perform(get(countUrl).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.count").value(0));
+    }
+
+    @Test
     void requestLifecycleIsPersistentOwnerScopedVersionedAndAudited() throws Exception {
         String shift = assignedRequestShift();
         String body = permissionBody(shift,"LATE_ARRIVAL","13:08");
