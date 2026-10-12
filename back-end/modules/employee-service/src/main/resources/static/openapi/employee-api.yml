@@ -2,7 +2,10 @@ openapi: 3.0.3
 info:
     title: Employee Service API
     version: v1
-    description: API quản lý nhân viên, phòng ban, chức danh, thông tin cá nhân và trạng thái làm việc.
+    description: >-
+        API quản lý nhân viên, phòng ban, chức danh, thông tin cá nhân và trạng thái làm việc.
+        Các API quản lý yêu cầu vai trò HR hoặc ADMIN. Người dùng khác chỉ được đọc
+        GET /api/v1/employees/{id} khi id khớp employee_id trong JWT, không được sửa hồ sơ.
 servers:
     - url: /
       description: Server đang phục vụ Swagger UI

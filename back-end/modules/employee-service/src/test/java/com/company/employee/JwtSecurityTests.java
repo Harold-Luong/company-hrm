@@ -44,6 +44,77 @@ class JwtSecurityTests extends JwtTestSupport {
     @Autowired private MockMvc mvc;
     @Autowired private JwtDecoder decoder;
     @Autowired private JwtAuthenticationConverter converter;
+    @Autowired private tools.jackson.databind.ObjectMapper mapper;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPLOYEE", "MANAGER"})
+    void personnelAccessIsRestrictedToOwnReadOnlyProfile(String role) throws Exception {
+        String ownId = createEmployee();
+        String otherId = createEmployee();
+        String token = sign(claims().claim("roles", List.of(role)).claim("employee_id", ownId));
+        String bearer = "Bearer " + token;
+        mvc.perform(get("/api/v1/employees/" + ownId).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(ownId));
+        // Ownership comes from the signed token, never request parameters/headers.
+        mvc.perform(get("/api/v1/employees/" + otherId).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .param("employee_id", otherId).header("X-Employee-Id", otherId))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.status").value(403));
+        mvc.perform(get("/api/v1/employees/" + UUID.randomUUID()).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isForbidden());
+        for (String path : List.of("/api/v1/employees", "/api/v1/departments", "/api/v1/positions")) {
+            mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, bearer)
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden());
+            mvc.perform(request(HttpMethod.PUT, path + "/" + ownId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer)
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+        for (String path : List.of("/api/v1/departments/", "/api/v1/positions/")) {
+            mvc.perform(get(path + ownId).header(HttpHeaders.AUTHORIZATION, bearer))
+                    .andExpect(status().isForbidden());
+        }
+        mvc.perform(request(HttpMethod.PATCH, "/api/v1/employees/" + ownId + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"TERMINATED\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/employees/" + ownId).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HR", "ADMIN"})
+    void personnelManagersCanReadOtherProfilesAndManageCatalogs(String role) throws Exception {
+        String otherId = createEmployee();
+        String bearer = "Bearer " + sign(claims().claim("roles", List.of("EMPLOYEE", role)));
+        mvc.perform(get("/api/v1/employees/" + otherId).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(otherId));
+        for (String path : List.of("/api/v1/employees", "/api/v1/departments", "/api/v1/positions")) {
+            mvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, bearer)).andExpect(status().isOk());
+        }
+        mvc.perform(post("/api/v1/departments").header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"ROLE-" + UUID.randomUUID() + "\",\"name\":\"Role test\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(request(HttpMethod.PATCH, "/api/v1/employees/" + otherId + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"INACTIVE\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+    }
+
+    private String createEmployee() throws Exception {
+        var response = mvc.perform(post("/api/v1/employees")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + sign(claims()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"firstName":"An","lastName":"Nguyen","personalEmail":"role-test@example.com",
+                                 "gender":"MALE","hireDate":"2025-01-01","status":"ACTIVE"}
+                                """))
+                .andExpect(status().isCreated()).andReturn();
+        return mapper.readTree(response.getResponse().getContentAsString()).get("id").asText();
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"/api/v1/employees", "/api/v1/departments", "/api/v1/positions"})

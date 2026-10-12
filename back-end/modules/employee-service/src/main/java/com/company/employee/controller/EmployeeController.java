@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,11 +32,13 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/employees")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('HR', 'ADMIN')")
 public class EmployeeController {
     private final EmployeeService employeeService;
     private final HealthCheckService healthCheckService;
 
     @GetMapping("/health-check")
+    @PreAuthorize("permitAll()")
     public ResponseEntity<Map<String, String>> healthCheck() {
         boolean connected = healthCheckService.isDatabaseConnected();
         return ResponseEntity.status(connected ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE)
@@ -57,6 +60,7 @@ public class EmployeeController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN') or #id.toString().equalsIgnoreCase(authentication.token.getClaimAsString('employee_id'))")
     public EmployeeResponse findById(@PathVariable UUID id) {
         return employeeService.findById(id);
     }
