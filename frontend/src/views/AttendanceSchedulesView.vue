@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { attendance } from '@/attendance/api.js'
 import { today, weekdays, shiftLabel, minutesLabel, attendanceError } from '@/attendance/helpers.js'
 import { hrm, fullName } from '@/hrm/api.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
 import ReferencePicker from '@/components/ReferencePicker.vue'
 import PageControls from '@/components/PageControls.vue'
 const shifts = ref([]),
@@ -148,7 +147,6 @@ onMounted(load)
       </div>
       <button class="button button-secondary" :disabled="busy" @click="load">Tải lại</button>
     </div>
-    <AttendanceNav />
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
     <form class="panel create-form" @submit.prevent="showPreview">

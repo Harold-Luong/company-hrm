@@ -4,7 +4,7 @@ import { auth } from '@/auth/session.js'
 import { attendance } from '@/attendance/api.js'
 import { attendanceError, attendanceRoles, minutesLabel, today } from '@/attendance/helpers.js'
 import { requestStatuses } from '@/attendance/requests.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
+import AttendanceRequestScope from '@/components/AttendanceRequestScope.vue'
 import PageControls from '@/components/PageControls.vue'
 const reviewer = computed(() => auth.hasRole(attendanceRoles))
 const inbox = ref(false),
@@ -93,7 +93,7 @@ onMounted(load)
     <div class="attendance-page">
         <div class="page-heading">
             <div>
-                <p class="eyebrow">CHẤM CÔNG</p>
+                <p class="eyebrow">YÊU CẦU CHẤM CÔNG</p>
                 <h1>Tăng ca (OT)</h1>
                 <p class="muted">
                     Đăng ký trước khi làm, HR/Admin duyệt, sau đó ghi nhận bắt đầu và kết thúc qua mạng công
@@ -102,10 +102,10 @@ onMounted(load)
             </div>
             <button class="button button-secondary" :disabled="busy" @click="load()">Tải lại</button>
         </div>
-        <AttendanceNav />
+        <AttendanceRequestScope v-if="reviewer" v-model="inbox" :busy="busy" />
         <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
         <p v-if="message" class="info-strip" role="status">{{ message }}</p>
-        <form class="panel create-form" @submit.prevent="submit">
+        <form v-if="!inbox" class="panel create-form" @submit.prevent="submit">
             <h2>Đăng ký OT của tôi</h2>
             <p class="muted">
                 Giờ Việt Nam. OT được tính riêng theo số phút thực tế trong khoảng đã duyệt, không cộng vào
@@ -114,16 +114,19 @@ onMounted(load)
             <fieldset :disabled="busy">
                 <div class="attendance-fields">
                     <div class="field">
-                        <label for="ot-start">Bắt đầu</label><input id="ot-start" v-model="form.start"
+                        <label for="ot-start">Bắt đầu</label><input
+                            id="ot-start" v-model="form.start"
                             type="datetime-local" required />
                     </div>
                     <div class="field">
-                        <label for="ot-end">Kết thúc</label><input id="ot-end" v-model="form.end" type="datetime-local"
+                        <label for="ot-end">Kết thúc</label><input
+                            id="ot-end" v-model="form.end" type="datetime-local"
                             :min="form.start" required />
                     </div>
                 </div>
                 <div class="field">
-                    <label for="ot-reason">Lý do tăng ca</label><textarea id="ot-reason" v-model="form.reason" required
+                    <label for="ot-reason">Lý do tăng ca</label><textarea
+                        id="ot-reason" v-model="form.reason" required
                         maxlength="1000" />
                 </div>
                 <button class="button button-primary">Gửi đăng ký OT</button>
@@ -131,13 +134,6 @@ onMounted(load)
         </form>
         <section class="panel create-form">
             <h2>{{ inbox ? 'Duyệt OT' : 'OT của tôi' }}</h2>
-            <div v-if="reviewer" class="button-row">
-                <button class="button button-secondary" :disabled="busy || !inbox" @click="inbox = false">
-                    Của tôi</button><button class="button button-secondary" :disabled="busy || inbox"
-                    @click="inbox = true">
-                    Hộp duyệt HR
-                </button>
-            </div>
             <div class="field">
                 <label for="ot-status">Trạng thái</label><select id="ot-status" v-model="status" :disabled="busy">
                     <option value="">Tất cả</option>
@@ -166,27 +162,32 @@ onMounted(load)
                     </div>
                     <div class="button-row">
                         <button class="button button-primary" :disabled="busy" @click="action(row, 'APPROVED')">
-                            Duyệt OT</button><button class="button button-secondary" :disabled="busy"
+                            Duyệt OT</button><button
+                            class="button button-secondary" :disabled="busy"
                             @click="action(row, 'REJECTED')">
                             Từ chối
                         </button>
                     </div>
                 </template>
-                <button v-if="!inbox && row.status === 'PENDING'" class="button button-secondary" :disabled="busy"
+                <button
+                    v-if="!inbox && row.status === 'PENDING'" class="button button-secondary" :disabled="busy"
                     @click="action(row, 'cancel')">
                     Rút đăng ký
                 </button>
                 <div v-if="!inbox && row.status === 'APPROVED'" class="button-row">
-                    <button class="button button-primary" :disabled="busy || !!row.checkIn"
+                    <button
+                        class="button button-primary" :disabled="busy || !!row.checkIn"
                         @click="action(row, 'check-in')">
-                        Bắt đầu OT</button><button class="button button-secondary"
+                        Bắt đầu OT</button><button
+                        class="button button-secondary"
                         :disabled="busy || !row.checkIn || !!row.checkOut" @click="action(row, 'check-out')">
                         Kết thúc OT
                     </button>
                 </div>
             </article>
             <p v-if="!result.content.length" class="muted">Chưa có đăng ký OT phù hợp.</p>
-            <PageControls :page="result.page" :pages="result.totalPages" :total="result.totalElements" :busy="busy"
+            <PageControls
+                :page="result.page" :pages="result.totalPages" :total="result.totalElements" :busy="busy"
                 @change="load" />
         </section>
     </div>

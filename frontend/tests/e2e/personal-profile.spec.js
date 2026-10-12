@@ -78,9 +78,9 @@ test('one profile tab bar defaults to personal and keeps Auth account data separ
   await expect(account.locator('dd').filter({ hasText: 'login@company.vn' })).toBeVisible()
   await expect(account.locator('.avatar')).toHaveCount(0)
   await expect(card.getByText(profile.personalEmail)).toHaveCount(0)
-  await expect(card.getByText('Nguyễn Văn An')).toHaveCount(0)
+  await expect(account.getByText('Nguyễn Văn An')).toHaveCount(0)
   await expect(account.getByRole('button', { name: 'Đăng xuất tất cả phiên' })).toBeVisible()
-  await page.screenshot({ path: '/tmp/my-profile-account.png', fullPage: true })
+  await page.screenshot({ path: test.info().outputPath('my-profile-account.png'), fullPage: true })
   await page.getByRole('tab', { name: 'Cá nhân', exact: true }).click()
   await expect(card.getByText(profile.personalEmail)).toBeVisible()
   expect(calls.employeeRequests).toBe(1)
@@ -107,7 +107,7 @@ test('shows personal data, changes profile tabs by keyboard', async ({ page }) =
   await expect(personal).toBeVisible()
   await expect(card.getByRole('tab', { name: 'Chấm công', exact: true })).toBeVisible()
   await expect(card.getByRole('tab', { name: 'Nghỉ phép', exact: true })).toBeVisible()
-  await card.screenshot({ path: '/tmp/employee-personal-profile-desktop.png' })
+  await card.screenshot({ path: test.info().outputPath('employee-personal-profile-desktop.png') })
 })
 
 test('mobile layout fits long values and shows contact details', async ({ page }) => {
@@ -127,7 +127,7 @@ test('mobile layout fits long values and shows contact details', async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
-  await card.screenshot({ path: '/tmp/employee-personal-profile-mobile.png' })
+  await card.screenshot({ path: test.info().outputPath('employee-personal-profile-mobile.png') })
 })
 
 test('handles a failed request without showing invented profile data', async ({ page }) => {
@@ -178,7 +178,7 @@ test('attendance loads on demand, summarizes real values and changes month insid
   await expect(page).toHaveURL(/\/account$/)
   await page
     .getByRole('region', { name: 'Hồ sơ của tôi' })
-    .screenshot({ path: '/tmp/employee-profile-attendance.png' })
+    .screenshot({ path: test.info().outputPath('employee-profile-attendance.png') })
 })
 
 test('leave tab gets its balance and requests from Leave without leaving the profile', async ({
@@ -212,7 +212,7 @@ test('leave tab gets its balance and requests from Leave without leaving the pro
   await page.getByRole('tab', { name: 'Nghỉ phép', exact: true }).click()
   const panel = page.getByRole('tabpanel', { name: 'Nghỉ phép', exact: true })
   await expect(panel.getByText('9 ngày', { exact: true })).toBeVisible()
-  await expect(panel.getByText('Đã duyệt', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('listitem').getByText('Đã duyệt', { exact: true })).toBeVisible()
   await expect(panel.getByRole('link', { name: 'Xem đơn và lịch sử' })).toHaveAttribute(
     'href',
     '/leave/requests/leave-1',
@@ -223,7 +223,7 @@ test('leave tab gets its balance and requests from Leave without leaving the pro
   await expect(page).toHaveURL(/\/account$/)
   await page
     .getByRole('region', { name: 'Hồ sơ của tôi' })
-    .screenshot({ path: '/tmp/employee-profile-leave.png' })
+    .screenshot({ path: test.info().outputPath('employee-profile-leave.png') })
 })
 
 test('module failures and empty data stay within their tabs and can be retried', async ({

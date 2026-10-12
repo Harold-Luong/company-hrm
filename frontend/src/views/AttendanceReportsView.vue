@@ -2,7 +2,6 @@
 import { onMounted, reactive, ref } from 'vue'
 import { attendance } from '@/attendance/api.js'
 import { today, attendanceError } from '@/attendance/helpers.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
 import AttendanceTable from '@/components/AttendanceTable.vue'
 import AttendanceStats from '@/components/AttendanceStats.vue'
 import ReferencePicker from '@/components/ReferencePicker.vue'
@@ -86,7 +85,6 @@ onMounted(load)
         Xuất CSV
       </button>
     </div>
-    <AttendanceNav />
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
     <form class="panel create-form" @submit.prevent="load">
       <fieldset :disabled="busy">

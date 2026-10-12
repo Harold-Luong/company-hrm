@@ -15,6 +15,7 @@ const definition = {
 }
 async function setup(page, role = 'EMPLOYEE') {
   const state = {
+    reads: [],
     writes: [],
     overtime: [],
     requests: [],
@@ -60,8 +61,16 @@ async function setup(page, role = 'EMPLOYEE') {
       return route.fulfill({
         json: { id: 'user', employeeId, email: 'an@company.com', roles: [role], active: true },
       })
-    if (path.endsWith('/pending-count')) return route.fulfill({ json: { count: 0 } })
+    if (path.endsWith('/pending-count'))
+      return route.fulfill({
+        json: {
+          count: path.includes('/attendance/')
+            ? state.requests.filter((row) => row.status === 'PENDING').length
+            : 0,
+        },
+      })
     expect(req.headers().authorization).toBe('Bearer access')
+    if (req.method() === 'GET') state.reads.push(path)
     const person = { id: employeeId, employeeCode: 'EMP001', firstName: 'An', lastName: 'Nguyễn' }
     if (path === '/api/v1/employees')
       return route.fulfill({ json: { content: [person], page: 0, totalPages: 1 } })
@@ -294,7 +303,7 @@ test('employee checks in and out, and retries an uncertain write with the same k
   const state = await setup(page)
   state.failPunch = true
   await page.goto('/attendance')
-  await expect(page.getByRole('heading', { name: 'Công của tôi' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Chấm công của tôi' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ca làm việc', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Ghi nhận giờ vào' }).click()
   await expect(page.getByRole('alert')).toContainText('Kết nối gián đoạn')
@@ -487,6 +496,80 @@ test('HR reviews requests with If-Match and a rejection note', async ({ page }) 
     body: { status: 'REJECTED', reviewNote: 'Cần bàn giao trước' },
   })
 })
+for (const [role, width] of [
+  ['HR', 1280],
+  ['ADMIN', 390],
+]) {
+  test(`${role} opens the review menu directly and approves at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const state = await setup(page, role)
+    state.noSchedule = true
+    state.requests.push({
+      id: shiftId,
+      employeeId: 'other-employee',
+      employeeCode: 'EMP002',
+      employeeName: 'Bình',
+      version: 0,
+      workDate: date,
+      period: 'MORNING',
+      requestType: 'LATE_ARRIVAL',
+      expectedTime: '08:08',
+      requestedMinutes: 8,
+      status: 'PENDING',
+      reason: 'Lịch hẹn',
+    })
+    await page.goto('/account')
+    if (width < 600) await page.getByRole('button', { name: 'Mở menu', exact: true }).click()
+    const link = page.locator('a[href="/attendance/requests/inbox"]')
+    await expect(link).toBeVisible()
+    await expect(link.locator('.nav-notification')).toHaveText('1')
+    await link.click()
+    await expect(page).toHaveURL(/\/attendance\/requests\/inbox$/)
+    await expect(
+      page.getByRole('heading', { name: 'Duyệt đi trễ / về sớm', exact: true }),
+    ).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Duyệt đơn', exact: true })).toBeEnabled()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await expect(page.getByLabel('Ngày xin phép')).toHaveCount(0)
+    expect(state.reads).toContain('/api/v1/attendance/requests/inbox')
+    expect(state.reads).not.toContain('/api/v1/attendance/schedules/mine')
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Hàng chờ duyệt', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect(page).toHaveTitle('Duyệt đi trễ / về sớm | Company HRM')
+    await page.getByRole('button', { name: 'Duyệt đơn', exact: true }).click()
+    await expect(page.getByRole('status')).toContainText('Đã duyệt đơn')
+    await expect(link.locator('.nav-notification')).toHaveCount(0)
+    expect(state.writes.at(-1)).toMatchObject({
+      path: `/api/v1/attendance/requests/${shiftId}/decision`,
+      version: '"0"',
+      body: { status: 'APPROVED', reviewNote: null },
+    })
+    await page.getByRole('button', { name: 'Đơn của tôi', exact: true }).click()
+    await expect(page).toHaveURL(/\/attendance\/requests$/)
+    await expect(page.getByLabel('Ngày xin phép')).toBeVisible()
+    await page.goBack()
+    await expect(
+      page.getByRole('heading', { name: 'Duyệt đi trễ / về sớm', exact: true }),
+    ).toBeVisible()
+    await expect(page.getByLabel('Ngày xin phép')).toHaveCount(0)
+  })
+}
+
+for (const role of ['EMPLOYEE', 'MANAGER']) {
+  test(`${role} cannot open the attendance review page or see its menu`, async ({ page }) => {
+    const state = await setup(page, role)
+    await page.goto('/attendance/requests/inbox')
+    await expect(page).toHaveURL(/\/forbidden$/)
+    await expect(
+      page.getByRole('link', { name: 'Duyệt đi trễ / về sớm', exact: true }),
+    ).toHaveCount(0)
+    expect(state.reads).not.toContain('/api/v1/attendance/requests/inbox')
+  })
+}
+
 test('request UI validates session boundaries and duplicate requests', async ({ page }) => {
   await setup(page)
   await page.goto('/attendance/requests')
@@ -543,7 +626,7 @@ test('HR reviews an OT request with its current version', async ({ page }) => {
     countedMinutes: 0,
   })
   await page.goto('/attendance/overtime')
-  await page.getByRole('button', { name: 'Hộp duyệt HR' }).click()
+  await page.getByRole('button', { name: 'Hàng chờ duyệt' }).click()
   await page.getByRole('button', { name: 'Từ chối', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Nhập lý do từ chối')
   await page.getByRole('button', { name: 'Duyệt OT', exact: true }).click()
@@ -552,34 +635,94 @@ test('HR reviews an OT request with its current version', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Nhân viên khác · Đã duyệt' })).toBeVisible()
 })
 
-test('overnight attendance shows the previous work date for checkout after midnight', async ({
+for (const destination of ['/attendance', '/']) {
+  test(`overnight attendance shows the previous work date for checkout after midnight at ${destination}`, async ({
+    page,
+  }) => {
+    const state = await setup(page)
+    await page.clock.setFixedTime(new Date('2030-01-08T06:00:00+07:00'))
+    const night = {
+      ...definition,
+      name: 'Ca đêm',
+      overnight: true,
+      intervals: [{ period: 'AFTERNOON', start: '22:00', end: '06:00' }],
+      checkInFrom: '21:00',
+      checkOutUntil: '07:00',
+    }
+    state.row.checkIn = '2030-01-07T15:00:00Z'
+    state.row.status = 'OPEN'
+    await page.route('**/api/v1/attendance/schedules/mine?**', (route) =>
+      route.fulfill({
+        json: [
+          { date, shiftId, shiftVersion: 0, definition: night, requiredMinutes: 480 },
+          { date: '2030-01-08', shiftId, shiftVersion: 0, definition, requiredMinutes: 480 },
+        ],
+      }),
+    )
+    await page.goto(destination)
+    await expect(page.getByText('Ca đêm · 22:00–06:00 (+1 ngày)')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Ghi nhận giờ ra' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeDisabled()
+    await page.getByRole('button', { name: 'Ghi nhận giờ ra' }).click()
+    expect(state.writes.at(-1).path).toBe('/api/v1/attendance/check-out')
+    await expect(page.getByRole('status')).toContainText('Đã ghi nhận giờ ra')
+  })
+}
+
+test('overview prioritizes quick attendance and shares uncertain punch retries with the detail page', async ({
+  page,
+}, testInfo) => {
+  const state = await setup(page)
+  state.failPunch = true
+  await page.goto('/')
+  const quick = page.getByRole('region', { name: 'Chấm công nhanh' })
+  await expect(quick).toContainText('Chưa vào ca')
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ ra' })).toBeDisabled()
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 960 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    const card = await quick.boundingBox()
+    const banner = await page.locator('.welcome-banner').boundingBox()
+    expect(banner.y + banner.height).toBeLessThan(card.y)
+    await page.screenshot({
+      path: testInfo.outputPath(`quick-attendance-${width}.png`),
+      fullPage: true,
+    })
+  }
+  await quick.getByRole('button', { name: 'Ghi nhận giờ vào' }).click()
+  await expect(quick.getByRole('alert')).toContainText('Kết nối gián đoạn')
+  await quick.getByRole('link', { name: 'Xem chi tiết chấm công' }).click()
+  await page.getByRole('button', { name: 'Ghi nhận giờ vào' }).click()
+  await expect(page.getByRole('status')).toContainText('Đã ghi nhận giờ vào')
+  expect(state.writes[0].key).toBe(state.writes[1].key)
+  await page.goto('/')
+  await expect(quick).toContainText('Đang làm việc')
+  await quick.getByRole('button', { name: 'Ghi nhận giờ ra' }).click()
+  await expect(quick.getByRole('status')).toContainText('Đã ghi nhận giờ ra')
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeDisabled()
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ ra' })).toBeDisabled()
+})
+
+test('quick attendance disables punches without a schedule and recovers from a load failure', async ({
   page,
 }) => {
   const state = await setup(page)
-  await page.clock.setFixedTime(new Date('2030-01-08T06:00:00+07:00'))
-  const night = {
-    ...definition,
-    name: 'Ca đêm',
-    overnight: true,
-    intervals: [{ period: 'AFTERNOON', start: '22:00', end: '06:00' }],
-    checkInFrom: '21:00',
-    checkOutUntil: '07:00',
-  }
-  state.row.checkIn = '2030-01-07T15:00:00Z'
-  state.row.status = 'OPEN'
-  await page.route('**/api/v1/attendance/schedules/mine?**', (route) =>
-    route.fulfill({
-      json: [
-        { date, shiftId, shiftVersion: 0, definition: night, requiredMinutes: 480 },
-        { date: '2030-01-08', shiftId, shiftVersion: 0, definition, requiredMinutes: 480 },
-      ],
-    }),
+  state.noSchedule = true
+  await page.goto('/')
+  const quick = page.getByRole('region', { name: 'Chấm công nhanh' })
+  await expect(quick).toContainText('Chưa có lịch làm việc')
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeDisabled()
+  await page.route('**/api/v1/attendance/mine?**', (route) =>
+    route.fulfill({ status: 503, json: {} }),
   )
-  await page.goto('/attendance')
-  await expect(page.getByText('Ca đêm · 22:00–06:00 (+1 ngày)')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Ghi nhận giờ ra' })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Ghi nhận giờ ra' }).click()
-  expect(state.writes.at(-1).path).toBe('/api/v1/attendance/check-out')
-  await expect(page.getByRole('status')).toContainText('Đã ghi nhận giờ ra')
+  await quick.getByRole('button', { name: 'Tải lại' }).click()
+  await expect(quick.getByRole('alert')).toBeVisible()
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Truy cập nhanh' })).toBeVisible()
+  await page.unroute('**/api/v1/attendance/mine?**')
+  state.noSchedule = false
+  await quick.getByRole('button', { name: 'Tải lại' }).click()
+  await expect(quick.getByRole('alert')).toHaveCount(0)
+  await expect(quick.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeEnabled()
+  expect(state.writes).toHaveLength(0)
 })

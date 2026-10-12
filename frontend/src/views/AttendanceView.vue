@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { auth } from '@/auth/session.js'
 import { attendance } from '@/attendance/api.js'
+import { currentAttendance, recordAttendance } from '@/attendance/current.js'
 import {
     today,
     attendanceError,
@@ -10,7 +10,6 @@ import {
     timeLabel,
     minutesLabel,
 } from '@/attendance/helpers.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
 import AttendanceTable from '@/components/AttendanceTable.vue'
 import AttendanceStats from '@/components/AttendanceStats.vue'
 import AppIcon from '@/components/AppIcon.vue'
@@ -42,24 +41,13 @@ async function load() {
     rows.value = []
     currentDate.value = today()
     try {
-        const prior = new Date(`${currentDate.value}T12:00:00Z`)
-        prior.setUTCDate(prior.getUTCDate() - 1)
-        const previousDate = prior.toISOString().slice(0, 10)
-        const [day, plan, history] = await Promise.all([
-            attendance.mine(previousDate, currentDate.value),
-            attendance.schedule(previousDate, currentDate.value),
+        const [current, history] = await Promise.all([
+            currentAttendance(),
             attendance.mine(from.value, until.value),
         ])
-        const previousPlan = plan.find((p) => p.date === previousDate)
-        const previousRow = day.find((r) => r.workDate === previousDate)
-        const overnightOpen = previousPlan?.definition?.overnight && previousRow?.status === 'OPEN'
-        const priorWindowEnd = previousPlan?.definition?.overnight
-            ? new Date(`${currentDate.value}T${previousPlan.definition.checkOutUntil}+07:00`)
-            : null
-        const lateNightEntry = priorWindowEnd && new Date() <= priorWindowEnd && !previousRow?.checkIn
-        if (overnightOpen || lateNightEntry) currentDate.value = previousDate
-        row.value = day.find((r) => r.workDate === currentDate.value) || null
-        schedule.value = plan.find((p) => p.date === currentDate.value) || null
+        currentDate.value = current.currentDate
+        row.value = current.row
+        schedule.value = current.schedule
         rows.value = history
     } catch (cause) {
         error.value = attendanceError(cause)
@@ -72,14 +60,8 @@ async function punch(action) {
     busy.value = true
     error.value = ''
     message.value = ''
-    const storage = `attendance:${auth.state.user?.id}:${currentDate.value}:${action}`
     try {
-        let key = sessionStorage.getItem(storage)
-        if (!key) {
-            key = crypto.randomUUID()
-            sessionStorage.setItem(storage, key)
-        }
-        await attendance.punch(action, key)
+        await recordAttendance(action, currentDate.value)
         message.value = action === 'check-in' ? 'Đã ghi nhận giờ vào.' : 'Đã ghi nhận giờ ra.'
         await load()
     } catch (cause) {
@@ -94,13 +76,12 @@ onMounted(load)
     <div class="attendance-page">
         <div class="page-heading">
             <div>
-                <p class="eyebrow">CHẤM CÔNG</p>
-                <h1>Công của tôi</h1>
+                <p class="eyebrow">CÁ NHÂN</p>
+                <h1>Chấm công của tôi</h1>
                 <p class="muted">Xem lịch làm việc và ghi nhận giờ vào, giờ ra qua mạng công ty.</p>
             </div>
             <button class="button button-secondary" :disabled="busy" @click="load">Tải lại</button>
         </div>
-        <AttendanceNav />
         <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
         <p v-if="message" class="info-strip" role="status">{{ message }}</p>
         <div class="attendance-today-layout">
@@ -140,7 +121,8 @@ onMounted(load)
                 <div class="button-row">
                     <button class="button button-primary" :disabled="busy || !canEnter" @click="punch('check-in')">
                         <AppIcon name="arrow" :size="18" />Ghi nhận giờ vào
-                    </button><button class="button button-secondary" :disabled="busy || !canLeave"
+                    </button><button
+                        class="button button-secondary" :disabled="busy || !canLeave"
                         @click="punch('check-out')">
                         <AppIcon name="logout" :size="18" />Ghi nhận giờ ra
                     </button>
@@ -157,7 +139,8 @@ onMounted(load)
             <aside class="panel create-form attendance-guide">
                 <h2>Lịch làm việc hôm nay</h2>
                 <template v-if="schedule?.definition">
-                    <div v-for="interval in schedule.definition.intervals" :key="interval.period"
+                    <div
+                        v-for="interval in schedule.definition.intervals" :key="interval.period"
                         class="attendance-shift-period">
                         <span class="attendance-timeline-dot"></span>
                         <div>
@@ -179,13 +162,6 @@ onMounted(load)
                                 : 'Chưa có lịch làm việc. Liên hệ HR để được phân ca.'
                     }}
                 </p>
-                <RouterLink to="/attendance/corrections" class="text-button attendance-related-link">Bổ sung / Điều chỉnh chấm công</RouterLink>
-                <RouterLink to="/attendance/requests" class="text-button attendance-related-link">Xin đi trễ / về sớm
-                    <AppIcon name="arrow" :size="16" />
-                </RouterLink>
-                <RouterLink to="/leave" class="text-button attendance-related-link">Đến nghỉ phép của tôi
-                    <AppIcon name="arrow" :size="16" />
-                </RouterLink>
             </aside>
         </div>
         <AttendanceStats :rows="rows" :busy="busy" />
@@ -199,11 +175,13 @@ onMounted(load)
             </div>
             <form class="attendance-fields" @submit.prevent="load">
                 <div class="field">
-                    <label for="mine-from">Từ ngày</label><input id="mine-from" v-model="from" type="date"
+                    <label for="mine-from">Từ ngày</label><input
+                        id="mine-from" v-model="from" type="date"
                         :max="today()" required />
                 </div>
                 <div class="field">
-                    <label for="mine-until">Đến ngày</label><input id="mine-until" v-model="until" type="date"
+                    <label for="mine-until">Đến ngày</label><input
+                        id="mine-until" v-model="until" type="date"
                         :min="from" :max="today()" required />
                 </div>
                 <div class="field">

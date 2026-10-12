@@ -81,6 +81,7 @@ describe('attendance requests with actual assigned schedule', () => {
     expect(() => requestBody(form(), null)).toThrow()
     expect(() => requestBody(form(), { ...shift, date: '2030-01-08' })).toThrow()
     expect(safeDestination('/attendance/requests')).toBe('/attendance/requests')
+    expect(safeDestination('/attendance/requests/inbox')).toBe('/attendance/requests/inbox')
     expect(safeDestination('/attendance/requests/../reports')).toBe('/')
   })
 })

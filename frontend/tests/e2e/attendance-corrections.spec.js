@@ -147,7 +147,7 @@ test('reviewer handles stale data and requires rejection reason', async ({ page 
   const state = await setup(page, 'HR')
   state.rows = [{ ...pending }]
   await page.goto('/attendance/corrections')
-  await page.getByRole('button', { name: 'Xét duyệt', exact: true }).click()
+  await page.getByRole('button', { name: 'Hàng chờ duyệt', exact: true }).click()
   await page.getByRole('button', { name: 'Từ chối', exact: true }).click()
   await expect(page.getByRole('alert')).toHaveText('Nhập lý do từ chối đơn.')
   expect(state.writes).toHaveLength(0)
@@ -166,7 +166,7 @@ test('reviewer approves another employee but not own request', async ({ page }) 
   const state = await setup(page, 'HR')
   state.rows = [{ ...pending }, { ...pending, id: 'own', employeeId: otherId }]
   await page.goto('/attendance/corrections')
-  await page.getByRole('button', { name: 'Xét duyệt', exact: true }).click()
+  await page.getByRole('button', { name: 'Hàng chờ duyệt', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Duyệt và cập nhật công' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Duyệt và cập nhật công' }).click()
   await expect(page.getByRole('status')).toContainText('Đã duyệt và cập nhật bảng công')

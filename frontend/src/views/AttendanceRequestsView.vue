@@ -1,13 +1,20 @@
 <script setup>
-import { computed, reactive, ref, watch, onMounted } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { auth } from '@/auth/session.js'
 import { attendance } from '@/attendance/api.js'
 import { today, minutesLabel, attendanceError, attendanceRoles } from '@/attendance/helpers.js'
 import { dateLabel } from '@/leave/helpers.js'
 import { requestBody, requestStatuses, requestTypes } from '@/attendance/requests.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
+import AttendanceRequestScope from '@/components/AttendanceRequestScope.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import PageControls from '@/components/PageControls.vue'
+const props = defineProps({ inbox: Boolean })
+const router = useRouter()
+const inbox = computed({
+  get: () => props.inbox,
+  set: (value) => router.push(value ? '/attendance/requests/inbox' : '/attendance/requests'),
+})
 const defaults = () => ({
   requestType: 'LATE_ARRIVAL',
   workDate: today(),
@@ -20,8 +27,7 @@ const form = reactive(defaults()),
   plan = ref(null),
   editing = ref(null),
   cancelId = ref(null),
-  filter = ref(''),
-  inbox = ref(false)
+  filter = ref('')
 const error = ref(''),
   message = ref(''),
   busy = ref(false),
@@ -33,6 +39,11 @@ const pagination = ref({ page: 0, totalPages: 0, totalElements: 0 }),
 const reviewer = computed(() => auth.hasRole(attendanceRoles))
 let submitKey = '',
   sequence = 0
+let listSequence = 0
+onBeforeUnmount(() => {
+  sequence++
+  listSequence++
+})
 const interval = computed(() =>
   plan.value?.definition?.intervals.find((value) => value.period === form.period),
 )
@@ -66,7 +77,8 @@ async function loadSchedule() {
   const ticket = ++sequence,
     date = form.workDate
   plan.value = null
-  if (!date) return
+  scheduleBusy.value = false
+  if (inbox.value || !date) return
   scheduleBusy.value = true
   try {
     const result = await attendance.schedule(date, date)
@@ -84,22 +96,30 @@ async function loadSchedule() {
 }
 watch(() => form.workDate, loadSchedule)
 async function load(page = 0) {
+  const ticket = ++listSequence
   busy.value = true
   error.value = ''
+  rows.value = []
   try {
     const result = await attendance.requests(inbox.value, filter.value, page)
+    if (ticket !== listSequence) return
     rows.value = result.content
     pagination.value = result
   } catch (cause) {
+    if (ticket !== listSequence) return
     rows.value = []
     error.value = attendanceError(cause)
   } finally {
-    busy.value = false
+    if (ticket === listSequence) busy.value = false
   }
 }
 watch([filter, inbox], () => {
   reset()
   load()
+})
+watch(inbox, () => {
+  message.value = ''
+  loadSchedule()
 })
 function reset() {
   Object.assign(form, defaults())
@@ -191,33 +211,26 @@ onMounted(() => {
   <div class="attendance-page">
     <div class="page-heading">
       <div>
-        <p class="eyebrow">CHẤM CÔNG</p>
-        <h1>Xin đi trễ / về sớm</h1>
+        <p class="eyebrow">YÊU CẦU CHẤM CÔNG</p>
+        <h1>{{ inbox ? 'Duyệt đi trễ / về sớm' : 'Xin đi trễ / về sớm' }}</h1>
         <p class="muted">
-          Đăng ký thời gian đến muộn hoặc về sớm và theo dõi đơn xin phép của bạn.
+          {{
+            inbox
+              ? 'Xem đơn của nhân viên, duyệt hoặc phản hồi lý do từ chối.'
+              : 'Đăng ký thời gian đến muộn hoặc về sớm và theo dõi đơn xin phép của bạn.'
+          }}
         </p>
       </div>
-      <RouterLink to="/attendance" class="button button-secondary"
-        ><AppIcon name="clock" :size="17" />Công của tôi</RouterLink
-      >
-    </div>
-    <AttendanceNav />
-    <div v-if="reviewer" class="button-row">
-      <button class="button button-secondary" :disabled="busy || !inbox" @click="inbox = false">
-        Đơn của tôi
-      </button>
-      <button class="button button-secondary" :disabled="busy || inbox" @click="inbox = true">
-        Hàng chờ duyệt
+      <button class="button button-secondary" :disabled="busy || scheduleBusy" @click="reload">
+        Tải lại dữ liệu
       </button>
     </div>
+    <AttendanceRequestScope v-if="reviewer" v-model="inbox" :busy="busy" />
     <p class="info-strip">
       Đơn được duyệt ghi nhận phần có phép; thời gian thiếu vẫn trừ công theo bước 15 phút. Không
       trừ số dư phép năm.
     </p>
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
-    <button class="button button-secondary" :disabled="busy || scheduleBusy" @click="reload">
-      Tải lại dữ liệu
-    </button>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
     <div v-if="!inbox" class="attendance-request-layout">
       <form ref="formElement" class="panel create-form" @submit.prevent="submit">

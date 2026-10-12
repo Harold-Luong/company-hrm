@@ -37,8 +37,10 @@ async function setup(page, role = 'HR', options = {}) {
       url = new URL(req.url()),
       path = url.pathname,
       method = req.method()
-    if (path === '/api/v1/leave/requests/pending-count')
+    if (path.endsWith('/pending-count'))
       return route.fulfill({ json: { count: 0 } })
+    if (path === '/api/v1/leave/requests/calendar') return route.fulfill({ json: [] })
+    if (path === '/api/v1/notifications/stream') return route.fulfill({ status: 503, json: {} })
     if (path.endsWith('/refresh'))
       return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
     if (path.endsWith('/me'))

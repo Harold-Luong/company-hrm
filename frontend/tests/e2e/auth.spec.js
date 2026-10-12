@@ -10,6 +10,8 @@ const baseUser = {
   updatedAt: '2026-09-25T01:00:00Z',
 }
 async function mockAuth(page, roles = ['ADMIN']) {
+  await page.route('**/api/v1/attendance/mine?**', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/v1/attendance/schedules/mine?**', (route) => route.fulfill({ json: [] }))
   await page.route(`**/api/v1/employees/${baseUser.employeeId}`, (route) =>
     route.fulfill({
       json: {

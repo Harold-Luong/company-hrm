@@ -3,6 +3,7 @@ import { calendarManagementRoles } from '@/calendar/constants.js'
 import { leaveReviewRoles } from '@/leave/helpers.js'
 import { attendanceRoles } from '@/attendance/helpers.js'
 import { auth } from '@/auth/session.js'
+import { personnelManagementRoles } from '@/auth/roles.js'
 import { ApiError } from '@/auth/api.js'
 import { accountCreationRoles, safeDestination } from '@/auth/navigation.js'
 export const routes = [
@@ -27,7 +28,7 @@ export const routes = [
         path: 'attendance',
         name: 'attendance-mine',
         component: () => import('@/views/AttendanceView.vue'),
-        meta: { title: 'Công của tôi' },
+        meta: { title: 'Chấm công của tôi' },
       },
       {
         path: 'attendance/overtime',
@@ -45,7 +46,15 @@ export const routes = [
         path: 'attendance/requests',
         name: 'attendance-requests',
         component: () => import('@/views/AttendanceRequestsView.vue'),
+        props: { inbox: false },
         meta: { title: 'Xin đi trễ / về sớm' },
+      },
+      {
+        path: 'attendance/requests/inbox',
+        name: 'attendance-requests-inbox',
+        component: () => import('@/views/AttendanceRequestsView.vue'),
+        props: { inbox: true },
+        meta: { title: 'Duyệt đi trễ / về sớm', roles: attendanceRoles },
       },
       {
         path: 'attendance/shifts',
@@ -143,21 +152,21 @@ export const routes = [
             name: resource,
             component: () => import('@/views/DirectoryView.vue'),
             props: { resource },
-            meta: { title },
+            meta: { title, roles: personnelManagementRoles },
           },
           {
             path: `${resource}/new`,
             name: `${resource}-new`,
             component,
             props: { resource },
-            meta: { title: `Thêm ${title.toLowerCase()}` },
+            meta: { title: `Thêm ${title.toLowerCase()}`, roles: personnelManagementRoles },
           },
           {
             path: `${resource}/:id([0-9a-fA-F-]{36})`,
             name: `${resource}-detail`,
             component,
             props: (route) => ({ resource, id: route.params.id }),
-            meta: { title: `Chi tiết ${title.toLowerCase()}` },
+            meta: { title: `Chi tiết ${title.toLowerCase()}`, roles: personnelManagementRoles },
           },
         ]
       }),

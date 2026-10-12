@@ -6,7 +6,7 @@ import { attendance } from '@/attendance/api.js'
 import { attendanceError, attendanceRoles, today, shiftLabel } from '@/attendance/helpers.js'
 import { correctionBody, localCorrectionTime } from '@/attendance/corrections.js'
 import { requestStatuses } from '@/attendance/requests.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
+import AttendanceRequestScope from '@/components/AttendanceRequestScope.vue'
 import PageControls from '@/components/PageControls.vue'
 const route = useRoute()
 const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(route.query.date || '') ? route.query.date : today()
@@ -204,7 +204,7 @@ onMounted(() => {
   <div class="attendance-page">
     <div class="page-heading">
       <div>
-        <p class="eyebrow">CHẤM CÔNG</p>
+        <p class="eyebrow">YÊU CẦU CHẤM CÔNG</p>
         <h1>Bổ sung / Điều chỉnh công</h1>
         <p class="muted">
           Gửi giờ thực tế khi quên chấm công hoặc ghi nhận nhầm, sau khi ca kết thúc.
@@ -214,27 +214,9 @@ onMounted(() => {
         Tải lại
       </button>
     </div>
-    <AttendanceNav />
+    <AttendanceRequestScope v-if="reviewer" v-model="inbox" :busy="busy" />
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
-    <div v-if="reviewer" class="button-row">
-      <button
-        class="button button-secondary"
-        :aria-pressed="!inbox"
-        :disabled="busy"
-        @click="inbox = false"
-      >
-        Đơn của tôi
-      </button>
-      <button
-        class="button button-secondary"
-        :aria-pressed="inbox"
-        :disabled="busy"
-        @click="inbox = true"
-      >
-        Xét duyệt
-      </button>
-    </div>
     <form v-if="!inbox" class="panel create-form" @submit.prevent="submit">
       <h2>{{ editing ? 'Sửa đơn chờ duyệt' : 'Tạo đơn bổ sung / điều chỉnh' }}</h2>
       <p class="muted">

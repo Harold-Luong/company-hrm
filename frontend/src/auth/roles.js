@@ -1,4 +1,5 @@
 export const roles = ['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN']
+export const personnelManagementRoles = ['HR', 'ADMIN']
 export const roleLabels = {
     EMPLOYEE: 'Nhân viên',
     MANAGER: 'Quản lý',

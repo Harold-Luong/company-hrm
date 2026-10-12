@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import { auth } from '@/auth/session.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
+import { personnelManagementRoles } from '@/auth/roles.js'
 import { formatDate } from '@/auth/format.js'
 import AppIcon from '@/components/AppIcon.vue'
 import RoleBadge from '@/components/RoleBadge.vue'
+import QuickAttendance from '@/components/QuickAttendance.vue'
 const user = computed(() => auth.state.user)
 const today = new Intl.DateTimeFormat('vi-VN', {
   dateStyle: 'full',
@@ -36,6 +38,7 @@ const today = new Intl.DateTimeFormat('vi-VN', {
         <AppIcon name="shield" :size="78" />
       </div>
     </section>
+    <QuickAttendance />
     <div class="summary-grid">
       <article class="panel summary-card">
         <span class="metric-icon green"> <AppIcon name="check" /> </span
@@ -71,7 +74,10 @@ const today = new Intl.DateTimeFormat('vi-VN', {
           </div>
           <AppIcon name="arrow" :size="19" />
         </RouterLink>
-        <RouterLink to="/employees" class="panel quick-card"
+        <RouterLink
+          v-if="auth.hasRole(personnelManagementRoles)"
+          to="/employees"
+          class="panel quick-card"
           ><span class="metric-icon green"><AppIcon name="user" /></span>
           <div>
             <h3>Nhân viên</h3>
@@ -79,7 +85,10 @@ const today = new Intl.DateTimeFormat('vi-VN', {
           </div>
           <AppIcon name="arrow" :size="19"
         /></RouterLink>
-        <RouterLink to="/departments" class="panel quick-card"
+        <RouterLink
+          v-if="auth.hasRole(personnelManagementRoles)"
+          to="/departments"
+          class="panel quick-card"
           ><span class="metric-icon blue"><AppIcon name="grid" /></span>
           <div>
             <h3>Cơ cấu tổ chức</h3>

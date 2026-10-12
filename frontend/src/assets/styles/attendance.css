@@ -6,7 +6,15 @@
 .attendance-page .page-heading {
   margin-bottom: 0;
 }
-.attendance-nav {
+.attendance-request-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.attendance-scope-options {
+  display: flex;
+  flex-wrap: wrap;
   padding: 5px;
   gap: 5px;
   background: #edf1f4;
@@ -14,12 +22,12 @@
   width: fit-content;
   max-width: 100%;
 }
-.attendance-nav .button {
+.attendance-scope-options .button {
   background: transparent;
   border-color: transparent;
   min-height: 40px;
 }
-.attendance-nav .attendance-current {
+.attendance-scope-options .button[aria-pressed='true'] {
   background: white;
   color: var(--primary-dark);
   box-shadow: 0 1px 4px #203d3710;
@@ -580,12 +588,12 @@
   .attendance-stat strong {
     font-size: 23px;
   }
-  .attendance-nav {
+  .attendance-scope-options {
     width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
-  .attendance-nav .button {
+  .attendance-scope-options .button {
     padding: 9px 7px;
     font-size: 12px;
   }

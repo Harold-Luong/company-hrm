@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { attendance } from '@/attendance/api.js'
 import { attendanceError, shiftBody, shiftLabel, minutesLabel } from '@/attendance/helpers.js'
-import AttendanceNav from '@/components/AttendanceNav.vue'
 import PageControls from '@/components/PageControls.vue'
 const result = ref({ content: [], page: 0, totalPages: 0, totalElements: 0 })
 const busy = ref(false),
@@ -127,7 +126,6 @@ onMounted(() => load(0))
         Tải lại danh sách
       </button>
     </div>
-    <AttendanceNav />
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
     <form class="panel create-form" @submit.prevent="save">

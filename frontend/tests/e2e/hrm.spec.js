@@ -291,17 +291,53 @@ test('Kafka failure explains conflict and permits a new request', async ({ page 
   await expect(page.getByText('Cấp tài khoản thất bại', { exact: true })).toBeVisible()
   expect(state.requests[0].key).not.toBe(state.requests[1].key)
 })
-test('employee role sees personnel forms but cannot send provisioning requests', async ({
-  page,
-}) => {
-  await setup(page, ['EMPLOYEE'])
-  await page.goto(`/employees/${id}`)
-  await expect(page.getByRole('heading', { name: 'Nguyễn Văn An' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Gửi lại email kích hoạt' })).toHaveCount(0)
-  await page.goto('/services')
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
-})
+for (const role of ['EMPLOYEE', 'MANAGER']) {
+  test(`${role} cannot browse personnel pages or see personnel navigation`, async ({ page }) => {
+    await setup(page, [role])
+    const personnelCalls = []
+    page.on('request', (request) => {
+      if (/\/api\/v1\/(employees|departments|positions)(\/|\?|$)/.test(request.url())) {
+        personnelCalls.push(request.url())
+      }
+    })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: 'Tổng quan', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Nhân viên', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Phòng ban', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Chức danh', exact: true })).toHaveCount(0)
+    await expect(
+      page.locator('a[href="/employees"], a[href="/departments"], a[href="/positions"]'),
+    ).toHaveCount(0)
+    for (const resource of ['employees', 'departments', 'positions']) {
+      for (const suffix of ['', '/new', `/${id}`]) {
+        await page.goto(`/${resource}${suffix}`)
+        await expect(
+          page.getByRole('heading', { name: 'Bạn chưa có quyền truy cập' }),
+        ).toBeVisible()
+      }
+    }
+    expect(personnelCalls).toEqual([])
+    await page.goto('/account')
+    await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
+    await page.goto('/services')
+    await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
+  })
+}
+
+for (const role of ['HR', 'ADMIN']) {
+  test(`${role} can use personnel navigation and management pages`, async ({ page }) => {
+    await setup(page, ['EMPLOYEE', role])
+    await page.goto('/')
+    const nav = page.getByRole('navigation', { name: 'Điều hướng chính' })
+    for (const label of ['Nhân viên', 'Phòng ban', 'Chức danh']) {
+      await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible()
+    }
+    await nav.getByRole('link', { name: 'Nhân viên', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Nhân viên', exact: true })).toBeVisible()
+    await page.goto(`/employees/${id}`)
+    await expect(page.getByRole('heading', { name: 'Nguyễn Văn An' })).toBeVisible()
+  })
+}
 test('service health checks send the current access token through the gateway', async ({
   page,
 }) => {
