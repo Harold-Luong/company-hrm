@@ -62,6 +62,87 @@ class LeaveIntegrationTests extends JwtTestSupport {
     private Request submit(UUID employee) { return service.submit(body(), actor(employee, "EMPLOYEE")); }
 
     @Test
+    void personalCalendarAlwaysUsesTokenOwnerEvenForReviewersAndIgnoresSpoofedOwners() throws Exception {
+        var own = submit(EMPLOYEE);
+        var other = submit(HR);
+        for (String role : List.of("EMPLOYEE", "MANAGER", "HR", "ADMIN")) {
+            mvc.perform(get(BASE + "/calendar?year=2030&employeeId=" + HR + "&inbox=true")
+                    .with(authentication(actor(EMPLOYEE, role))))
+                    .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andExpect(jsonPath("$[0].id").value(own.id().toString()))
+                    .andExpect(jsonPath("$[0].employeeId").value(EMPLOYEE.toString()))
+                    .andExpect(jsonPath("$[0].reason").doesNotExist())
+                    .andExpect(jsonPath("$[0].reviewNote").doesNotExist());
+        }
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(HR, "HR"))))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(other.id().toString()));
+        service.decide(own.id(), Status.APPROVED, "\"0\"", null, actor(HR, "HR"));
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(jsonPath("$[0].status").value("APPROVED"));
+        service.decide(other.id(), Status.CANCELLED, "\"0\"", null, actor(HR, "HR"));
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(HR, "HR"))))
+                .andExpect(jsonPath("$.length()").value(0));
+        var rejected = submit(HR);
+        service.decide(rejected.id(), Status.REJECTED, "\"0\"", "Not available", actor(EMPLOYEE, "HR"));
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(HR, "HR"))))
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void personalCalendarIncludesWholeYearHalfDaysAndCrossYearBoundaries() throws Exception {
+        for (int day = 2; day <= 23; day++) {
+            LocalDate date = LocalDate.of(2030, 1, day);
+            service.submit(new Submission(LeaveType.UNPAID, date, date, LeavePeriod.MORNING, "Appointment"),
+                    actor(EMPLOYEE, "EMPLOYEE"));
+        }
+        var crossYear = service.submit(new Submission(LeaveType.UNPAID, LocalDate.of(2030,12,31),
+                LocalDate.of(2031,1,2), LeavePeriod.FULL_DAY, "Travel"), actor(EMPLOYEE,"EMPLOYEE"));
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(EMPLOYEE,"EMPLOYEE"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(23))
+                .andExpect(jsonPath("$[0].period").value("MORNING"));
+        mvc.perform(get(BASE + "/calendar?year=2031").with(authentication(actor(EMPLOYEE,"EMPLOYEE"))))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(crossYear.id().toString()))
+                .andExpect(jsonPath("$[0].startDate").value("2030-12-31"))
+                .andExpect(jsonPath("$[0].endDate").value("2031-01-02"));
+        mvc.perform(get(BASE + "/calendar?year=2032").with(authentication(actor(EMPLOYEE,"EMPLOYEE"))))
+                .andExpect(jsonPath("$.length()").value(0));
+        for (String query : List.of("", "?year=1999", "?year=10000", "?year=invalid")) {
+            mvc.perform(get(BASE + "/calendar" + query).with(authentication(actor(EMPLOYEE,"EMPLOYEE"))))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    void firstBalanceReadInitializesAnEmployeeWithoutLeaveRequests() throws Exception {
+        for (String path : List.of(BASE + "/balance", BASE + "/balance?year=2030")) {
+            mvc.perform(get(path).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.employeeId").value(EMPLOYEE.toString()))
+                    .andExpect(jsonPath("$.year").value(2030))
+                    .andExpect(jsonPath("$.entitledDays").value(12))
+                    .andExpect(jsonPath("$.usedDays").value(0))
+                    .andExpect(jsonPath("$.remainingDays").value(12));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_request_owners", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_balances", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_requests", Integer.class)).isZero();
+    }
+
+    @Test
+    void invalidBalanceYearDoesNotInitializeAnyLeaveData() throws Exception {
+        for (int year : List.of(1999, 10000)) {
+            mvc.perform(get(BASE + "/balance?year=" + year).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                    .andExpect(status().isBadRequest());
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_request_owners", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_balances", Integer.class)).isZero();
+    }
+
+    @Test
     void attendanceCoverageIsOwnerScopedAndOmitsPrivateReasons() throws Exception {
         var own = submit(EMPLOYEE); submit(HR);
         service.decide(own.id(), Status.APPROVED, "\"0\"", null, actor(HR, "HR"));

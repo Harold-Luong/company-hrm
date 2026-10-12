@@ -97,6 +97,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/leave/requests").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/leave/requests/mine",
                                 "/api/v1/leave/requests/attendance",
+                                "/api/v1/leave/requests/calendar",
                                 "/api/v1/leave/requests/balance",
                                 "/api/v1/leave/requests/{id}", "/api/v1/leave/requests/{id}/history").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/leave/requests/{id}/cancel").authenticated()

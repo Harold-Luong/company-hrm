@@ -1,12 +1,17 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { auth } from '@/auth/session.js'
 import AppIcon from '@/components/AppIcon.vue'
 import { getCalendar } from '@/calendar/api.js'
+import { leave } from '@/leave/api.js'
+import { personalLeaveEvents } from '@/calendar/leave.js'
+import { subscribeNotifications } from '@/notifications/stream.js'
+import { requestChangedEvent } from '@/notifications/changes.js'
+import { leavePeriods, leaveStatuses } from '@/leave/helpers.js'
 import {
   eventTypes,
   holidayKinds,
-  typeLabel,
+  typeLabel as companyTypeLabel,
   calendarManagementRoles,
 } from '@/calendar/constants.js'
 import {
@@ -21,16 +26,31 @@ import {
 
 const today = calendarDate()
 const calendar = ref(null)
+const personalLeaves = ref([])
+const leaveError = ref('')
+const leaveLoading = ref(false)
+const visibleTypes = { ...eventTypes, PERSONAL_LEAVE: 'Nghỉ phép của tôi' }
+const typeLabel = (type) =>
+  type === 'PERSONAL_LEAVE' ? visibleTypes.PERSONAL_LEAVE : companyTypeLabel(type)
 const loading = ref(true)
 const error = ref('')
 const year = ref(Number(today.slice(0, 4)))
+const availableYears = computed(() =>
+  [
+    ...new Set([
+      ...(calendar.value?.availableYears || []),
+      year.value,
+      ...[year.value - 1, year.value + 1].filter((value) => value >= 2000 && value <= 2100),
+    ]),
+  ].sort((a, b) => a - b),
+)
 const month = ref(Number(today.slice(5, 7)))
 const category = ref('all')
 const selectedDate = ref(today)
 const selectedEventId = ref(null)
 const detailPanel = ref(null)
 const yearEvents = computed(() =>
-  (calendar.value?.events || [])
+  [...(calendar.value?.events || []), ...personalLeaves.value]
     .map((event) => ({ ...event, ...eventDateRange(event) }))
     .filter(
       (event) =>
@@ -63,7 +83,7 @@ const legendTypes = computed(() => [
   ...new Set(yearEvents.value.map((event) => event.holidayKind || event.type)),
 ])
 function kind(type) {
-  return Object.hasOwn(eventTypes, type) || Object.hasOwn(holidayKinds, type)
+  return Object.hasOwn(visibleTypes, type) || Object.hasOwn(holidayKinds, type)
     ? `kind-${type}`
     : 'kind-OTHER'
 }
@@ -93,6 +113,65 @@ watch(category, () => {
 })
 
 let loadId = 0
+let leaveLoadId = 0
+let stopped = false
+let leaveTimer
+let stopNotifications
+async function loadPersonalLeaves() {
+  const ticket = ++leaveLoadId
+  const owner = auth.state.user?.id
+  const requestedYear = year.value
+  leaveLoading.value = true
+  try {
+    const data = await leave.calendar(requestedYear)
+    if (!Array.isArray(data)) throw new Error('Invalid leave calendar')
+    if (!stopped && ticket === leaveLoadId && owner === auth.state.user?.id) {
+      personalLeaves.value = personalLeaveEvents(data)
+      leaveError.value = ''
+    }
+  } catch {
+    if (!stopped && ticket === leaveLoadId) {
+      leaveError.value = 'Không thể cập nhật nghỉ phép cá nhân. Dữ liệu có thể chưa mới nhất.'
+    }
+  } finally {
+    if (!stopped && ticket === leaveLoadId) leaveLoading.value = false
+  }
+}
+async function pollPersonalLeaves() {
+  await loadPersonalLeaves()
+  if (!stopped) leaveTimer = window.setTimeout(pollPersonalLeaves, 30_000)
+}
+watch(
+  year,
+  () => {
+    personalLeaves.value = []
+    leaveError.value = ''
+    loadPersonalLeaves()
+  },
+  { immediate: true, flush: 'sync' },
+)
+watch(
+  () => auth.state.user?.id,
+  () => {
+    personalLeaves.value = []
+    leaveLoadId++
+    if (auth.state.user) loadPersonalLeaves()
+  },
+  { flush: 'sync' },
+)
+onMounted(() => {
+  stopNotifications = subscribeNotifications(loadPersonalLeaves)
+  window.addEventListener(requestChangedEvent, loadPersonalLeaves)
+  leaveTimer = window.setTimeout(pollPersonalLeaves, 30_000)
+})
+onBeforeUnmount(() => {
+  stopped = true
+  loadId++
+  leaveLoadId++
+  window.clearTimeout(leaveTimer)
+  stopNotifications?.()
+  window.removeEventListener(requestChangedEvent, loadPersonalLeaves)
+})
 async function load() {
   const currentLoad = ++loadId
   loading.value = true
@@ -118,7 +197,7 @@ watch(year, load, { immediate: true })
       <div>
         <p class="eyebrow">LỊCH NỘI BỘ</p>
         <h1>Lịch nghỉ & sự kiện</h1>
-        <p class="muted">Theo dõi những ngày đặc biệt trong năm, cùng nhau lên kế hoạch.</p>
+        <p class="muted">Lịch chung của công ty và đơn nghỉ phép cá nhân của bạn.</p>
       </div>
       <RouterLink
         v-if="auth.hasRole(calendarManagementRoles)"
@@ -127,7 +206,7 @@ watch(year, load, { immediate: true })
         >Quản lý lịch</RouterLink
       >
       <span v-else class="calendar-readonly">
-        <AppIcon name="eye" :size="16" /> Dành cho toàn thể nhân viên
+        <AppIcon name="eye" :size="16" /> Nghỉ phép cá nhân chỉ hiển thị cho bạn
       </span>
     </div>
     <p v-if="loading" role="status" class="panel calendar-loading">Đang tải lịch…</p>
@@ -135,6 +214,16 @@ watch(year, load, { immediate: true })
       {{ error }} <button class="button button-secondary" @click="load">Thử lại</button>
     </div>
     <template v-else-if="calendar">
+      <div v-if="leaveError" class="alert alert-error" role="alert">
+        {{ leaveError }}
+        <button
+          class="button button-secondary"
+          :disabled="leaveLoading"
+          @click="loadPersonalLeaves"
+        >
+          Tải lại nghỉ phép
+        </button>
+      </div>
       <header class="calendar-banner">
         <div>
           <h2>Lịch nghỉ & sự kiện {{ calendar.year }}</h2>
@@ -144,7 +233,7 @@ watch(year, load, { immediate: true })
           <label for="calendar-year">Năm</label>
           <select id="calendar-year" v-model.number="year">
             <option
-              v-for="availableYear in calendar.availableYears"
+              v-for="availableYear in availableYears"
               :key="availableYear"
               :value="availableYear"
             >
@@ -191,7 +280,7 @@ watch(year, load, { immediate: true })
           <label for="calendar-category">Loại sự kiện</label>
           <select id="calendar-category" v-model="category">
             <option value="all">Tất cả loại</option>
-            <option v-for="(label, value) in eventTypes" :key="value" :value="value">
+            <option v-for="(label, value) in visibleTypes" :key="value" :value="value">
               {{ label }}
             </option>
           </select>
@@ -290,6 +379,14 @@ watch(year, load, { immediate: true })
             </p>
             <p v-if="selectedEvent.status === 'CANCELLED'" class="alert alert-error">
               Đã hủy · Sự kiện không còn hiệu lực.
+            </p>
+            <p v-if="selectedEvent.type === 'PERSONAL_LEAVE'">
+              {{ leaveStatuses[selectedEvent.status] }} · {{ leavePeriods[selectedEvent.period] }}
+              <RouterLink
+                :to="`/leave/requests/${selectedEvent.requestId}`"
+                class="button button-secondary"
+                >Xem đơn nghỉ phép</RouterLink
+              >
             </p>
             <p v-if="selectedEvent.holidayKind">
               <span class="calendar-badge" :class="kind(selectedEvent.holidayKind)">{{

@@ -45,6 +45,7 @@ class LeaveSecurityTests extends JwtTestSupport {
     @Test
     void anonymousCannotReadOrSubmit() throws Exception {
         mvc.perform(get(BASE + "/mine")).andExpect(status().isUnauthorized());
+        mvc.perform(get(BASE + "/calendar?year=2030")).andExpect(status().isUnauthorized());
         mvc.perform(post(BASE).contentType("application/json").content("{}"))
                 .andExpect(status().isUnauthorized());
     }
@@ -65,6 +66,9 @@ class LeaveSecurityTests extends JwtTestSupport {
         when(service.list(eq(false), any(), anyInt(), anyInt(), any())).thenReturn(new Page(List.of(), 0, 20, 0, 0));
         mvc.perform(get(BASE + "/mine").header("Authorization", sign(claims(role))))
                 .andExpect(status().isOk()).andExpect(header().doesNotExist("Set-Cookie"));
+        when(service.calendar(eq(2030), any())).thenReturn(List.of());
+        mvc.perform(get(BASE + "/calendar?year=2030").header("Authorization", sign(claims(role))))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
     }
     @ParameterizedTest
     @ValueSource(strings = {"EMPLOYEE", "MANAGER"})
@@ -104,5 +108,6 @@ class LeaveSecurityTests extends JwtTestSupport {
             case "noExpiry" -> claims.expirationTime(null);
         }
         mvc.perform(get(BASE + "/mine").header("Authorization", sign(claims))).andExpect(status().isUnauthorized());
+        mvc.perform(get(BASE + "/calendar?year=2030").header("Authorization", sign(claims))).andExpect(status().isUnauthorized());
     }
 }

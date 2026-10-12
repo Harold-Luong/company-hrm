@@ -8,6 +8,7 @@ export const leave = {
   balance: (year = new Date().getFullYear()) =>
     auth.request(`${base}/balance?${new URLSearchParams({ year })}`),
   pendingCount: () => auth.request(`${base}/pending-count`),
+  calendar: (year) => auth.request(`${base}/calendar?${new URLSearchParams({ year })}`),
   get: (id) => auth.request(`${base}/${encodeURIComponent(id)}`),
   history: (id) => auth.request(`${base}/${encodeURIComponent(id)}/history`),
   submit: (body) =>

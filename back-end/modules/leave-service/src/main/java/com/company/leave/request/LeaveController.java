@@ -31,6 +31,10 @@ public class LeaveController {
             JwtAuthenticationToken actor) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.balance(year, actor));
     }
+    @GetMapping("/calendar")
+    ResponseEntity<List<AttendanceLeave>> calendar(@RequestParam int year, JwtAuthenticationToken actor) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.calendar(year, actor));
+    }
     @GetMapping("/inbox")
     ResponseEntity<Page> inbox(@RequestParam(required = false) Status status, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size, JwtAuthenticationToken actor) {

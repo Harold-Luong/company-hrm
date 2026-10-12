@@ -6,6 +6,10 @@
   --tone: #b52e42;
   --tint: #fff0f2;
 }
+.kind-PERSONAL_LEAVE {
+  --tone: #6741a5;
+  --tint: #f3edff;
+}
 .kind-PUBLIC_HOLIDAY {
   --tone: #9b4928;
   --tint: #fff0e4;

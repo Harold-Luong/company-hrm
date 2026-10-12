@@ -71,7 +71,9 @@ public class LeaveService {
         int year = requestedYear == null ? LocalDate.now(clock).getYear() : requestedYear;
         if (year < 2000 || year > 9999)
             throw error(HttpStatus.BAD_REQUEST, "Invalid balance year");
-        return repository.annualBalance(employee(actor), year, ANNUAL_ENTITLEMENT_UNITS);
+        UUID employeeId = employee(actor);
+        repository.lockEmployee(employeeId);
+        return repository.annualBalance(employeeId, year, ANNUAL_ENTITLEMENT_UNITS);
     }
 
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
@@ -81,6 +83,14 @@ public class LeaveService {
         if (page < 0 || size < 1 || size > 100)
             throw error(HttpStatus.BAD_REQUEST, "Invalid pagination");
         return repository.list(inbox ? null : employee(actor), status, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AttendanceLeave> calendar(int year, JwtAuthenticationToken actor) {
+        if (year < 2000 || year > 9999)
+            throw error(HttpStatus.BAD_REQUEST, "Invalid calendar year");
+        // Personal calendar stays owner-scoped, including for HR/ADMIN.
+        return repository.attendance(employee(actor), LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31));
     }
 
     @Transactional(readOnly = true)
