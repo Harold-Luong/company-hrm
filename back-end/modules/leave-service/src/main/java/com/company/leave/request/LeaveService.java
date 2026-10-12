@@ -142,6 +142,8 @@ public class LeaveService {
         } else if (request.employeeId().equals(employee(actor)) || request.requesterUserId().equals(actor.getName())) {
             throw error(HttpStatus.FORBIDDEN, "You cannot review your own leave request");
         }
+        repository.lockEmployee(request.employeeId());
+        request = get(id, actor);
         if (match == null)
             throw error(HttpStatus.PRECONDITION_REQUIRED, "If-Match is required");
         if (!match.equals("\"" + request.version() + "\""))

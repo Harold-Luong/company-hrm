@@ -200,6 +200,7 @@ services:
     volumes:
       - leave-data:/var/lib/postgresql/data
       - ../../leave-service/docs/sql/001_leave_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ../../leave-service/docs/sql/005_leave_adjustments.sql:/docker-entrypoint-initdb.d/005_leave_adjustments.sql:ro
     networks: [leave-data]
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U leave_user -d leave_db']

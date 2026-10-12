@@ -48,6 +48,7 @@ async function setup(page, role = 'EMPLOYEE', own = false) {
       })
     expect(req.headers().authorization).toBe('Bearer access')
     if (path.endsWith('/pending-count')) return route.fulfill({ json: { count: 1 } })
+    if (path.endsWith('/adjustments')) return route.fulfill({ json: [] })
     if (path.endsWith('/history'))
       return route.fulfill({
         json: [{ id: 1, action: 'SUBMITTED', actorUserId: 'member', occurredAt: sample.createdAt }],

@@ -32,8 +32,18 @@ public final class LeaveModels {
 
     public record Request(UUID id, UUID employeeId, String requesterUserId, LeaveType leaveType,
             LocalDate startDate, LocalDate endDate, LeavePeriod period, int totalUnits, String reason, Status status, long version,
-            Instant createdAt, Instant updatedAt, String reviewedBy, Instant reviewedAt, String reviewNote) {
+            Instant createdAt, Instant updatedAt, String reviewedBy, Instant reviewedAt, String reviewNote,
+            boolean adjustmentPending) {
     }
+
+    /** Dates describe the leave that remains, not the portion being refunded. */
+    public record AdjustmentSubmission(@NotNull Boolean cancelAll, LocalDate startDate, LocalDate endDate,
+            LeavePeriod period, @NotBlank @Size(max = 2000) String reason) {}
+
+    public record Adjustment(UUID id, UUID requestId, String requesterUserId, boolean cancelAll,
+            LocalDate originalStart, LocalDate originalEnd, LeavePeriod originalPeriod, int originalUnits,
+            LocalDate startDate, LocalDate endDate, LeavePeriod period, int totalUnits,
+            String reason, Status status, Instant createdAt, String reviewedBy, Instant reviewedAt, String reviewNote) {}
 
     public record Balance(UUID employeeId, int year, int entitledUnits, int usedUnits, int remainingUnits,
             BigDecimal entitledDays, BigDecimal usedDays, BigDecimal remainingDays) {

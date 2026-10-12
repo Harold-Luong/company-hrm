@@ -91,10 +91,16 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/leave/requests/inbox",
+                                "/api/v1/leave/requests/adjustments/inbox",
                                 "/api/v1/leave/requests/pending-count").hasAnyRole("HR", "ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/leave/requests/{id}/approve",
+                                "/api/v1/leave/requests/{id}/adjustments/{adjustmentId}/approve",
+                                "/api/v1/leave/requests/{id}/adjustments/{adjustmentId}/reject",
                                 "/api/v1/leave/requests/{id}/reject").hasAnyRole("HR", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/leave/requests").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/leave/requests/{id}/adjustments").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/leave/requests/{id}/adjustments").authenticated()
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/leave/requests/{id}/adjustments/{adjustmentId}/cancel").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/leave/requests/mine",
                                 "/api/v1/leave/requests/attendance",
                                 "/api/v1/leave/requests/calendar",

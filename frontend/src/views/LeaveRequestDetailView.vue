@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { auth } from '@/auth/session.js'
 import { leave } from '@/leave/api.js'
 import { hrm, fullName } from '@/hrm/api.js'
+import LeaveAdjustmentPanel from '@/components/LeaveAdjustmentPanel.vue'
 import {
   leaveTypes,
   leaveStatuses,
@@ -137,8 +138,9 @@ watch(
         <div>
           <dt>Thời gian nghỉ</dt>
           <dd>
-            {{ dateLabel(request.startDate) }} – {{ dateLabel(request.endDate) }}
-            ({{ leavePeriods[request.period || 'FULL_DAY'].toLowerCase() }})
+            {{ dateLabel(request.startDate) }} – {{ dateLabel(request.endDate) }} ({{
+              leavePeriods[request.period || 'FULL_DAY'].toLowerCase()
+            }})
           </dd>
         </div>
         <div>
@@ -187,6 +189,14 @@ watch(
         </form>
       </template>
     </section>
+    <LeaveAdjustmentPanel
+      v-if="request && !busy && ['APPROVED', 'CANCELLED'].includes(request.status)"
+      :key="request.id"
+      :request="request"
+      :own="!!own"
+      :reviewer="isReviewer"
+      @updated="load"
+    />
     <section v-if="request && !busy" class="panel create-form">
       <h2>Lịch sử xử lý</h2>
       <p v-if="historyError" class="alert alert-error" role="alert">{{ historyError }}</p>

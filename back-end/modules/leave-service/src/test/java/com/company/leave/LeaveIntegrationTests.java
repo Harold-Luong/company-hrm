@@ -38,6 +38,7 @@ class LeaveIntegrationTests extends JwtTestSupport {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired LeaveService service;
+    @Autowired com.company.leave.request.LeaveAdjustmentService adjustments;
     static final UUID EMPLOYEE = UUID.fromString("d38e31b7-0bba-420c-8eaf-50edbe5a61ae");
     static final UUID HR = UUID.fromString("aa8e31b7-0bba-420c-8eaf-50edbe5a61ae");
     static final String BASE = "/api/v1/leave/requests";
@@ -52,7 +53,7 @@ class LeaveIntegrationTests extends JwtTestSupport {
         registry.add("spring.datasource.password", () -> System.getenv().getOrDefault("LEAVE_TEST_DB_PASSWORD", ""));
     }
     @BeforeEach
-    void clear() { jdbc.execute("TRUNCATE leave_request_history, leave_balances, leave_requests, leave_request_owners RESTART IDENTITY"); }
+    void clear() { jdbc.execute("TRUNCATE leave_adjustments, leave_request_history, leave_balances, leave_requests, leave_request_owners RESTART IDENTITY"); }
     private JwtAuthenticationToken actor(UUID employee, String role) {
         var jwt = Jwt.withTokenValue("test").header("alg", "RS256").subject(employee.toString())
                 .claim("employee_id", employee.toString()).claim("roles", List.of(role)).build();
@@ -60,6 +61,163 @@ class LeaveIntegrationTests extends JwtTestSupport {
     }
     private Submission body() { return new Submission(LeaveType.ANNUAL, LocalDate.of(2030, 2, 1), LocalDate.of(2030, 2, 3), LeavePeriod.FULL_DAY, "Family matters"); }
     private Request submit(UUID employee) { return service.submit(body(), actor(employee, "EMPLOYEE")); }
+
+    private Request approved() {
+        var request = submit(EMPLOYEE);
+        return service.decide(request.id(), Status.APPROVED, "\"0\"", null, actor(HR, "HR"));
+    }
+    private String version(Request request) { return "\"" + request.version() + "\""; }
+    private AdjustmentSubmission cancellation() { return new AdjustmentSubmission(true, null, null, null, "Worked as usual"); }
+
+    @Test
+    void approvedCancellationRefundsOnlyAfterReviewAndOnlyOnce() throws Exception {
+        var request = approved();
+        var pending = adjustments.submit(request.id(), version(request), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+        assertThat(pending.status()).isEqualTo(Status.APPROVED);
+        assertThat(pending.adjustmentPending()).isTrue();
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(6);
+        mvc.perform(get(BASE + "/adjustments/inbox").with(authentication(actor(HR, "HR"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get(BASE + "/pending-count").with(authentication(actor(HR, "HR"))))
+                .andExpect(jsonPath("$.count").value(1));
+        var change = adjustments.list(request.id(), actor(EMPLOYEE, "EMPLOYEE")).getFirst();
+        var result = adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, "Verified", actor(HR, "HR"));
+        assertThat(result.status()).isEqualTo(Status.CANCELLED);
+        assertThat(result.adjustmentPending()).isFalse();
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
+        assertThatThrownBy(() -> adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(412));
+        mvc.perform(get(BASE + "/calendar?year=2030").with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void reductionRetainsHalfDayAndRefundsDifference() throws Exception {
+        var request = approved();
+        var day = LocalDate.of(2030, 2, 2);
+        var pending = adjustments.submit(request.id(), version(request), new AdjustmentSubmission(false, day, day, LeavePeriod.AFTERNOON, "Only afternoon"), actor(EMPLOYEE, "EMPLOYEE"));
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        var result = adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR"));
+        assertThat(result.status()).isEqualTo(Status.APPROVED);
+        assertThat(result.totalUnits()).isEqualTo(1);
+        assertThat(result.period()).isEqualTo(LeavePeriod.AFTERNOON);
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(1);
+        mvc.perform(get(BASE + "/attendance?from=2030-02-01&until=2030-02-03").with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(jsonPath("$[0].startDate").value("2030-02-02"))
+                .andExpect(jsonPath("$[0].period").value("AFTERNOON"));
+    }
+
+    @Test
+    void adjustmentOwnershipSelfReviewAndRejectionAreEnforced() throws Exception {
+        var request = approved();
+        assertThatThrownBy(() -> adjustments.submit(request.id(), version(request), cancellation(), actor(HR, "HR")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(403));
+        var pending = adjustments.submit(request.id(), version(request), cancellation(), actor(EMPLOYEE, "HR"));
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        assertThatThrownBy(() -> adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(EMPLOYEE, "HR")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(403));
+        mvc.perform(patch(BASE + "/" + request.id() + "/adjustments/" + change.id() + "/approve")
+                .header("If-Match", version(pending)).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(BASE + "/" + request.id() + "/adjustments").with(authentication(actor(UUID.randomUUID(), "EMPLOYEE"))))
+                .andExpect(status().isNotFound());
+        assertThatThrownBy(() -> adjustments.decide(request.id(), change.id(), version(pending), Status.REJECTED, " ", actor(HR, "HR")))
+                .isInstanceOf(ResponseStatusException.class);
+        var rejected = adjustments.decide(request.id(), change.id(), version(pending), Status.REJECTED, "Still absent", actor(HR, "HR"));
+        assertThat(rejected.status()).isEqualTo(Status.APPROVED);
+        assertThat(rejected.adjustmentPending()).isFalse();
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(6);
+        var second = adjustments.submit(request.id(), version(rejected), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+        var secondChange = adjustments.list(request.id(), actor(EMPLOYEE, "EMPLOYEE")).stream().filter(a -> a.status() == Status.PENDING).findFirst().orElseThrow();
+        adjustments.decide(request.id(), secondChange.id(), version(second), Status.CANCELLED, null, actor(EMPLOYEE, "EMPLOYEE"));
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(6);
+    }
+
+    @Test
+    void invalidReductionAndDuplicatePendingCannotChangeBalance() {
+        var request = approved();
+        for (var body : List.of(
+                new AdjustmentSubmission(false, request.startDate(), request.endDate(), LeavePeriod.FULL_DAY, "Unchanged"),
+                new AdjustmentSubmission(false, request.startDate().minusDays(1), request.startDate(), LeavePeriod.FULL_DAY, "Outside"),
+                new AdjustmentSubmission(false, request.startDate(), request.endDate(), LeavePeriod.MORNING, "Multiple half days"))) {
+            assertThatThrownBy(() -> adjustments.submit(request.id(), version(request), body, actor(EMPLOYEE, "EMPLOYEE")))
+                    .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        }
+        var pending = adjustments.submit(request.id(), version(request), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+        assertThatThrownBy(() -> adjustments.submit(request.id(), version(pending), cancellation(), actor(EMPLOYEE, "EMPLOYEE")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(409));
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(6);
+    }
+
+    @Test
+    void concurrentAdjustmentApprovalsRefundOnlyOnce() throws Exception {
+        var request = approved();
+        var pending = adjustments.submit(request.id(), version(request), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> approve = () -> {
+                start.await();
+                try {
+                    adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR"));
+                    return 200;
+                } catch (ResponseStatusException e) { return e.getStatusCode().value(); }
+            };
+            var first = pool.submit(approve);
+            var second = pool.submit(approve);
+            start.countDown();
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS))).containsExactlyInAnyOrder(200, 412);
+        }
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
+        assertThat(service.history(request.id(), actor(HR, "HR")).stream().filter(h -> h.action().equals("ADJUSTMENT_APPROVED"))).hasSize(1);
+    }
+
+    @Test
+    void unpaidAdjustmentDoesNotRefundAnnualAndAnnualRefundUsesOriginalYear() {
+        for (var type : List.of(LeaveType.UNPAID, LeaveType.ANNUAL)) {
+            var day = LocalDate.of(2031, 2, type == LeaveType.UNPAID ? 1 : 2);
+            var submitted = service.submit(new Submission(type, day, day, LeavePeriod.FULL_DAY, "Leave"), actor(EMPLOYEE, "EMPLOYEE"));
+            var approved = service.decide(submitted.id(), Status.APPROVED, version(submitted), null, actor(HR, "HR"));
+            var pending = adjustments.submit(approved.id(), version(approved), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+            var change = adjustments.list(approved.id(), actor(HR, "HR")).getFirst();
+            adjustments.decide(approved.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR"));
+            assertThat(service.balance(2031, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
+            assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
+        }
+    }
+
+    @Test
+    void adjustmentHttpContractRequiresVersionAndReturnsUpdatedEtag() throws Exception {
+        var request = approved();
+        String path = BASE + "/" + request.id() + "/adjustments";
+        String json = "{\"cancelAll\":true,\"reason\":\"Worked normally\"}";
+        mvc.perform(post(path).contentType("application/json").content(json).with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(status().isPreconditionRequired());
+        mvc.perform(post(path).header("If-Match", version(request)).contentType("application/json").content(json)
+                .with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"2\""))
+                .andExpect(jsonPath("$.adjustmentPending").value(true));
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        mvc.perform(patch(path + "/" + change.id() + "/approve").header("If-Match", "\"2\"")
+                .contentType("application/json").content("{\"note\":\"Verified\"}").with(authentication(actor(HR, "HR"))))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"3\""))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void adjustmentAuditFailureRollsBackRefundAndDecision() {
+        var request = approved();
+        var pending = adjustments.submit(request.id(), version(request), cancellation(), actor(EMPLOYEE, "EMPLOYEE"));
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        jdbc.execute("ALTER TABLE leave_request_history ADD CONSTRAINT test_reject_adjustment_audit CHECK (action <> 'ADJUSTMENT_APPROVED')");
+        try {
+            assertThatThrownBy(() -> adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR")))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+            assertThat(service.get(request.id(), actor(HR, "HR"))).isEqualTo(pending);
+            assertThat(adjustments.list(request.id(), actor(HR, "HR")).getFirst().status()).isEqualTo(Status.PENDING);
+            assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(6);
+        } finally { jdbc.execute("ALTER TABLE leave_request_history DROP CONSTRAINT test_reject_adjustment_audit"); }
+    }
 
     @Test
     void personalCalendarAlwaysUsesTokenOwnerEvenForReviewersAndIgnoresSpoofedOwners() throws Exception {
