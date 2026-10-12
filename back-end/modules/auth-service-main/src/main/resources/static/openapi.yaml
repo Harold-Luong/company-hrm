@@ -530,7 +530,7 @@ components:
                     type: integer
                     format: int64
                     description: Thời hạn access token tính bằng giây từ lúc cấp; phụ thuộc cấu hình.
-                    example: 900
+                    example: 86400
                 refreshTokenExpiresIn:
                     type: integer
                     format: int64

@@ -1,9 +1,40 @@
 # Company HRM — Frontend
 
+**Mục lục**
+
+- [Project chạy độc lập](#project-chạy-độc-lập)
+- [Chạy local](#chạy-local)
+- [Trang và quyền truy cập](#trang-và-quyền-truy-cập)
+- [Nghỉ phép](#nghỉ-phép)
+- [Chấm công](#chấm-công)
+- [API Auth được tích hợp](#api-auth-được-tích-hợp)
+- [Employee và cấp tài khoản qua Kafka](#employee-và-cấp-tài-khoản-qua-kafka)
+- [Phiên đăng nhập](#phiên-đăng-nhập)
+- [Cấu trúc](#cấu-trúc)
+- [Kiểm tra và build](#kiểm-tra-và-build)
+- [Triển khai](#triển-khai)
+- [Lịch nghỉ và sự kiện](#lịch-nghỉ-và-sự-kiện)
+- [Đi trễ / về sớm](#đi-trễ--về-sớm)
+- [Đi trễ / về sớm — API đã kết nối](#đi-trễ--về-sớm--api-đã-kết-nối)
+
 Vue 3 + JavaScript + Vite, Vue Router, ESLint và Prettier. Giao diện doanh nghiệp
-bằng tiếng Việt, responsive cho desktop/mobile, kết nối Auth, Employee và luồng cấp tài khoản bất đồng bộ qua Kafka.
+bằng tiếng Việt, responsive cho desktop/mobile, kết nối Auth, Employee, Calendar, Leave và Attendance; theo dõi cấp tài khoản bất đồng bộ qua API Employee.
+
+Badge **Duyệt nghỉ phép** và **Duyệt đi trễ / về sớm** lấy số đơn `PENDING` từ
+`pending-count` của từng service. HR/ADMIN nhận sự kiện SSE từ Notification để cập nhật
+cả hai badge khi có đơn mới, sửa, rút hoặc xét duyệt; thao tác trong tab cập nhật ngay.
+Kết nối tự mở lại khi hết hạn/gián đoạn và vẫn kiểm tra mỗi 30 giây nếu Notification
+chưa sẵn sàng. Realtime cần Kafka, topic, outbox và `HRM_NOTIFICATIONS_ENABLED=true`.
+
+## Project chạy độc lập
+
+Frontend có package.json, dependency và cấu hình Vite riêng. Chạy/build UI không
+cần khởi động backend; đăng nhập và các màn hình lấy dữ liệu thật cần Gateway,
+Auth và service tương ứng. Không chạy Maven từ frontend.
 
 ## Chạy local
+
+Xem [hướng dẫn local chung](../README.md#local) để cấu hình `.env`, database và các backend. Vite tự đọc `.env`; `.env.local` ưu tiên hơn khi cùng tên biến.
 
 Dùng Node.js 24 LTS và npm:
 
@@ -18,11 +49,11 @@ Mở <http://localhost:5173>. Cổng cố định; nếu cổng đã bận, sử
 hoặc chỉ định cổng khác với `npm run dev -- --port 5175`.
 
 Backend Auth phải đang chạy để đăng nhập. Cấu hình database, RSA keys, tài khoản
-local và cách khởi động nằm trong [hướng dẫn Auth](../back-end/modules/auth-service-main/docs/hrm-auth.md).
+local và cách khởi động nằm trong [hướng dẫn Auth](../back-end/modules/auth-service-main/README.md).
 Frontend không tự seed tài khoản hoặc thay đổi database.
 
 Vite chuyển toàn bộ `/api` tới **API Gateway `http://localhost:8080`**, giữ nguyên
-đường dẫn. Gateway chuyển tiếp tới Auth `8081`, Employee `8082`, Calendar `8083` và Leave `8084`,
+đường dẫn. Gateway chuyển tiếp tới Auth `8081`, Employee `8082`, Calendar `8083`, Leave `8084`, Attendance `8085` và Notification `8086`,
 bao gồm health-check của từng service. Chạy gateway theo
 [hướng dẫn Gateway](../back-end/modules/gateway/README.md).
 
@@ -44,14 +75,16 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
 | Tổng quan               | `/`                                                    | Mọi tài khoản đã xác thực |
 | Tài khoản của tôi       | `/account`                                             | Mọi tài khoản đã xác thực |
 | Tạo tài khoản           | `/accounts/new`                                        | HR **hoặc** ADMIN         |
-| Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`       | Mọi tài khoản đã xác thực |
-| Phòng ban               | `/departments`, `/departments/new`, `/departments/:id` | Mọi tài khoản đã xác thực |
-| Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | Mọi tài khoản đã xác thực |
+| Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`       | HR hoặc ADMIN |
+| Phòng ban               | `/departments`, `/departments/new`, `/departments/:id` | HR hoặc ADMIN |
+| Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | HR hoặc ADMIN |
 | Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | HR **hoặc** ADMIN         |
 | Kết nối dịch vụ         | `/services`                                            | Mọi tài khoản đã xác thực |
 | Nghỉ phép của tôi       | `/leave`                                               | Mọi tài khoản đã xác thực |
 | Duyệt nghỉ phép         | `/leave/inbox`                                         | HR hoặc ADMIN |
 | Chi tiết đơn nghỉ       | `/leave/requests/:id`                                  | Người gửi hoặc HR/ADMIN (backend kiểm tra) |
+| Lịch nghỉ và sự kiện | `/calendar` | Mọi tài khoản đã xác thực |
+| Quản lý lịch | `/calendar-events`, `/calendar-events/new`, `/calendar-events/:id` | HR hoặc ADMIN |
 | Từ chối truy cập        | `/forbidden`                                           | Tài khoản đã xác thực     |
 
 - Bảo vệ cả điều hướng từ menu và truy cập URL trực tiếp; chưa đăng nhập được đưa
@@ -72,11 +105,17 @@ duyệt hoặc từ chối; người gửi được rút đơn đang chờ. UI g
 yêu cầu tải lại khi có xung đột, giữ nội dung form khi lỗi. Leave có số dư phép năm;
 Attendance đọc phép qua API để đối soát. Chưa có email hoặc tự đồng bộ ngày công đã snapshot. Xem [Leave Service](../back-end/modules/leave-service/README.md).
 
+Trong chi tiết đơn đã duyệt, chủ đơn có thể gửi **Điều chỉnh phép đã duyệt**: hủy toàn bộ hoặc chọn khoảng thời gian còn nghỉ ngắn hơn. HR/ADMIN tìm các yêu cầu qua bộ lọc **Điều chỉnh phép đã duyệt** tại `/leave/inbox`. Đơn và số dư chỉ đổi khi HR/ADMIN khác duyệt; phép năm được hoàn phần chênh lệch, lịch cá nhân cập nhật qua SSE/polling. Có lịch sử điều chỉnh, lý do từ chối và rút yêu cầu đang chờ. Badge duyệt nghỉ phép tính cả các yêu cầu điều chỉnh.
+
 ## Chấm công
 
 | Trang | Đường dẫn | Quyền |
 | --- | --- | --- |
 | Công của tôi, ghi giờ vào/ra, lịch sử | `/attendance` | Đã đăng nhập |
+| Đơn đi trễ/về sớm cá nhân | `/attendance/requests` | Đã đăng nhập |
+| Duyệt đơn đi trễ/về sớm | `/attendance/requests/inbox` | HR/ADMIN |
+| Bổ sung/điều chỉnh công | `/attendance/corrections` | Đã đăng nhập; xét duyệt cần HR/ADMIN |
+| Đăng ký/chấm giờ OT | `/attendance/overtime` | Đã đăng nhập; xét duyệt cần HR/ADMIN |
 | Mẫu ca, tạo/sửa/vô hiệu hóa, lịch sử | `/attendance/shifts` | HR/ADMIN |
 | Phân công, chọn nhân viên/phạm vi, preview và lịch sử | `/attendance/schedules` | HR/ADMIN |
 | Bảng công, đối soát phép/lịch, CSV | `/attendance/reports` | HR/ADMIN |
@@ -86,10 +125,11 @@ chấm công, giờ lấy từ server; HR áp lịch mặc định hoặc lịch
 Phiên bản cũ yêu cầu tải lại; sửa nội dung phân công phải preview lại. Retry ghi công
 giữ Idempotency-Key trong sessionStorage. CSV tải qua API có xác thực, hỗ trợ lỗi JSON.
 
-Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. HR phải
-phân ca trước, cấu hình allowlist/trusted proxy để chấm công local/triển khai.
+Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. Backend
+tạo lịch mặc định thứ Hai–thứ Sáu nếu chưa có lịch công ty; HR kiểm tra lịch có
+hiệu lực và cấu hình allowlist/trusted proxy để chấm công local/triển khai.
 Xem [hướng dẫn backend](../back-end/modules/attendance-service/README.md).
-Bảng công/CSV tạm tính, chưa có khóa kỳ hoặc điều chỉnh giờ thủ công. Phép thay đổi
+Bảng công/CSV tạm tính, chưa có khóa kỳ. Đã có đơn bổ sung/điều chỉnh giờ và phê duyệt tại `/attendance/corrections`. Phép thay đổi
 sau khi check-in cần HR cập nhật coverage để đối soát. Chưa hỗ trợ giờ linh hoạt.
 
 Kiểm thử UI: `npm test`, `npm run build`,
@@ -124,8 +164,9 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
   `/api/v1/departments` và `/api/v1/positions`. Không có thao tác xóa vì backend chưa hỗ trợ.
 - Biểu mẫu nhân viên cho chọn phòng ban, chức danh, người quản lý; lựa chọn tải theo
   từng trang 100 bản ghi, có nút tải thêm. Trường tùy chọn gửi `null` khi để trống.
-- Quyền CRUD nhân sự hiện là mọi tài khoản đã xác thực, đúng SecurityConfig của
-  Employee. Riêng yêu cầu cấp tài khoản giới hạn HR/ADMIN theo AccountRequestService.
+- Các route quản lý nhân viên/phòng ban/chức danh và API tương ứng giới hạn HR/ADMIN.
+  EMPLOYEE/MANAGER chỉ đọc hồ sơ bản thân qua trang tài khoản; backend kiểm tra `employee_id`.
+  Yêu cầu cấp tài khoản cũng giới hạn HR/ADMIN.
 - Trong hồ sơ nhân viên, `POST /api/v1/employees/:id/account-requests` gửi email và
   UUID `Idempotency-Key`. Yêu cầu nhận `202` được theo dõi bằng
   `GET /api/v1/employees/:id/account-requests/:requestId` mỗi 3 giây, tối đa 30 lần.
@@ -135,11 +176,12 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
   không tự gửi lại POST khi reload. Có thể tra cứu UUID yêu cầu đã biết từ bên ngoài.
 - Hiển thị PENDING/SUCCEEDED/FAILED, lỗi trùng email/tài khoản, trạng thái tài khoản
   NOT_CREATED/PENDING_ACTIVATION/ACTIVE/DISABLED. Backend chưa có API liệt kê lịch sử
-  yêu cầu, đặt mật khẩu/kích hoạt hoặc quản trị Kafka Connect riêng.
-- Trang `/services` dùng hai endpoint `/api/v1/auth/health-check` và
-  `/api/v1/employees/health-check`. Kết quả không khẳng định Kafka healthy.
+  yêu cầu hoặc quản trị Kafka Connect riêng. Auth đã có API đặt mật khẩu/kích hoạt
+  và trang `/activate` riêng; xem [Auth](../back-end/modules/auth-service-main/README.md#activation).
+- Trang `/services` kiểm tra health của Auth, Employee, Calendar, Leave và Attendance
+  qua Gateway. Kết quả không khẳng định Kafka hoặc Notification healthy.
 - Cần chạy Kafka, migration và bật `HRM_EVENTS_ENABLED=true` ở cả hai service theo
-  [hướng dẫn provisioning](../back-end/modules/infra/kafka/ACCOUNT-PROVISIONING.md).
+  [hướng dẫn provisioning](../back-end/modules/employee-service/README.md#provisioning).
   Không đặt địa chỉ broker trong frontend; browser chỉ gọi API Employee.
 
 ## Phiên đăng nhập
@@ -174,7 +216,7 @@ Nếu refresh đã được backend xử lý nhưng response bị mất, lần t
 Logout hiện tại luôn xóa credentials local; nếu không xác nhận được thu hồi trên
 server, UI thông báo rõ. Logout-all thất bại giữ phiên hiện tại để người dùng thử
 lại. Backend chỉ thu hồi refresh session; access JWT đã phát hành có thể còn hiệu
-lực tới khi hết hạn (hiện cấu hình 15 phút).
+lực tới khi hết hạn (mặc định Auth hiện là 1 ngày; thời hạn thực tế theo cấu hình khi phát hành token).
 
 ## Cấu trúc
 
@@ -221,8 +263,7 @@ npm run test:e2e
 ## Triển khai
 
 Phục vụ `dist/` bằng web server. Vue Router dùng HTML5 history: fallback về
-`index.html` cho route frontend. Cấu hình reverse proxy `/api/v1/auth/*` tới Auth và các prefix
-`/api/v1/employees`, `/api/v1/departments`, `/api/v1/positions` tới Employee, không fallback API về `index.html`. Dùng HTTPS khi triển khai thực tế.
+`index.html` cho route frontend. Cấu hình reverse proxy `/api` tới Gateway để dùng chung định tuyến và kiểm tra JWT; không fallback API về `index.html`. Dùng HTTPS khi triển khai thực tế.
 Vite dev proxy không thay thế reverse proxy production; `npm run preview` chỉ để
 xem thử build local.
 
@@ -231,18 +272,29 @@ và [Vue state management](https://vuejs.org/guide/scaling-up/state-management.h
 
 ## Lịch nghỉ và sự kiện
 
-Trang `/calendar` lấy toàn bộ dữ liệu từ `GET /api/v1/calendar?year=...` với Bearer access token qua phiên đăng nhập. Mọi tài khoản đã xác thực đều được xem, bao gồm EMPLOYEE; token hết hạn được refresh theo cơ chế chung.
+Trang `/calendar` kết hợp lịch chung từ `GET /api/v1/calendar?year=...` với nghỉ phép
+cá nhân từ `GET /api/v1/leave/requests/calendar?year=...`, dùng Bearer access token.
+API nghỉ phép luôn lấy `employee_id` từ token, kể cả HR/ADMIN; không nhận phạm vi
+nhân viên khác từ trình duyệt. Token hết hạn được refresh theo cơ chế chung.
+Đơn `PENDING` và `APPROVED` hiển thị riêng với nhãn trạng thái, cả ngày/buổi sáng/
+buổi chiều và liên kết xem đơn. Đơn bị từ chối hoặc rút được loại khỏi lịch.
+Không sao chép đơn cá nhân thành sự kiện chung hay sửa dữ liệu Calendar Service.
+Lịch cập nhật qua SSE dùng chung kết nối với sidebar, sau thao tác trong tab,
+và mỗi 30 giây để dự phòng. Khi Leave tạm lỗi, lịch chung vẫn dùng được và phần
+nghỉ phép có thông báo tải lại. Chuyển năm/tài khoản xóa dữ liệu cá nhân cũ và
+bỏ qua phản hồi đến muộn.
 `src/calendar/api.js` gọi API, `constants.js` chứa nhãn tiếng Việt cho enum API,
 `utils.js` tính ô lịch và định dạng ngày theo `Asia/Ho_Chi_Minh`.
-Giao diện dùng trực tiếp `availableYears`, `title`, `type`, `holidayKind`,
+Giao diện dùng các năm từ `availableYears`, bổ sung năm liền trước/sau để xem
+phép ở năm chưa có sự kiện chung; dùng trực tiếp `title`, `type`, `holidayKind`,
 `description`, `location` và `status` từ response, không dùng dữ liệu mẫu dự phòng.
 Sự kiện cả ngày bao gồm ngày kết thúc; sự kiện theo giờ không bao gồm thời điểm kết thúc.
-Sự kiện `CANCELLED` vẫn hiển thị kèm nhãn đã hủy.
+Sự kiện chung `CANCELLED` vẫn hiển thị kèm nhãn đã hủy.
 
 Frontend gọi toàn bộ API cùng origin (qua Vite proxy khi chạy local).
 Khi triển khai bản build, cấu hình reverse proxy `/api` tới **Gateway**.
 
-Trang `/services` kiểm tra Auth, Employee và Calendar bằng access token của phiên
+Trang `/services` kiểm tra Auth, Employee, Calendar, Leave và Attendance bằng access token của phiên
 đăng nhập. `GET /api/v1/calendar/health-check` qua Gateway được chuyển thành
 `GET /actuator/health` của Calendar Service; frontend đọc trạng thái tổng hợp
 `status` (API không trả chi tiết database). `/actuator/health` tại Gateway chỉ là
@@ -268,9 +320,9 @@ Reverse proxy cần chuyển cả `/api/v1/calendar-events` và các đường d
 ## Đi trễ / về sớm
 
 `/attendance/requests` đã dùng API thật: tải ca theo ngày, gửi/sửa/rút đơn, xem
-trạng thái/lịch sử. HR/ADMIN có hàng chờ duyệt cùng trang. Đơn duyệt ghi nhận phần
+trạng thái/lịch sử. HR/ADMIN có hàng chờ duyệt riêng tại `/attendance/requests/inbox`. Đơn duyệt ghi nhận phần
 có phép; công vẫn trừ theo bước 15 phút. Không còn dữ liệu mẫu hoặc memory store.
-[Contract và migration cần chạy](src/attendance/REQUESTS-UI.md).
+[Contract và migration cần chạy](#requests).
 
 
 ### Phân ca và OT
@@ -282,4 +334,61 @@ có phép; công vẫn trừ theo bước 15 phút. Không còn dữ liệu mẫ
 - `/attendance/overtime`: gửi/rút đăng ký OT, hộp duyệt HR, bắt đầu/kết thúc OT
   bằng thời gian server qua mạng công ty. Chỉ OT đã duyệt mới được chấm giờ.
 - Bảng công và CSV tách số phút OT đã duyệt và thực tế khỏi công thường.
-- Backend dùng schema Attendance duy nhất `001_attendance_schema.sql`; khi đổi cấu trúc trong giai đoạn phát triển, tạo lại database theo README SQL của service.
+- Schema nghiệp vụ Attendance nằm trong `001_attendance_schema.sql`; khi bật thông báo cần thêm `004_notification_outbox.sql`. Database có dữ liệu cần kế hoạch nâng cấp riêng theo [database Attendance](../back-end/modules/attendance-service/README.md#database).
+
+<a id="requests"></a>
+
+## Đi trễ / về sớm — API đã kết nối
+
+Route `/attendance/requests` dùng Attendance API thật, không còn ca mẫu, đơn mẫu
+hoặc memory store. Lịch tham chiếu lấy `GET /api/v1/attendance/schedules/mine`
+theo ngày chọn. HR/ADMIN mở **Hàng chờ duyệt** tại `/attendance/requests/inbox`; nhân viên xem,
+sửa/rút đơn PENDING và lịch sử của mình. Danh sách phân trang/lọc trạng thái.
+
+Prefix `/api/v1/attendance/requests`:
+
+| Method / path | Chức năng |
+| --- | --- |
+| GET / | Danh sách bản thân, `status`, `page`, `size` |
+| GET /inbox | Danh sách HR/ADMIN, cùng bộ lọc |
+| POST / | Tạo đơn, `Idempotency-Key` bắt buộc |
+| GET /{id} | Chi tiết và ETag, chủ đơn hoặc HR/ADMIN |
+| PUT /{id} | Chủ đơn sửa PENDING, `If-Match` |
+| POST /{id}/cancel | Chủ đơn rút PENDING, `If-Match` |
+| POST /{id}/decision | HR/ADMIN duyệt/từ chối, `If-Match`, không tự duyệt |
+| GET /{id}/history | Lịch sử có phân trang, chủ đơn hoặc HR/ADMIN |
+
+Body gửi/sửa: `workDate`, `shiftId`, `shiftVersion`, `requestType`
+(`LATE_ARRIVAL`/`EARLY_DEPARTURE`), `period` (`MORNING`/`AFTERNOON`),
+`expectedTime` (`HH:mm`), `reason` (1–1.000 ký tự sau trim).
+UI chỉ dùng `requestedMinutes` để xem trước; không gửi thời lượng, nhân viên hoặc
+trạng thái tự quyết định. Server tính lại theo snapshot ca thật, trả `version`,
+`requestedMinutes`, `roundedRequestedMinutes`, `definition` và thông tin xét duyệt.
+Decision: `{"status":"APPROVED|REJECTED","reviewNote":"..."}`; từ chối bắt buộc lý do.
+
+Ngày gửi/sửa từ hôm nay đến 365 ngày tới, giờ phải nằm trong buổi làm việc; nghỉ
+cả buổi dùng Leave. Không nhận đơn trùng ngày/buổi/loại còn PENDING hoặc APPROVED,
+không cho hai đơn trễ/sớm bao phủ hết buổi. Chặn ngày nghỉ chung hoặc buổi đã có
+Leave PENDING/APPROVED. Ngày đã qua không sửa nhưng HR vẫn được xét duyệt đơn đã gửi.
+Khi lịch đổi trong lúc chờ duyệt, yêu cầu tải lại/sửa trước khi duyệt. Phân công
+không được thay lịch ảnh hưởng đơn đã duyệt. Đơn đã xử lý không sửa/rút trong bản này.
+
+**Quy tắc đã thống nhất:** đơn được duyệt ghi nhận có phép, vẫn trừ công theo
+bước làm tròn 15 phút. Không cộng thời gian làm, không trừ số dư phép năm.
+Bảng công/CSV bổ sung `permissionCoverage`: ID đơn chờ/duyệt/xung đột, phút đã được
+phép, giây thiếu thực tế nằm trong phạm vi được phép, số phút thiếu chưa có phép
+làm tròn riêng để đối soát. Các trường có phép/chưa có phép không dùng để cộng lại
+thay công chuẩn. Lý do/ghi chú riêng tư chỉ ở API đơn, không xuất CSV.
+
+Ví dụ ca 13–15h, đơn xin tới 13:08 được duyệt, thực tế tới 13:16:
+16 phút trễ → trừ 30 phút → 90 phút công; có phép 8 phút, còn 8 phút chưa có phép
+→ đối soát 15 phút chưa có phép. Phê duyệt trong cùng Attendance DB hiển thị ở lần
+đọc bảng công tiếp theo; snapshot Leave/Calendar vẫn theo quy tắc refresh coverage.
+
+Khởi tạo database bằng [001_attendance_schema.sql](../back-end/modules/attendance-service/docs/sql/001_attendance_schema.sql)
+trước khi chạy backend. File này đã gồm schema đơn đi trễ/về sớm. Nếu bật thông báo Kafka,
+áp thêm `004_notification_outbox.sql` theo [Notification](../back-end/modules/notification-service/README.md).
+UI giữ key khi retry gửi đơn mất phản hồi; 412 yêu cầu tải lại dữ liệu và sửa lại.
+
+Attendance hiện ghi một cặp vào/ra mỗi ngày. Xin theo buổi không tự tạo sự kiện
+rời/quay lại trong ngày; chỉ thời gian thiếu đo được từ punch mới được đối soát.

@@ -1,1178 +1,1297 @@
-# Company HRM — Kiến trúc hiện tại và định hướng phát triển
+# Company HRM — Thiết kế tổng thể
 
-**Chạy toàn bộ hệ thống bằng Docker:** xem [DOCKER.md](DOCKER.md).
-Tại thư mục gốc, chạy `docker compose up -d --build --wait --wait-timeout 600`,
-rồi mở `http://localhost:5173`. Bộ local gồm frontend, Gateway, Auth, Employee,
-Calendar, Leave, Attendance, PostgreSQL và Kafka, có sẵn dữ liệu demo.
+**Mục lục**
 
-Tài liệu mô tả hiện trạng repository, các quyết định thiết kế và roadmap nghiệp vụ. **Có trong roadmap không đồng nghĩa đã triển khai.** Hệ thống hiện có Auth, Employee, Calendar, Leave, Attendance, API Gateway và frontend quản trị/lịch/phép/chấm công. Attendance đã có ca cố định, phân công, check-in/out và CSV tạm tính; điều chỉnh công, chốt kỳ, lịch linh hoạt và Device vẫn thuộc roadmap.
+- [Danh mục project](#danh-mục-project)
+- [Kiến trúc và quyền sở hữu dữ liệu](#kiến-trúc-và-quyền-sở-hữu-dữ-liệu)
+- [Phụ thuộc khi chạy độc lập](#phụ-thuộc-khi-chạy-độc-lập)
+- [Các luồng nghiệp vụ chính](#các-luồng-nghiệp-vụ-chính)
+- [Xác thực, quyền và tính nhất quán](#xác-thực-quyền-và-tính-nhất-quán)
+- [Hiện trạng và lộ trình](#hiện-trạng-và-lộ-trình)
+- [Quy ước phát triển và triển khai](#quy-ước-phát-triển-và-triển-khai)
+- [Chạy local bằng Maven và Git Bash](#chạy-local-bằng-maven-và-git-bash)
+- [Chạy HRM bằng Docker](#chạy-hrm-bằng-docker)
+- [Hướng dẫn giao tiếp giữa các service HRM](#hướng-dẫn-giao-tiếp-giữa-các-service-hrm)
+- [Kafka local cho HRM](#kafka-local-cho-hrm)
 
-## Hàm hỗ trợ tính công
+Hệ thống quản lý nhân sự theo kiến trúc microservices, lưu mã nguồn trong một
+repository. **Mỗi backend và frontend là một project cấu hình, build, chạy và
+dừng độc lập.** Không có Maven parent/aggregator dùng chung ở thư mục gốc.
+Chạy một project không bắt buộc khởi động toàn bộ hệ thống; các chức năng tích
+hợp vẫn cần đúng dịch vụ nguồn, database hoặc Kafka tương ứng.
 
-[WorkTimeSupport](back-end/modules/attendance-service/docs/WORKTIME-CALCULATION.md)
-là helper nội bộ của Attendance, nhận lịch ca, giờ chấm công, ngày nghỉ hưởng
-lương, phép và OT; trả kết quả một ngày hoặc tổng hợp kỳ. Code và kiểm thử được
-build cùng `attendance-service`, không cần cài thư viện Maven riêng. API/UI hiện
-hữu vẫn dùng `AttendanceCalculator`; các trường công hưởng lương của helper
-chưa được nối vào báo cáo hiện hành.
+Mỗi project có duy nhất một README chứa cấu hình, schema, API, nghiệp vụ và kiểm
+thử của project đó. README này giữ thiết kế liên service, quy ước chạy độc lập,
+hạ tầng dùng chung và lộ trình. SQL, OpenAPI và file cấu hình vẫn ở project sở hữu.
 
-## 1. Bối cảnh dự án
+## Danh mục project
 
-Đây là dự án xây dựng một hệ thống **Human Resource Management (HRM)** cho doanh nghiệp.
+| Project / README | Vai trò | Cổng mặc định | Database |
+| --- | --- | --- | --- |
+| [Frontend](frontend/README.md) | Vue 3, JavaScript, Vite; giao diện tiếng Việt | 5173 | Không |
+| [Gateway](back-end/modules/gateway/README.md) | Spring Cloud Gateway, JWT, CORS và định tuyến | 8080 | Không |
+| [Auth](back-end/modules/auth-service-main/README.md) | Tài khoản, role, JWT, phiên, kích hoạt và email | 8081 | auth_db |
+| [Employee](back-end/modules/employee-service/README.md) | Hồ sơ, phòng ban, chức danh, cấp tài khoản | 8082 | employee_db |
+| [Calendar](back-end/modules/calendar-service/README.md) | Ngày nghỉ chung và sự kiện công ty | 8083 | calendar_db |
+| [Leave](back-end/modules/leave-service/README.md) | Đơn nghỉ, số dư phép năm, xét duyệt | 8084 | leave_db |
+| [Attendance](back-end/modules/attendance-service/README.md) | Ca, phân công, chấm công, đơn từ, OT, báo cáo | 8085 | attendance_db |
+| [Notification](back-end/modules/notification-service/README.md) | Thông báo đơn từ, đã đọc và SSE | 8086 | notification_db |
 
-Mục tiêu ban đầu là xây dựng hệ thống quản lý **Attendance / Check-in / Check-out**, sau đó mở rộng thành một nền tảng quản lý nhân sự và employee experience.
+Backend dùng Java 21 và Maven. Auth, Employee, Calendar, Attendance dùng JPA;
+Leave và Notification dùng JDBC. Gateway dùng WebFlux; service nghiệp vụ dùng
+Spring MVC. Phiên bản dependency được quản lý trong POM riêng của mỗi project.
+Frontend dùng Node.js 24 theo package.json. Notification dùng Maven đã cài;
+các backend còn lại có Maven Wrapper.
 
-**Mục tiêu release tiếp theo: v0.1 — Attendance MVP**, cho phép nhân viên chấm công hằng ngày và HR kiểm tra, điều chỉnh công khi có sai sót. Hiện đã có nền tảng quản lý nhân viên, cấp tài khoản, ngày nghỉ chung và sự kiện công ty; đã có backend/UI ca cố định, phân công, chấm công và CSV tạm tính, nhưng chưa có điều chỉnh giờ thủ công hoặc chốt kỳ. Phạm vi và tiêu chí hoàn thành từng release được quy định tại mục 22.
+Đọc nhanh: [chạy độc lập](#local), [hợp đồng sự kiện](#events),
+[Kafka local](#kafka), [Docker local](#docker),
+[triển khai HTTPS](back-end/modules/gateway/README.md#deployment).
 
-Phạm vi mặc định của MVP: một công ty, timezone `Asia/Ho_Chi_Minh`, một ca trong ngày cho mỗi nhân viên, web responsive và xác thực chấm công qua mạng công ty. Timezone là cấu hình nghiệp vụ; chưa triển khai multi-tenant, ca qua đêm hoặc nhiều ca/ngày trong v0.1.
-
-Các nghiệp vụ dự kiến:
-
-- Employee Management
-- Employee Profile
-- Organization / Department / Team
-- Position / Job Title
-- Attendance
-- Check-in / Check-out
-- Work Shift
-- Overtime
-- Leave Management
-- Leave Request / Approval
-- Company Holiday / Company Calendar
-- Attendance Report
-- Leave Balance
-- Device Management
-- Notification
-- Sau này có thể mở rộng Payroll, Recruitment, Performance Management và các nghiệp vụ HR khác.
-
----
-
-## 2. Kiến trúc hiện tại
-
-### Thành phần và cấu trúc repository
-
-Hệ thống hiện sử dụng **kiến trúc microservices**, gồm Auth, Employee, Calendar, Leave và Attendance, mỗi service là một ứng dụng Spring Boot có thể build/chạy độc lập và sở hữu database riêng. API Gateway là ứng dụng Spring Boot thứ sáu, xác minh access JWT và định tuyến request từ frontend Vue tới các service. Auth và Employee trao đổi sự kiện cấp tài khoản qua Kafka; Calendar và Leave hiện dùng REST đồng bộ, chưa tích hợp Kafka.
-
-Mã nguồn được tổ chức trong **monorepo**. Monorepo mô tả cách lưu trữ mã nguồn, còn microservices mô tả kiến trúc ứng dụng; hai khái niệm này không mâu thuẫn. Mỗi ứng dụng backend có Maven project và cấu hình riêng; database và transaction thuộc từng service nghiệp vụ, Gateway không có database. Kiến trúc hiện tại đã thay thế định hướng Modular Monolith ban đầu.
-
-```text
-company-hrm/
-├── run-all.sh                        # Chạy đồng thời 6 backend và frontend local
-├── frontend/                         # Vue 3, Vue Router, Vite
-└── back-end/modules/
-    ├── auth-service-main/            # Tài khoản, JWT, kích hoạt
-    ├── employee-service/             # Nhân viên, cơ cấu tổ chức, provisioning
-    ├── calendar-service/             # Ngày nghỉ chung và sự kiện công ty
-    ├── leave-service/                # Đơn nghỉ cá nhân và hàng chờ duyệt HR
-    ├── attendance-service/           # Java 21/JPA: ca cố định, phân công, chấm công, CSV
-    ├── gateway/                      # Spring Cloud Gateway
-    └── infra/
-        ├── kafka/                    # Kafka và khởi tạo topics local
-        └── gateway/                  # Compose backend, database, Kafka và HTTPS
-```
-
-| Thành phần | Trách nhiệm hiện tại | Cấu hình local mặc định |
-| --- | --- | --- |
-| Frontend | Đăng nhập, workspace, hồ sơ nhân viên, danh mục, cấp tài khoản, xem và quản lý lịch | Vite `:5173` |
-| API Gateway | Xác minh access JWT, CORS, định tuyến API và trang kích hoạt | HTTP `127.0.0.1:8080`, không có database |
-| Auth Service | Tài khoản, vai trò, JWT, refresh session, kích hoạt và email lời mời | HTTP `:8081`, PostgreSQL `auth_db` |
-| Employee Service | Nhân viên, phòng ban, chức danh, yêu cầu cấp tài khoản và trạng thái đồng bộ | HTTP `:8082`, PostgreSQL `employee_db` |
-| Calendar Service | Ngày nghỉ chung, sự kiện công ty, công bố/hủy, audit thay đổi | HTTP `:8083`, PostgreSQL `calendar_db` |
-| Leave Service | Đơn nghỉ cá nhân, HR duyệt/từ chối, rút đơn và lịch sử | HTTP `:8084`, PostgreSQL `leave_db` |
-| Attendance Service | Java 21/JPA: ca cố định, phân công, check-in/out, kết hợp phép/ngày nghỉ, CSV tạm tính | HTTP `:8085`, PostgreSQL `attendance_db` |
-| Kafka | Truyền yêu cầu/kết quả cấp tài khoản và trạng thái sau kích hoạt | Host `localhost:9092` |
-| Resend | Gửi email kích hoạt qua worker của Auth khi được bật | Dịch vụ ngoài, cấu hình tại Auth |
-
-Năm database có thể chạy trên cùng PostgreSQL local nhưng được quản lý bằng tài khoản và schema dữ liệu riêng. Thư mục `modules` không có nghĩa các service dùng chung Spring context hoặc transaction. Trong Compose triển khai, Calendar được đặt tên service là `workforce` và dùng database mới `workforce_db`; chưa có module Workforce riêng và không đổi tên database `calendar_db` local.
+## Kiến trúc và quyền sở hữu dữ liệu
 
 ```mermaid
 flowchart LR
-    UI["Vue SPA :5173"] --> P["Vite proxy khi phát triển"]
-    P -->|"/api"| G["API Gateway :8080"]
-    G -->|"/api/v1/auth/*"| A["Auth :8081"]
-    G -->|"/api/v1/employees, departments, positions"| E["Employee :8082"]
-    G -->|"/api/v1/calendar, calendar-events"| C["Calendar :8083"]
+    UI["Frontend :5173"] -->|"/api qua proxy"| G["Gateway :8080"]
+    G --> A["Auth :8081"]
+    G --> E["Employee :8082"]
+    G --> C["Calendar :8083"]
+    G --> L["Leave :8084"]
+    G --> T["Attendance :8085"]
+    G --> N["Notification :8086"]
     A --> AD[(auth_db)]
     E --> ED[(employee_db)]
     C --> CD[(calendar_db)]
-    G -->|"/api/v1/leave/*"| L["Leave :8084"]
     L --> LD[(leave_db)]
-    G -->|"/api/v1/attendance/*"| T["Attendance :8085"]
     T --> TD[(attendance_db)]
-    E -->|EmployeeAccountRequested| K[Kafka]
-    K -->|Yêu cầu cấp tài khoản| A
-    A -->|AccountCreated / AccountCreationFailed / AccountStatusChanged| K
-    K -->|Kết quả và trạng thái| E
-    A -->|Worker gửi email sau commit| R[Resend]
+    N --> ND[(notification_db)]
+    T -->|REST| E
+    T -->|REST| L
+    T -->|REST| C
+    E -->|Account request outbox| K[Kafka]
+    K -->|Account request| A
+    A -->|Account result / status outbox| K
+    K -->|Account result / status| E
+    L -->|Notification outbox| K
+    T -->|Notification outbox| K
+    K -->|Notification events| N
+    A -->|Mail worker sau commit| R[Resend]
 ```
 
-Gateway, Employee, Calendar, Leave và Attendance tự xác minh access JWT bằng public key của Auth; không gọi HTTP về Auth cho mỗi request. Các service tiếp tục kiểm tra quyền nghiệp vụ. Sơ đồ thể hiện luồng API local; repository đã có Compose triển khai backend qua Gateway HTTPS và mạng nội bộ tại `infra/gateway`. Frontend production cần được build/host riêng. Chưa có service discovery; khả năng vận hành production cần được đánh giá theo cấu hình triển khai thực tế.
+- Mỗi service sở hữu database, transaction và schema riêng. Có thể dùng cùng
+  PostgreSQL local nhưng không query, tạo FK hoặc dùng JPA relationship xuyên database.
+- Auth giữ tài khoản, mật khẩu, role và liên kết UUID employeeId bắt buộc/duy nhất.
+  Employee giữ hồ sơ và trạng thái lao động; một nhân viên có thể chưa có account.
+  accountStatus tại Employee là bản sao để hiển thị, không phải nguồn phân quyền.
+- Calendar giữ ngày nghỉ chung; Leave giữ đơn nghỉ cá nhân và số dư; Attendance
+  giữ lịch/ca, sự kiện gốc, giờ điều chỉnh và kết quả tính công. Holiday không phải
+  loại đơn nghỉ, không tạo đơn nghỉ tự động cho từng nhân viên.
+- Notification giữ thông báo và trạng thái đã đọc. Email kích hoạt vẫn do Auth
+  gửi; Notification chưa thay thế worker email của Auth.
+- Trong Compose HTTPS, tên workforce và workforce_db ánh xạ tới Calendar.
+  Chưa có Workforce project riêng; calendar_db local không bị đổi tên.
 
-### Mức độ triển khai
+## Phụ thuộc khi chạy độc lập
 
-| Phần hệ thống | Hiện trạng |
-| --- | --- |
-| Auth | Có login, refresh rotation, logout/logout-all, `/me`, cấp tài khoản và kích hoạt |
-| Employee / Organization | Có tạo, đọc, sửa nhân viên; đổi trạng thái; danh mục phòng ban và chức danh |
-| Cấp tài khoản qua Kafka | Có request, outbox, consumer chống trùng, kết quả và UI polling |
-| Email kích hoạt | Có token, mail outbox, worker Resend, trang đặt mật khẩu và đồng bộ trạng thái |
-| Calendar / Holiday | Có PostgreSQL, API đọc lịch theo năm, CRUD/công bố/hủy cho HR/ADMIN và giao diện xem/quản lý; ghi audit, kiểm tra version khi thay đổi |
-| API Gateway | Có định tuyến Auth/Employee/Calendar/Leave/Attendance, kiểm tra JWT, CORS và cấu hình HTTPS triển khai |
-| Leave | Có đơn cả/nửa ngày, số dư phép năm, duyệt/từ chối/rút đơn và lịch sử; cung cấp coverage qua REST cho Attendance, chưa tự đồng bộ thay đổi |
-| Attendance / Shift | Có API/UI ca cố định, phân công, check-in/out, công cá nhân, báo cáo và CSV tạm tính; chưa có chốt kỳ/điều chỉnh thủ công |
-| Hồ sơ mở rộng / Payroll / Recruitment / Performance | Chưa triển khai; thuộc roadmap |
+Các URL liên service là biến môi trường, có thể trỏ tới tiến trình local hoặc
+môi trường khác. Mỗi project nạp cấu hình riêng. Dừng hoặc build lại một project
+chạy thủ công không dừng các project còn lại.
 
-Có implementation không có nghĩa môi trường đã bật đủ tính năng hoặc đã nghiệm thu production. Các cờ cấu hình, schema, khóa JWT và hạ tầng phải được chuẩn bị theo hướng dẫn từng service.
+| Project | Cần để khởi động tối thiểu | Cần thêm khi dùng chức năng tích hợp |
+| --- | --- | --- |
+| Auth | Database/schema, hai cặp RSA; tắt sự kiện và activation nếu chưa cấu hình | Kafka cho provisioning; Resend/cấu hình mail khi bật activation |
+| Employee | Database/schema, access public key; HRM_EVENTS_ENABLED=false nếu không có Kafka | Kafka và Auth consumer để hoàn tất cấp tài khoản |
+| Calendar | Database/schema, access public key | Auth để lấy token khi sử dụng API; CRUD không cần Kafka |
+| Leave | Database/schema, access public key; thông báo tắt | Kafka và Notification để nhận thông báo mới |
+| Attendance | Database/schema, access public key; thông báo tắt | Employee, Leave, Calendar qua REST cho nghiệp vụ; Kafka/Notification khi bật thông báo |
+| Notification | Database/schema, access public key; consumer tắt | Kafka/topic và producer Leave/Attendance để có thông báo mới |
+| Gateway | Access public key và các URL đích | Backend tương ứng phải sẵn sàng khi gọi route đó |
+| Frontend | Node/npm, dependency riêng | Gateway + Auth để đăng nhập; service tương ứng cho từng màn hình |
 
-### Luồng cấp và kích hoạt tài khoản
+Access public key được cấp từ Auth nhưng có thể lưu tại đường dẫn tuyệt đối của
+từng project; không cần giữ cấu trúc thư mục service bên cạnh nhau để xác minh JWT.
+Sau khi có key và token hợp lệ, resource server xác minh cục bộ, không gọi Auth
+trên mỗi request. Health của một tiến trình không chứng minh cả luồng liên service
+đã sẵn sàng. API Attendance không coi lỗi nguồn là không có phép/ngày nghỉ.
 
-1. HR/Admin tạo hồ sơ tại Employee. Hồ sơ tồn tại độc lập với tài khoản đăng nhập.
-2. Frontend gửi `POST /api/v1/employees/{employeeId}/account-requests` với `Idempotency-Key`. Employee lưu yêu cầu và event outbox trong cùng transaction, trả `202 Accepted` cùng địa chỉ theo dõi.
-3. Worker gửi `EmployeeAccountRequested` lên `hrm.employee.account-requests.v1`. Auth nhận yêu cầu, chống trùng và tạo tài khoản chờ kích hoạt; luồng này cấp role `EMPLOYEE`.
-4. Auth lưu kết quả và outbox trong transaction của Auth, rồi phát `AccountCreated` hoặc `AccountCreationFailed` lên `hrm.auth.account-results.v1`. Employee cập nhật yêu cầu; frontend polling để lấy kết quả.
-5. Nếu bật activation, Auth tạo token và mail outbox cùng transaction tạo tài khoản. Worker gửi email qua Resend sau commit. Cấp tài khoản thành công chưa đồng nghĩa đã gửi email hoặc đã kích hoạt.
-6. Nhân viên mở trang `/activate` do Auth phục vụ và đặt mật khẩu. Auth kích hoạt tài khoản, ghi outbox `AccountStatusChanged` lên `hrm.auth.account-lifecycle.v1`; Employee cập nhật `accountStatus` theo version sự kiện.
+## Các luồng nghiệp vụ chính
 
-Luồng liên service nhất quán sau khi xử lý sự kiện (eventual consistency), không dùng transaction chung cho hai database. Producer có thể gửi lại sau lỗi; consumer phải chống trùng và không cho sự kiện cũ ghi đè trạng thái mới. Hiện consumer retry lỗi chưa có dead-letter topic (DLT).
+### Cấp và kích hoạt tài khoản
 
-### Ranh giới và hướng mở rộng
+1. HR/ADMIN tạo hồ sơ tại Employee. Tạo hồ sơ và cấp tài khoản là hai thao tác riêng.
+2. Employee nhận yêu cầu có Idempotency-Key, lưu PENDING và outbox cùng transaction,
+   trả 202 sau commit. Frontend đọc tiến độ tại Employee.
+3. Auth nhận EmployeeAccountRequested, chống trùng, tạo account chờ kích hoạt với
+   role EMPLOYEE và ghi kết quả/outbox. Không gửi mật khẩu hoặc token qua Kafka.
+4. Employee nhận AccountCreated hoặc AccountCreationFailed, cập nhật đúng request.
+   SUCCEEDED chỉ có nghĩa đã tạo account, chưa có nghĩa đã gửi mail hoặc đăng nhập được.
+5. Khi bật activation, Auth gửi mail từ outbox qua Resend. Nhân viên đặt mật khẩu
+   bằng token một lần; Auth phát AccountStatusChanged, Employee áp dụng version mới.
 
-- Auth sở hữu tài khoản, mật khẩu, vai trò, phiên và kích hoạt. Employee sở hữu hồ sơ nhân sự; `accountStatus` tại Employee là bản sao phục vụ hiển thị.
-- Auth và Employee liên kết bằng UUID `employeeId`; không dùng JPA relationship, foreign key hoặc query xuyên database. Các quan hệ Employee–Department–Position hiện nằm trong cùng Employee Service.
-- Không tự đồng bộ email hồ sơ sang email đăng nhập, hoặc coi đổi trạng thái nhân viên là đã khóa tài khoản. Các luồng này chưa được triển khai đầy đủ.
-- Khi thêm Attendance/Shift hoặc mở rộng Leave, xác định service sở hữu dữ liệu và contract trước; không mặc định mỗi domain phải là một service mới. Các module cần ghi atomic phải cùng một transaction database hoặc có thiết kế nhất quán liên service rõ ràng.
-- Calendar sở hữu ngày nghỉ chung và sự kiện công ty trong PostgreSQL; frontend đọc/ghi qua API có xác thực. Calendar chưa tổng hợp ca làm việc, nghỉ phép hoặc overtime; các tích hợp này thuộc roadmap.
+Email hồ sơ không tự đồng bộ sang email đăng nhập. Nghỉ việc chưa tự khóa account.
+Luồng khóa/mở account, đối soát dữ liệu cũ và DLT vẫn cần hoàn thiện. Contract và
+quy tắc retry nằm ở [giao tiếp sự kiện](#events);
+cách thử API nằm trong [Employee](back-end/modules/employee-service/README.md#provisioning).
 
-Tài liệu triển khai chi tiết:
+### Lịch, phép và chấm công
 
-- [Frontend](frontend/README.md)
-- [Auth](back-end/modules/auth-service-main/docs/hrm-auth.md) và [JWT](back-end/modules/auth-service-main/docs/asymmetric-jwt.md)
-- [Employee](back-end/modules/employee-service/README.md)
-- [Leave và khởi tạo database](back-end/modules/leave-service/README.md)
-- [Attendance: API, UI và database](back-end/modules/attendance-service/README.md) và [thiết kế nghiệp vụ](back-end/modules/ATTENDANCE-DESIGN.md)
-- [Calendar](back-end/modules/calendar-service/README.md) và [khởi tạo schema/seed Calendar](back-end/modules/calendar-service/docs/sql/README.md)
-- [API Gateway](back-end/modules/gateway/README.md) và [triển khai backend qua HTTPS](back-end/modules/infra/gateway/README.md)
-- [Kafka local](back-end/modules/infra/kafka/README.md) và [luồng cấp tài khoản](back-end/modules/infra/kafka/ACCOUNT-PROVISIONING.md)
-- [Email và kích hoạt tài khoản](back-end/modules/auth-service-main/docs/ACCOUNT-ACTIVATION.md)
+Attendance hiện hỗ trợ FIXED_SHIFT, ca ngắn/qua đêm, lịch mặc định công ty và
+lịch riêng có ngày hiệu lực. Mỗi nhân viên có một ca và một cặp vào/ra thường
+trong ngày công; ngày công của ca qua đêm là ngày bắt đầu ca. Mặc định ban đầu
+08:00–12:00, 13:30–17:30, thứ Hai–thứ Sáu được tạo nếu chưa có lịch công ty.
 
-### Chạy toàn bộ ứng dụng local
+Check-in/out dùng giờ server, nhân viên từ JWT, allowlist IP/CIDR và proxy tin cậy.
+IP chỉ chứng minh đường mạng, không chứng minh Wi-Fi hoặc vị trí thực tế; browser
+không cung cấp SSID đáng tin cậy cho backend. VPN/proxy phải được đối chiếu với
+cấu hình mạng khi triển khai. Không nhận thời gian hoặc IP tự khai của client.
 
-Sau khi đã chuẩn bị PostgreSQL/schema (và Kafka nếu bật event), chạy từ thư mục
-gốc repository:
+Ngày công giữ phiên bản ca bất biến và snapshot nguồn. Phép APPROVED/ngày nghỉ
+Calendar có hiệu lực làm giảm phần phải làm. Trễ/sớm làm tròn riêng lên 15 phút;
+giữ nguyên timestamp, tách giờ thực tế, công quy đổi, phép và OT. Thiếu cặp giờ
+trả kết quả chưa xác định, không mặc định bằng 0. Vào sớm/ở lại muộn không tự bù công.
+
+Đơn trễ/sớm đã duyệt xác nhận khoảng vắng có phép, vẫn trừ công và không trừ quỹ
+phép. Điều chỉnh công qua xét duyệt giữ dữ liệu chấm gốc. OT duyệt trước và chấm
+giờ riêng; số phút thực tế giao với khoảng được duyệt, không cộng vào công thường.
+Thay đổi Leave/Calendar chưa tự cập nhật snapshot: HR dùng refresh coverage.
+Bảng công/CSV là DRAFT, chưa có khóa kỳ hoặc tính lương.
+
+Leave dùng ANNUAL/UNPAID, bước nửa ngày; phép năm mặc định 12 ngày/năm, chỉ trừ
+khi duyệt. Hiện còn tính theo ngày lịch, chưa loại cuối tuần/ngày lễ. Không tự
+suy ra quy tắc lương hoặc phép part-time từ công thức tính phút.
+
+Thiết kế chi tiết, ví dụ tính công và phần mở rộng nằm trong
+[Attendance](back-end/modules/attendance-service/README.md#design). WorkTimeSupport là helper
+nội bộ cùng project, [chưa nối các trường công hưởng lương vào API/UI](back-end/modules/attendance-service/README.md#worktime).
+
+## Xác thực, quyền và tính nhất quán
+
+- Access và refresh token dùng hai cặp RSA RS256 riêng. Chỉ Auth giữ private key;
+  service khác nhận access public key, cùng issuer/audience. sub là account ID,
+  employee_id là UUID hồ sơ. Chưa có JWKS/multiple kid.
+- Có EMPLOYEE, MANAGER, HR, ADMIN; account có nhiều role, không có role hierarchy.
+  HR/ADMIN quản trị nghiệp vụ hiện có; MANAGER chưa có quyền duyệt theo team.
+  Mỗi API kiểm tra quyền/phạm vi ở backend; không dựa vào việc UI ẩn nút.
+- Auth đọc account/role hiện tại từ DB; các resource server dùng claim JWT.
+  Logout thu hồi refresh session, không thu hồi tức thì access JWT ở service khác.
+  TTL mặc định tại Auth: access 1 ngày, refresh 7 ngày, có thể ghi đè khi triển khai.
+- Frontend giữ access token trong bộ nhớ; refresh token trong localStorage dùng
+  chung giữa tab, đồng bộ bằng Web Locks. Chưa có HttpOnly cookie.
+- Transaction theo nghiệp vụ, gồm dữ liệu + audit + idempotency/outbox nếu áp dụng.
+  Constraint/lock/version bảo vệ thao tác đồng thời. Không có transaction chung
+  giữa database, REST, Kafka và Resend; gọi ngoài diễn ra sau commit qua worker.
+- Retry cùng thao tác giữ Idempotency-Key khi API hỗ trợ. If-Match dùng version
+  hiện tại; 412 yêu cầu tải lại. Kiểm tra contract từng API vì chưa thống nhất
+  response envelope hoặc hỗ trợ idempotency cho mọi POST.
+- Sự kiện có thể giao trùng/sai thứ tự; consumer chống trùng và áp version tại
+  nguồn. PENDING lâu cần kiểm tra outbox/consumer, không tự kết luận thất bại.
+
+## Hiện trạng và lộ trình
+
+| Hạng mục | Đã có | Còn lại |
+| --- | --- | --- |
+| Tài khoản | Login/refresh/logout, provisioning, kích hoạt/email, trạng thái sau kích hoạt | Khóa/mở account, đối soát cũ, DLT, thu hồi quyền tức thì |
+| Hồ sơ | Nhân viên/phòng ban/chức danh, tự cấp mã EMP bằng sequence, quản lý trực tiếp | Hợp đồng, lịch sử điều chuyển, hồ sơ mở rộng, quyền dữ liệu nhạy cảm |
+| Calendar | CRUD, publish/cancel, audit/version, lịch chung audience ALL | Audience theo tổ chức, lặp/nhắc lịch, tổng hợp ca/phép/OT |
+| Leave | Cả/nửa ngày, số dư năm, duyệt/từ chối/rút, REST coverage | Tính phép theo lịch/ngày lễ, ledger, hoàn phép/hủy sau duyệt, quản lý theo team |
+| Attendance | Ca cố định/qua đêm, lịch, check-in/out, trễ/sớm, correction, OT, CSV | FLEXIBLE_DURATION, nhiều ca/phiên, chốt kỳ/revision, đồng bộ nguồn |
+| Notification | Producer outbox, consumer, danh sách/đã đọc/SSE | Frontend, hai bộ Compose, email/push và sự kiện correction/OT |
+| Device / Payroll / Recruitment / Performance | Chưa triển khai | Phân tích và nghiệm thu từng phạm vi riêng |
+
+Ưu tiên là hoàn thiện và nghiệm thu luồng Attendance hằng ngày, rồi đối soát/chốt
+công và tích hợp phép theo lịch. Các mốc v0.1–v1.x là lộ trình, không dùng để suy
+ra tính năng đã phát hành: ca qua đêm, correction, OT và Notification backend
+đã có dù từng nằm trong phase sau.
+
+1. Attendance MVP: kiểm chứng mạng, quyền, snapshot, concurrency, correction,
+   CSV cùng kết quả với API; migration và backup/restore cho pilot.
+2. Attendance mở rộng: nhiều ca/phiên, break events, FLEXIBLE_DURATION, khóa/mở
+   kỳ có audit/revision. Flex chỉ mở sau khi đủ tính công, UI và chính sách phép;
+   hiện backend vẫn từ chối mode này, chưa có chức năng ADMIN mở khóa.
+3. Leave/Calendar: tính theo lịch cá nhân/ngày lễ, ledger, phạm vi người duyệt,
+   đồng bộ có version và calendar tổng hợp bảo vệ lý do nghỉ riêng tư.
+4. Device: adapter cho vendor thực tế, xác thực nguồn, mapping nhân viên,
+   chống trùng provider/device/event ID, đối soát offline/sai thứ tự/đồng hồ lệch.
+   Giữ event chưa ánh xạ để xử lý; không mặc định lưu mẫu sinh trắc học.
+5. HR/employee experience: hồ sơ theo nhóm dữ liệu, hợp đồng, lịch sử tổ chức có
+   hiệu lực, dashboard và thông báo. Chuyển phòng ban không làm mất lịch sử.
+6. Payroll/Recruitment/Performance: phạm vi và tiêu chí riêng. Payroll cần công/phép
+   đã đối soát và khóa kỳ, cùng cơ chế điều chỉnh hồi tố.
+
+## Quy ước phát triển và triển khai
+
+Phân tích thay đổi từ actor, điều kiện, luồng chính/lỗi, quyền, dữ liệu và audit.
+Giữ business logic trong service, controller/listener mỏng, dependency injection,
+validation đúng tầng và transaction rõ ràng. Không tạo abstraction hoặc service
+mới khi chưa có nhu cầu cụ thể; không dùng entity/repository chung xuyên project.
+
+Kiểm thử tại project thay đổi. Mock/H2 hữu ích cho logic nhưng không thay kiểm
+chứng khóa, constraint, transaction PostgreSQL hoặc offset/retry Kafka thật.
+Giữ test hiện có; ưu tiên test service cho mở rộng provisioning. Khi trình bày
+implementation, giải thích nghiệp vụ, dữ liệu, luồng, quyền, transaction và edge
+case cần thiết; bám phạm vi yêu cầu và phân biệt hiện trạng với đề xuất.
+
+SQL nằm trong docs/sql của từng backend. Chưa có Flyway/Liquibase; init schema
+không phải migration nâng cấp database cũ. Chỉ database/volume mới được init tự
+động trong Compose. Dữ liệu đang dùng cần migration và đối soát riêng.
+
+Docker local và launcher chạy nhóm là lựa chọn tiện dụng, không phải điều kiện
+build/chạy từng project. Hai bộ Compose hiện gồm Gateway và 5 service nghiệp vụ,
+chưa có Notification. Frontend production build/host riêng khi dùng bộ HTTPS.
+Chi tiết TLS, secrets và network nằm trong README Gateway.
+
+Nếu triển khai AWS, có thể build image → ECR → ECS/Fargate; VPC/subnet/security
+group phải cấu hình khi triển khai. Chưa có hạ tầng AWS hoàn chỉnh trong repo.
+Pilot cần HTTPS, DB private, secret ngoài source, trusted proxy, health/log/audit,
+backup và thử khôi phục. Scale, cache, broker hoặc service mới dựa trên số liệu
+tải và độ tin cậy; không mặc định thêm Redis/SQS/EventBridge.
+
+<a id="local"></a>
+
+## Chạy local bằng Maven và Git Bash
+
+Repository có **7 ứng dụng backend** và frontend Vite. Mỗi backend chạy riêng
+bằng `mvn spring-boot:run`, hoặc chạy cả nhóm bằng `run-all.sh` sau khi chuẩn bị
+cấu hình và hạ tầng.
+
+<a id="local-chuẩn-bị"></a>
+
+### Chuẩn bị
+
+- Java 21, Maven, Node.js 24 LTS và npm trên `PATH`.
+- PostgreSQL đang chạy, có database/user và schema cho từng service bên dưới.
+- Hai cặp khóa RSA access/refresh: Auth giữ private key; các service xác minh JWT
+  dùng cùng access public key, issuer và audience. Xem [JWT](back-end/modules/auth-service-main/README.md#jwt).
+- Kafka khi bật cấp tài khoản hoặc thông báo. Xem [Kafka local](#kafka).
+- Chạy `npm ci` trong `frontend` trước lần chạy đầu.
+
+| Service / thư mục trong `back-end/modules` | Cổng | Database local |
+| --- | --- | --- |
+| `gateway` | 8080 | Không có |
+| `auth-service-main` | 8081 | `auth_db` |
+| `employee-service` | 8082 | `employee_db` |
+| `calendar-service` | 8083 | `calendar_db` |
+| `leave-service` | 8084 | `leave_db` |
+| `attendance-service` | 8085 | `attendance_db` |
+| `notification-service` | 8086 | `notification_db` |
+
+Owner thông thường là `<service>_user`. Schema nằm trong `docs/sql` của từng
+module. Dùng schema khởi tạo cho database mới; database đã có dữ liệu cần đối
+chiếu migration của module, không chạy lại hoặc xóa database để sửa lỗi khởi động.
+Leave và Attendance cần thêm `004_notification_outbox.sql` nếu bật thông báo.
+Employee có migration `003_employee_code_sequence.sql` cho database cũ chưa có sequence mã nhân viên.
+
+<a id="local-cấu-hình-env"></a>
+
+### Cấu hình `.env`
+
+Mỗi module có `.env.example`; sao chép thành `.env` rồi điền database, đường dẫn
+khóa và địa chỉ dịch vụ phù hợp. File `.env` thật được Git bỏ qua. Không dùng
+`.env` ở thư mục gốc cho Maven: file gốc dành cho [Docker Compose](#docker).
+
+Các mẫu backend hiện trỏ tới PostgreSQL `127.0.0.1:55432`, Kafka `127.0.0.1:9092`
+và khóa trong `.cache/local/keys`. Đây là cấu hình cluster local đã được chuẩn bị
+trước đó; cấu hình datasource mặc định trong mã nguồn thường dùng cổng `5432`.
+Nếu tự cài PostgreSQL, sửa `SPRING_DATASOURCE_URL`, username/password tương ứng.
+
+Chuẩn bị `.env` thủ công từ mẫu của từng project; giữ nguyên file đã cấu hình.
+Nếu đã có khóa trong `.cache/local/keys`, tiếp tục sử dụng. Máy mới tạo hai cặp
+khóa theo [hướng dẫn JWT](back-end/modules/auth-service-main/README.md#jwt-tạo-khóa-cho-local)
+và cập nhật đường dẫn trong từng `.env`. Khi đổi mật khẩu database hoặc vị trí
+khóa, cập nhật các biến tương ứng trước khi chạy lại.
+
+| Tính năng | Service | Mặc định ứng dụng |
+| --- | --- | --- |
+| `HRM_EVENTS_ENABLED` | Auth / Employee | Auth `false`, Employee `true` |
+| `HRM_NOTIFICATIONS_ENABLED` | Leave / Attendance / Notification | `false` |
+| `AUTH_ACTIVATION_ENABLED` | Auth | `false` |
+
+Giá trị đã đặt trong `.env` ghi đè mặc định ứng dụng; kiểm tra các cờ này trước
+khi chạy, nhất là khi môi trường chưa có Kafka hoặc cấu hình mail.
+
+Nếu chạy không có Kafka, đặt hai cờ sự kiện/thông báo thành `false` tại các module
+liên quan; luồng cấp tài khoản và thông báo sẽ không hoạt động. Nếu bật thông báo,
+chuẩn bị topic `hrm.requests.notifications.v1` theo [Notification](back-end/modules/notification-service/README.md).
+Email kích hoạt cần cấu hình riêng theo [hướng dẫn activation](back-end/modules/auth-service-main/README.md#activation).
+
+<a id="local-chạy-từng-service-trong-git-bash"></a>
+
+### Chạy từng service trong Git Bash
+
+Ví dụ Auth, bắt đầu từ thư mục gốc project:
 
 ```bash
-./run-all.sh
+cd back-end/modules/auth-service-main
+set -a
+source ./.env
+set +a
+mvn spring-boot:run
 ```
 
-Script khởi động đồng thời Auth (`:8081`), Employee (`:8082`), Calendar (`:8083`),
-Leave (`:8084`), Attendance (`:8085`), API Gateway (`:8080`) và frontend (`:5173`). Log được gắn tên ứng dụng; nhấn
-`Ctrl+C` để dừng toàn bộ. Nếu có `back-end/modules/auth-service-main/.env`, script
-sẽ tự nạp file này trước khi chạy Auth.
+Mở terminal riêng cho mỗi service, đổi tên thư mục trong lệnh `cd`. Phải chạy từ
+thư mục module để đường dẫn khóa tương đối đúng. Maven/Spring Boot không tự đọc
+file `.env`; các lệnh `source` ở trên xuất biến cho tiến trình Java. Sau khi sửa
+`.env`, dừng service, nạp lại biến và chạy lại. Trong IDE, import các biến vào Run
+Configuration và đặt working directory là thư mục module.
 
-Khi hướng dẫn phụ khác với cấu hình hiện tại, kiểm tra `application.yaml`, biến môi trường và code của service trước khi chạy. Ví dụ `HRM_EVENTS_ENABLED` hiện mặc định `false` tại Auth nhưng `true` tại Employee; một số hướng dẫn cũ còn ghi mặc định `false` cho cả hai.
+Frontend, từ thư mục gốc trong terminal khác:
 
----
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-## 3. Attendance
+Vite tự đọc `frontend/.env` (`API_PROXY_TARGET=http://127.0.0.1:8080`). Nếu có
+`.env.local`, giá trị cùng tên trong file đó được ưu tiên. Mở `http://localhost:5173`.
+Tài khoản demo chỉ có sau khi áp seed tương ứng; xem [Auth](back-end/modules/auth-service-main/README.md).
 
-Repository đã triển khai `attendance-service` (Java 21/JPA): ca cố định, phân công theo hiệu lực, check-in/out mạng công ty, công cá nhân và CSV tạm tính, kèm UI. Các mục 3–5 còn mô tả yêu cầu mở rộng cho Attendance MVP; contract hiện hành xem README service.
+`spring-boot:run` hiện không tự theo dõi thay đổi source để biên dịch/restart.
+Khi sửa một backend, nhấn `Ctrl+C` ở terminal của service đó rồi chạy lại Maven;
+các service còn lại tiếp tục chạy. Frontend có HMR của Vite.
 
-Thiết kế phải cho phép bổ sung nhiều phương thức Check-in / Check-out. v0.1 chỉ triển khai corporate network và thao tác điều chỉnh thủ công có phân quyền; chưa triển khai tất cả provider.
+<a id="local-chạy-nhóm-bằng-run-allsh"></a>
 
-Ví dụ:
+### Chạy nhóm bằng `run-all.sh`
+
+Sau khi đã chuẩn bị hạ tầng, schema, khóa, `.env` và dependency frontend:
+
+```bash
+bash run-all.sh
+```
+
+Script chạy trên Git Bash, Linux hoặc WSL, cần Java, Maven, Node/npm và quyền
+thực thi các Maven Wrapper. Không cần `setsid` hoặc `wait -n`: Node quản lý các
+tiến trình; Windows dùng `taskkill /T` để dừng cây tiến trình của từng ứng dụng.
+Notification dùng Maven đã cài, các backend còn lại dùng Maven Wrapper.
+Trên Windows, launcher gọi `mvn.cmd`, `mvnw.cmd` và `npm.cmd` qua `cmd.exe`
+để giữ cây tiến trình cho `taskkill /T`; Linux/WSL dùng `mvn`, `./mvnw` và `npm`.
+
+Nếu thiếu Vite hoặc gặp lỗi `'vite' is not recognized`, chạy
+`cd frontend && npm ci --include=dev` rồi chạy lại script từ thư mục gốc.
+Script kiểm tra Vite trước khi khởi động các backend.
+Trong PowerShell, dùng `npm.cmd` nếu `npm.ps1` bị execution policy chặn;
+chạy script bằng `& 'C:/Program Files/Git/bin/bash.exe' ./run-all.sh`
+để chọn đúng Git Bash thay vì `bash.exe` của WSL trên `PATH`.
+
+Script nạp `.env` của từng ứng dụng và khởi chạy 7 backend + frontend. Log hiện
+ngay trên terminal với tiền tố tên service. `Ctrl+C` hoặc một ứng dụng thoát sẽ
+dừng cả nhóm. Script không khởi tạo/dừng PostgreSQL hay Kafka, không chờ health
+của từng service và không tự restart khi lưu source.
+
+Thư mục `scripts` chỉ giữ [run-all.mjs](scripts/run-all.mjs), phần quản lý tiến
+trình được `run-all.sh` gọi, và [run-all.test.mjs](scripts/run-all.test.mjs).
+Kiểm thử launcher từ thư mục gốc bằng `node --test scripts/run-all.test.mjs`;
+test dùng các tiến trình Node tạm để kiểm tra nạp `.env`, working directory và
+dừng cây tiến trình, không khởi động backend hoặc kết nối database.
+
+<a id="local-dừng-và-xử-lý-cổng-bận"></a>
+
+### Dừng và xử lý cổng bận
+
+Dừng service chạy thủ công bằng `Ctrl+C` trong terminal tương ứng. Kafka và
+PostgreSQL có vòng đời riêng; dừng Maven hoặc `run-all.sh` không dừng hạ tầng.
+Kafka chạy bằng Compose riêng được dừng bằng lệnh sau từ thư mục gốc:
+
+```bash
+docker compose -f back-end/modules/infra/kafka/compose.yaml stop
+```
+
+Nếu dùng Kafka native, dừng ở terminal/công cụ đã khởi chạy Kafka. Kiểm tra tiến
+trình giữ cổng trên Windows bằng PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 9092 -State Listen |
+  Select-Object LocalAddress, LocalPort, OwningProcess
+```
+
+Đối chiếu PID với tiến trình trước khi dừng; không chạy thêm broker trên cùng
+cổng. Cluster PostgreSQL cũ trong `.cache/local/postgres` cần được quản lý bằng
+`pg_ctl` của bản PostgreSQL tương thích hoặc công cụ đã khởi chạy nó. Giữ nguyên
+thư mục dữ liệu và khóa khi khởi động lại.
+
+<a id="docker"></a>
+
+## Chạy HRM bằng Docker
+
+Bộ [compose.yaml](compose.yaml) tại thư mục gốc dành cho phát triển local, gồm
+frontend Vue/Nginx, API Gateway, Auth, Employee, Calendar, Leave, Attendance,
+5 PostgreSQL database riêng và Kafka. Không cần cài Java, Maven, Node hoặc
+PostgreSQL trên máy host. Bộ này có **6 backend gồm Gateway**, chưa triển khai
+Notification (`8086`), database/topic thông báo hoặc SQL outbox `004`. Các cờ
+`HRM_NOTIFICATIONS_ENABLED` vẫn mặc định tắt; route Notification trong Gateway
+chưa có backend đích trong Compose. Xem [Notification](back-end/modules/notification-service/README.md)
+cho cách chạy native. `.env` gốc dành cho Compose, không nạp `.env` của từng module.
+
+<a id="docker-khởi-động"></a>
+
+### Khởi động
+
+Mở Docker Desktop, dùng **Linux containers** và đợi Docker Engine sẵn sàng.
+Cần Docker Compose **2.24 trở lên** (hỗ trợ `!reset`); kiểm tra bằng
+`docker version` và `docker compose version`. Nên cấp khoảng 8 GB RAM cho Docker
+để chạy đồng thời các JVM, PostgreSQL và Kafka.
+
+Tại thư mục gốc repository:
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build --wait --wait-timeout 600
+docker compose ps
+```
+
+Lần đầu cần Internet để tải base images, Maven dependencies và npm packages.
+Compose tự tạo hai cặp RSA JWT, tạo schema và nạp seed demo trên các volume mới.
+`keys-init` và `kafka-init` kết thúc với mã `0` là bình thường; các service ứng dụng
+đợi khóa, database, Kafka topics và backend phụ thuộc sẵn sàng.
+
+- Giao diện: **http://localhost:5173**.
+- Gateway health: **http://localhost:8080/actuator/health**.
+- Tài khoản demo: **admin@company.com**, mật khẩu **Admin@123456**.
+- Có thể thử `hr@company.com`, `manager@company.com`, `employee@company.com`
+  với cùng mật khẩu. Dữ liệu này lấy từ seed Auth/Employee hiện có.
+
+Chỉ frontend và Gateway publish cổng, bind vào `127.0.0.1`. Database và Kafka
+không chiếm cổng PostgreSQL/Kafka trên máy host. Frontend gửi `/api/...` cùng
+origin qua Nginx tới Gateway; route Vue vẫn mở được khi tải lại trang.
+
+<a id="docker-cấu-hình-tùy-chọn"></a>
+
+### Cấu hình tùy chọn
+
+Không bắt buộc tạo `.env`. Nếu cần đổi cổng hoặc cấu hình email, sao chép
+[.env.example](.env.example) thành `.env` (không ghi đè nếu đã có):
+
+```powershell
+Copy-Item .env.example .env
+# Ví dụ sửa FRONTEND_PORT=3000, GATEWAY_PORT=8088 rồi chạy lại:
+docker compose up -d --build --wait --wait-timeout 600
+```
+
+Trên Bash dùng `cp .env.example .env`. Frontend URL, CORS và URL trang kích hoạt
+tự dùng `FRONTEND_PORT`. `GATEWAY_PORT` chỉ thay cổng host; Nginx vẫn gọi cổng
+8080 trong Docker.
+
+Email kích hoạt mặc định tắt. Muốn thử luồng gửi mail, đặt
+`AUTH_ACTIVATION_ENABLED=true`, `AUTH_ACTIVATION_TOKEN_SECRET`, `RESEND_FROM`
+và `RESEND_API_KEY` theo [hướng dẫn Auth](back-end/modules/auth-service-main/README.md#activation).
+Các tài khoản seed đã kích hoạt, không cần mail để đăng nhập. Tài khoản cấp mới
+cần luồng kích hoạt; cấp tài khoản thành công không đồng nghĩa đăng nhập được ngay.
+
+<a id="docker-attendance-trong-bộ-local"></a>
+
+### Attendance trong bộ local
+
+Gateway chuyển tiếp `/api/v1/attendance/**` tới Attendance và yêu cầu access JWT.
+Attendance gọi Employee, Calendar và Leave qua DNS nội bộ của Compose.
+
+Network local dùng `172.30.80.0/24`, Nginx tại `172.30.80.10`, Gateway tại
+`172.30.80.20`. Các container còn lại nhận IP động trong `172.30.80.128/25`,
+tách khỏi hai IP tĩnh để tránh lỗi `Address already in use` khi khởi động.
+Mặc định chỉ tin Gateway và cho chấm công qua Nginx local;
+Gateway nhìn thấy IP của Nginx, **không phải IP thực của trình duyệt**. Đây là
+cấu hình demo trên máy cá nhân, không dùng để xác thực mạng công ty trong production.
+Gọi check-in trực tiếp qua cổng 8080 có thể bị từ chối do khác IP.
+Đặt `ATTENDANCE_ALLOWED_NETWORKS=` để từ chối toàn bộ check-in/out.
+
+Đăng nhập HR/Admin để tạo/phân công ca trước khi thử chấm công bằng tài khoản
+nhân viên. Ca mặc định trong schema chưa được tự gán cho nhân viên.
+Nếu subnet trùng VPN/network đã có, thay subnet và hai địa chỉ tĩnh trong
+`compose.yaml`, đồng thời cập nhật allowlist và trusted proxy tương ứng.
+
+<a id="docker-log-cập-nhật-và-dữ-liệu"></a>
+
+### Log, cập nhật và dữ liệu
+
+```powershell
+docker compose logs --tail=100 gateway auth employee calendar leave attendance
+docker compose logs -f attendance
+docker compose up -d --build --wait --wait-timeout 600
+docker compose stop
+docker compose start
+docker compose down
+```
+
+`down` giữ dữ liệu. Các volume có prefix `company-hrm_`, tách biệt bộ HTTPS
+`hrm` cũ và database local. Khóa JWT giữ nguyên qua restart/rebuild; chỉ Auth
+mount volume private key, các service khác chỉ nhận public keys.
+
+Script SQL chỉ chạy khi database volume trống. Thay schema hoặc mật khẩu trong
+`.env` không tự cập nhật database đã có: áp migration/đổi mật khẩu DB phù hợp
+trước khi chạy bản mới. Sao lưu cả dữ liệu và volume khóa khi cần giữ phiên đăng nhập.
+
+Chỉ khi muốn **xóa toàn bộ dữ liệu demo và khóa JWT** để khởi tạo lại:
+
+```powershell
+docker compose down --volumes
+docker compose up -d --build --wait --wait-timeout 600
+```
+
+Nếu service unhealthy, xem log service và database tương ứng. Lỗi kết nối Docker
+Engine cần khởi động Docker Desktop trước. Nếu cổng 5173/8080 đã được dùng, đổi
+cổng qua `.env` như trên.
+
+Nếu đang dùng network từ cấu hình cũ chưa có `ip_range`, cần tạo lại network
+để áp dụng dải IP động mới. Chạy hai lệnh sau, giữ nguyên các volume dữ liệu:
+
+```powershell
+docker compose down
+docker compose up -d --wait --wait-timeout 600
+```
+
+Không thêm `--volumes` khi sửa lỗi mạng. Không cần build lại image cho thay đổi này.
+
+<a id="docker-bộ-backend-https-hiện-có"></a>
+
+### Bộ backend HTTPS hiện có
+
+[back-end/modules/infra/gateway](back-end/modules/gateway/README.md#deployment) là cấu
+hình riêng cho Gateway HTTPS, secret files và database networks riêng; đã bổ sung
+Attendance cùng database. Bộ đó không tự nạp tài khoản demo, không build frontend,
+và yêu cầu chứng chỉ TLS, mật khẩu DB, khóa JWT và cấu hình mạng công ty riêng.
+
+<a id="events"></a>
+
+## Hướng dẫn giao tiếp giữa các service HRM
+
+<a id="events-1-thiết-kế-đã-chọn"></a>
+
+### 1. Thiết kế đã chọn
+
+**Employee là nguồn dữ liệu chính về nhân viên. Khi người dùng muốn cấp tài khoản,
+Employee xác minh nhân viên và gửi `EmployeeAccountRequested` qua Kafka. Auth tạo
+Account gắn với `employeeId`, rồi gửi kết quả về Employee.**
 
 ```text
-CORPORATE_NETWORK
-RFID
-FINGERPRINT
-FACE
-QR_CODE
-MANUAL
+Tạo hồ sơ: UI → Employee → lưu Employee → trả employeeId
+Cấp tài khoản: UI → Employee → Outbox → EmployeeAccountRequested → Kafka → Auth
+Kết quả: Auth → Outbox → AccountCreated / AccountCreationFailed → Kafka → Employee → UI
 ```
 
-Không được thiết kế Attendance phụ thuộc trực tiếp vào Wi-Fi.
+Tạo nhân viên và yêu cầu cấp tài khoản là hai thao tác riêng. Không chọn cấp tài
+khoản thì không gửi yêu cầu sang Auth. Employee không lưu `accountId`, nhưng sở hữu
+trạng thái yêu cầu cấp tài khoản. Auth sở hữu Account và liên kết `employeeId`.
 
-Wi-Fi, RFID, fingerprint, face recognition... được xem là **attendance source / attendance provider / integration**.
+Không cần thêm service nghiệp vụ. Worker và consumer chạy trong từng ứng dụng.
+Hai service không cần hoạt động cùng lúc để trao đổi message, miễn dữ liệu còn
+được lưu và bên nhận hoạt động lại. Không giữ HTTP request mở để chờ Auth xử lý.
 
-Ví dụ:
+Lộ trình triển khai nằm ở [mục 10](#events-10-lộ-trình-triển-khai-theo-phase). Đây là thiết
+kế đích; mục 2 phân biệt với code đã có.
 
-```text
-Attendance
-    │
-    ├── Corporate Network Provider
-    ├── RFID Provider
-    ├── Fingerprint Provider
-    ├── Face Provider
-    └── Manual Provider
+<a id="events-2-phần-đã-có-và-phần-cần-triển-khai"></a>
+
+### 2. Phần đã có và phần cần triển khai
+
+| Thành phần | Trạng thái |
+|---|---|
+| `Employee.accountStatus` và response tương ứng | Đã có enum; nhân viên mới mặc định `NOT_CREATED`; client không được sửa qua API hồ sơ |
+| Schema Employee | `employee-service/docs/sql/001_employee_schema.sql` đầy đủ; database cũ cần đối chiếu và migration riêng |
+| Kafka local và cấu hình hai service | Đã bổ sung topic yêu cầu/kết quả, group và smoke test; xem [hướng dẫn](#kafka) |
+| API yêu cầu cấp tài khoản, bảng yêu cầu, `EmployeeAccountRequested` | Đã triển khai; bật bằng `HRM_EVENTS_ENABLED=true` sau schema đầy đủ của Auth/Employee và Kafka topics |
+| Outbox hai phía, claim/lease, producer/consumer, chống trùng và kết quả | Đã triển khai cho cấp tài khoản và nhận trạng thái sau kích hoạt; chưa có DLT/đối soát |
+| Auth tạo tài khoản chờ kích hoạt | Đã có `activation_pending=true`, `is_active=false`, role `EMPLOYEE`; đã có email Resend, token một lần/hết hạn và API kích hoạt |
+| Đồng bộ trạng thái và đối soát tài khoản cũ | Đã nhận `AccountStatusChanged` sau kích hoạt; đối soát tài khoản cũ chưa triển khai |
+
+Flow này không cần `employee_references` tại Auth hoặc lỗi `EMPLOYEE_NOT_SYNCED`.
+`EmployeeCreated` có thể phục vụ sự kiện vòng đời cho phân hệ khác sau này; không
+là điều kiện tiên quyết cho yêu cầu cấp tài khoản. Xem [cách chạy flow đã có](back-end/modules/employee-service/README.md#provisioning).
+Auth mặc định `HRM_EVENTS_ENABLED=false`, Employee mặc định `true`; bật cả hai sau khi chuẩn bị schema/topics. Auth cần `docs/sql/001_auth_schema.sql`, Employee cần
+`docs/sql/001_employee_schema.sql` trong thư mục từng service ngay cả khi chưa bật sự kiện. Khi bật ở Auth, `/register` cũ trả `409` để không bỏ qua Outbox.
+Phạm vi quyền API mới hiện là HR/ADMIN toàn hệ thống, chưa chia theo phòng ban/tenant.
+
+<a id="events-3-quyền-sở-hữu-dữ-liệu"></a>
+
+### 3. Quyền sở hữu dữ liệu
+
+| Thành phần | Trách nhiệm |
+|---|---|
+| Employee | Hồ sơ, phòng ban, chức danh, `EmployeeStatus`; xác minh nhân viên, quyền yêu cầu cấp tài khoản; lưu và theo dõi yêu cầu |
+| Auth | Account, mật khẩu, role, token; kiểm tra chính sách cấp tài khoản và quyết định kết quả; giữ `employeeId` |
+| Kafka | Lưu và phân phối yêu cầu/kết quả |
+| Frontend | Tạo hồ sơ, gửi yêu cầu cấp tài khoản, truy vấn tiến độ tại Employee |
+
+Mỗi service sở hữu database/schema riêng, không đọc/ghi bảng của service khác và
+không tạo foreign key xuyên database. `accountStatus` tại Employee là bản sao để
+hiển thị, không là nguồn quyết định quyền truy cập. `EmployeeStatus` mô tả việc làm
+và không được cập nhật bằng kết quả cấp tài khoản từ Auth.
+
+<a id="events-4-tạo-nhân-viên-và-yêu-cầu-cấp-tài-khoản"></a>
+
+### 4. Tạo nhân viên và yêu cầu cấp tài khoản
+
+1. UI tạo nhân viên tại Employee, nhận `201 Created` cùng `employeeId` sau commit.
+2. Khi HR/ADMIN chọn cấp tài khoản, UI gửi yêu cầu riêng tới Employee bằng ID đó.
+3. Employee kiểm tra quyền/phạm vi dữ liệu, nhân viên tồn tại, email đăng nhập và
+   dữ liệu yêu cầu. Không tin `employeeId`, role hoặc danh tính người yêu cầu chỉ
+   vì client gửi lên. MVP cấp role `EMPLOYEE`; cấp quyền cao hơn cần luồng có phân quyền riêng.
+4. Trong một transaction, lưu yêu cầu `PENDING` và Outbox chứa
+   `EmployeeAccountRequested`. Chỉ trả `202 Accepted` sau commit, kèm `requestId`.
+5. Worker đọc Outbox đã commit, gọi `AccountProvisioningProducer` gửi lên Kafka.
+   Chỉ đánh dấu đã gửi khi broker xác nhận; lỗi gửi được retry từ Outbox.
+
+API đã triển khai, cần bật cờ sự kiện sau khi tạo schema và Kafka topics:
+
+| API tại Employee | Mục đích |
+|---|---|
+| `POST /api/v1/employees/{employeeId}/account-requests` | Ghi nhận yêu cầu; body gồm email đăng nhập, không có mật khẩu; trả `202` và `requestId`, `provisioningStatus=PENDING` |
+| `GET /api/v1/employees/{employeeId}/account-requests/{requestId}` | Trả tiến độ và mã lỗi nghiệp vụ nếu có; kiểm tra quyền xem |
+
+POST dùng `Idempotency-Key` để lần gửi lại do mất HTTP response trả cùng yêu cầu;
+unique key phải được ràng buộc trong database theo phạm vi người gọi. Cùng key
+nhưng payload khác trả `409`. Chỉ cho phép một yêu cầu đang chờ trên một nhân viên,
+kiểm soát nguyên tử trong database. Sau thất bại nghiệp vụ, sửa dữ liệu và tạo yêu
+cầu mới với key/`requestId` mới. Không tạo hàng loạt yêu cầu mới khi chưa rõ kết quả cũ.
+
+<a id="events-5-auth-xử-lý-và-trả-kết-quả"></a>
+
+### 5. Auth xử lý và trả kết quả
+
+```mermaid
+sequenceDiagram
+    participant UI as HR / Frontend
+    participant E as Employee Service
+    participant ED as Employee DB
+    participant K as Kafka
+    participant A as Auth Service
+    participant AD as Auth DB
+
+    UI->>E: Cấp tài khoản cho employeeId đã tồn tại
+    E->>ED: Kiểm tra và transaction: yêu cầu PENDING + Outbox
+    ED-->>E: Commit
+    E-->>UI: 202 Accepted: requestId, PENDING
+    E->>K: Worker gửi EmployeeAccountRequested
+    K->>A: Consumer nhận yêu cầu
+    A->>AD: Kiểm tra trùng và chính sách cấp tài khoản
+    alt Được chấp nhận
+        A->>AD: Transaction: Account chờ kích hoạt + dấu xử lý + Outbox AccountCreated
+    else Từ chối nghiệp vụ
+        A->>AD: Transaction: kết quả từ chối + dấu xử lý + Outbox AccountCreationFailed
+    end
+    A->>K: Worker gửi kết quả đã commit
+    K->>E: Consumer nhận kết quả theo requestId
+    E->>ED: Transaction: chống trùng + cập nhật yêu cầu và bản sao Account nếu phù hợp
+    UI->>E: Truy vấn tiến độ
+    E-->>UI: SUCCEEDED / FAILED / PENDING, accountStatus
 ```
 
-Domain Attendance phải độc lập với implementation cụ thể của từng thiết bị.
+Auth tin việc Employee đã xác minh ID khi yêu cầu đến từ producer được xác thực,
+đúng topic và ACL. Trường `producer` trong JSON không phải bằng chứng xác thực.
+Auth không gọi lại Employee hoặc đợi một `EmployeeCreated` chỉ để kiểm tra ID.
+Sự xác minh này phản ánh thời điểm yêu cầu được chấp nhận; không bảo đảm trạng thái
+lao động không thay đổi trong lúc message chờ. Quy tắc nghỉ việc/hủy yêu cầu cần
+luồng vòng đời riêng khi mở rộng.
 
----
+Auth vẫn kiểm tra schema, email, role theo chính sách và các ràng buộc unique cho
+`employeeId`/email. Consumer gọi service nghiệp vụ nội bộ, không gọi vòng lại API
+`/register` hoặc bỏ qua phân quyền của API đó. Không có JWT người dùng trong Kafka;
+Employee kiểm tra quyền tại thời điểm nhận yêu cầu, Auth áp dụng chính sách cấp
+role phía mình. `requestedBy` chỉ dùng audit, không tự cấp quyền dựa trên giá trị đó.
 
-## 4. Wi-Fi Attendance
+Không gửi mật khẩu, hash mật khẩu hoặc token kích hoạt qua Kafka. Thiết kế đích
+là Auth tạo Account chờ kích hoạt, quản lý việc gửi lời mời và thiết lập mật khẩu
+qua kênh riêng. Đã bổ sung `activation_pending` và chặn đăng nhập trước kích hoạt.
+Đã có API thiết lập mật khẩu, token một lần/hết hạn và mail outbox gửi qua Resend.
+Xem [cấu hình và API kích hoạt](back-end/modules/auth-service-main/README.md#activation).
+`activation_pending=true` phân biệt tài khoản chờ kích hoạt với tài khoản bị khóa. Không dùng mật khẩu mặc định chung để lấp phần còn thiếu.
 
-Trong v0.1, Check-in / Check-out được xác thực bằng corporate network. UI có thể gọi là chấm công qua Wi-Fi công ty, nhưng dữ liệu lưu `method=CORPORATE_NETWORK`: public IP chỉ xác nhận đường mạng truy cập, không chứng minh nhân viên đang kết nối Wi-Fi hoặc có mặt tại văn phòng.
+Khi `hrm.events.enabled=true` tại Auth, `/api/v1/auth/register` trả `409`, hướng
+người gọi sang Employee. Khi cờ tắt, API cũ vẫn nhận mật khẩu và tạo tài khoản active;
+không phát sự kiện. UI của flow mới chỉ gửi yêu cầu tại Employee.
 
-Không chỉ dựa vào SSID vì SSID có thể bị giả mạo.
+<a id="events-6-trạng-thái-yêu-cầu-và-trạng-thái-tài-khoản"></a>
 
-Quy tắc MVP:
+### 6. Trạng thái yêu cầu và trạng thái tài khoản
 
-- Backend kiểm tra source IP đáng tin cậy với allowlist IP/CIDR của địa điểm làm việc, áp dụng cho cả check-in và check-out trực tiếp.
-- Chỉ nhận traffic qua reverse proxy/load balancer được cấu hình tin cậy; ngăn truy cập trực tiếp vào application từ Internet.
-- Cấu hình cách proxy xử lý forwarded headers và duyệt chuỗi proxy từ phía tin cậy; không mặc định lấy phần tử đầu tiên của `X-Forwarded-For`.
-- Không nhận IP, SSID hoặc trạng thái “đang ở công ty” do client gửi làm bằng chứng xác thực.
-- VPN từ xa dùng chung public IP có thể vượt qua kiểm tra mạng. Trước pilot phải tách egress VPN khỏi allowlist hoặc ghi nhận rõ mức xác thực này được doanh nghiệp chấp nhận.
-- Nếu không xác minh được nguồn mạng, từ chối thao tác trực tiếp và cho phép HR xử lý bằng correction có audit.
+<a id="events-61-trạng-thái-yêu-cầu-cấp-tài-khoản"></a>
 
-Sau MVP có thể kết hợp, khi hạ tầng/client thực sự cung cấp bằng chứng tin cậy:
+#### 6.1. Trạng thái yêu cầu cấp tài khoản
 
-- Corporate public IP
-- Internal network / subnet
-- Network/VLAN
-- SSID/BSSID nếu client platform cho phép
-- Device information
-- Location information nếu nghiệp vụ yêu cầu
+Lưu trong bảng yêu cầu riêng ở Employee, không thêm vào enum `AccountStatus`.
 
-Không mặc định web browser hoặc cloud backend đọc được SSID/BSSID, private subnet hoặc VLAN của thiết bị người dùng. Các thông tin này cần khả năng platform hoặc tích hợp hạ tầng tương ứng.
+| Trạng thái | Ý nghĩa |
+|---|---|
+| `NOT_REQUESTED` | UI chưa có yêu cầu; không cần tạo bản ghi yêu cầu giả |
+| `PENDING` | Đã ghi nhận, chưa có kết quả cuối |
+| `SUCCEEDED` | Auth đã tạo Account; chưa đồng nghĩa đã kích hoạt |
+| `FAILED` | Auth từ chối do nghiệp vụ, có `errorCode` |
 
-Tham khảo cấu hình [forwarded headers của AWS ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html).
+Kết quả đối chiếu cả `requestId` và `employeeId`; cập nhật đúng bản ghi yêu cầu.
+Kết quả cũ không được ghi đè trạng thái của lần yêu cầu mới. `PENDING` quá lâu cần
+cảnh báo/đối soát, không tự kết luận chưa có Account hoặc chuyển thành `FAILED` chỉ
+vì timeout. Tạo Account thất bại không xóa Employee.
 
----
+<a id="events-62-bản-sao-accountstatus"></a>
 
-## 5. Attendance Event
+#### 6.2. Bản sao accountStatus
 
-Ưu tiên thiết kế Attendance theo hướng event/audit-friendly.
+| Giá trị | Ý nghĩa |
+|---|---|
+| `NOT_CREATED` | Chưa có tài khoản theo thông tin hiện biết |
+| `PENDING_ACTIVATION` | Đã có tài khoản, chờ thiết lập mật khẩu/kích hoạt |
+| `ACTIVE` | Tài khoản đang hoạt động |
+| `DISABLED` | Tài khoản bị vô hiệu hóa |
 
-Ví dụ:
+Không lưu thêm `hasAccount` hoặc `accountId`. Khi nhận `AccountCreated`, yêu cầu
+chuyển `SUCCEEDED`, còn `accountStatus` lấy từ payload của Auth (flow mới dự kiến
+`PENDING_ACTIVATION`). `AccountCreationFailed` chỉ cập nhật yêu cầu, không đặt lại
+`accountStatus`: lỗi trùng có thể xảy ra vì Account đã tồn tại.
 
-```text
-CHECK_IN
-CHECK_OUT
-BREAK_START
-BREAK_END
+Auth đã phát `AccountStatusChanged` khi kích hoạt. Phát sự kiện khi khóa/mở tài
+khoản và trạng thái `NOT_CREATED` khi xóa thuộc thiết kế mở rộng, chưa có API.
+Cần `accountVersion` tăng dần theo liên kết nhân viên,
+lưu cả khi xóa/tạo lại Account. Employee chỉ áp dụng bản sao có version mới hơn.
+Hoàn tất yêu cầu dựa trên `requestId` độc lập với việc áp dụng bản sao: kết quả tạo
+đến muộn vẫn có thể hoàn tất đúng yêu cầu, nhưng không được ghi đè trạng thái khóa
+có version cao hơn đã nhận trước đó.
+
+Auth đã có `User.activationPending`: true ứng với `PENDING_ACTIVATION` và bắt buộc
+inactive. Với tài khoản không chờ kích hoạt, `User.active` true/false ứng với
+`ACTIVE`/`DISABLED`. API hoàn tất kích hoạt đã có. Trong development, dùng mặc định `NOT_CREATED`, không
+có trạng thái `UNKNOWN`. Schema Employee đầy đủ không dùng `has_account`;
+script chỉ tạo bảng/index còn thiếu, không tự chuyển đổi cột hay trạng thái cũ.
+Database cũ cần đối chiếu và migration riêng trước khi chạy phiên bản hiện tại.
+
+<a id="events-7-hợp-đồng-sự-kiện"></a>
+
+### 7. Hợp đồng sự kiện
+
+<a id="events-71-employeeaccountrequested"></a>
+
+#### 7.1. EmployeeAccountRequested
+
+Đây là message yêu cầu cấp tài khoản. Payload đề xuất cho MVP:
+
+```json
+{
+  "eventId": "f749ce13-a512-47d1-a0d7-52e9fc40709b",
+  "eventType": "EmployeeAccountRequested",
+  "schemaVersion": 1,
+  "occurredAt": "2026-09-25T03:00:00Z",
+  "producer": "employee-service",
+  "correlationId": "90c92fe5-9adc-4d35-ac24-3c5ad52c7701",
+  "requestId": "ad96c1d8-d0d9-477c-a47b-7aed14d46db1",
+  "data": {
+    "employeeId": "d38e31b7-0bba-420c-8eaf-50edbe5a61ae",
+    "email": "employee@example.com",
+    "requestedBy": "42"
+  }
+}
 ```
 
-v0.1 chỉ triển khai `CHECK_IN` và `CHECK_OUT`. `BREAK_START` / `BREAK_END` thuộc release mở rộng. Phương thức ghi nhận nằm ở `method`; thao tác thủ công dùng `method=MANUAL`, không tạo thêm `MANUAL_CHECK_IN` / `MANUAL_CHECK_OUT`.
+`requestedBy` lấy từ principal đã xác thực ở Employee. Email là email đăng nhập
+được xác nhận trong yêu cầu, có thể khác email liên hệ của hồ sơ. Không gửi toàn
+bộ Employee. MVP không nhận role tùy ý; Auth tự gán `EMPLOYEE` theo chính sách đã chốt.
 
-Nên lưu lại thông tin phục vụ audit:
+<a id="events-72-accountcreated"></a>
 
-```text
-id
-employee_id
-work_schedule_assignment_id
-attendance_session_id
-event_type
-event_at
-received_at
-method
-source_ip
-device_id
-location_id
-actor_user_id
-idempotency_key
-provider_event_id
-created_at
+#### 7.2. AccountCreated
+
+```json
+{
+  "eventId": "da98033a-72d8-4792-8ba2-e498b5a814fb",
+  "eventType": "AccountCreated",
+  "schemaVersion": 1,
+  "occurredAt": "2026-09-25T03:00:01Z",
+  "producer": "auth-service",
+  "correlationId": "90c92fe5-9adc-4d35-ac24-3c5ad52c7701",
+  "requestId": "ad96c1d8-d0d9-477c-a47b-7aed14d46db1",
+  "data": {
+    "employeeId": "d38e31b7-0bba-420c-8eaf-50edbe5a61ae",
+    "accountStatus": "PENDING_ACTIVATION",
+    "accountVersion": 1
+  }
+}
 ```
 
-Không nên chỉ lưu `check_in_at` và `check_out_at` nếu điều đó khiến hệ thống khó audit hoặc khó mở rộng.
+<a id="events-73-accountcreationfailed"></a>
 
-Có thể có:
+#### 7.3. AccountCreationFailed
 
-```text
-attendance_events
-attendance_sessions
-attendance_corrections
-attendance_daily
+```json
+{
+  "eventId": "95f37f52-9d72-4dd6-83bc-e996216344cd",
+  "eventType": "AccountCreationFailed",
+  "schemaVersion": 1,
+  "occurredAt": "2026-09-25T03:00:01Z",
+  "producer": "auth-service",
+  "correlationId": "90c92fe5-9adc-4d35-ac24-3c5ad52c7701",
+  "requestId": "ad96c1d8-d0d9-477c-a47b-7aed14d46db1",
+  "data": {
+    "employeeId": "d38e31b7-0bba-420c-8eaf-50edbe5a61ae",
+    "errorCode": "EMAIL_ALREADY_USED"
+  }
+}
 ```
 
-Trong đó:
+Quy ước:
 
-- `attendance_events`: các lần ghi nhận gốc, chỉ thêm mới; không sửa hoặc xóa qua nghiệp vụ thông thường.
-- `attendance_sessions`: trạng thái phiên làm việc theo ca được phân công, gồm thời điểm bắt đầu/kết thúc có hiệu lực.
-- `attendance_corrections`: thao tác bổ sung, thay thế hoặc vô hiệu hóa một lần ghi nhận; lưu target, giá trị trước/sau, người thực hiện, lý do và thời điểm. Bổ sung lần bị thiếu phải xác định nhân viên, ca và loại event.
-- `attendance_daily`: tổng hợp theo `(employee_id, work_date)` từ event, correction và snapshot lịch áp dụng; phải có khả năng tính lại theo cùng quy tắc.
+- `eventId`: chống trùng message; retry vận chuyển giữ nguyên ID và payload.
+- `requestId`: chống thực thi trùng yêu cầu; kết quả giữ nguyên ID của yêu cầu.
+- `correlationId`: nối log hai chiều; kết quả có `eventId` mới, cùng correlation/request/employee ID.
+- `schemaVersion` là phiên bản cấu trúc; `accountVersion` là phiên bản dữ liệu do Auth sở hữu.
+- Mã lỗi nghiệp vụ ổn định: `ACCOUNT_ALREADY_EXISTS`, `EMAIL_ALREADY_USED`; không phát
+  `EMPLOYEE_NOT_SYNCED` vì không còn bước đợi đồng bộ ID. Lỗi hạ tầng được retry.
+- Key Kafka là `employeeId`. Không giả định có thứ tự toàn cục giữa topic hoặc qua retry.
+- `AccountStatusChanged` dùng payload trạng thái/version như `AccountCreated`, có
+  `eventId`/`correlationId` riêng; không bắt buộc `requestId` của lần cấp cũ và không
+  dùng nó để chuyển trạng thái yêu cầu cấp tài khoản.
 
-Quy tắc dữ liệu:
+<a id="events-8-outbox-retry-và-chống-trùng"></a>
 
-- `event_at` là thời điểm nghiệp vụ; chấm công trực tiếp dùng thời gian server. `received_at` là thời điểm server nhận dữ liệu. Lưu các thời điểm dưới dạng instant bằng PostgreSQL `timestamptz`; timezone nghiệp vụ lưu riêng ở lịch áp dụng.
-- `work_date` là ngày công theo lịch được phân công, không suy ra bằng ngày UTC hoặc ngày nhận event. Với ca qua đêm ở release sau, mặc định thuộc ngày bắt đầu ca tại timezone của ca.
-- Lưu snapshot hoặc phiên bản bất biến của lịch/rule dùng tính công. Sửa lịch tương lai không tự thay đổi công quá khứ; việc tính lại do đổi rule phải là thao tác tường minh có audit.
-- Trường không áp dụng có thể null: ví dụ corporate network không có `device_id` hoặc `provider_event_id`; correction phải có `actor_user_id` và lý do. Nguồn thiết bị sau này phải lưu danh tính integration thay cho user nếu không có tài khoản người dùng thực hiện.
-- Event, correction và dữ liệu tổng hợp liên quan được cập nhật trong cùng transaction ở v0.1. Audit-friendly không đồng nghĩa phải triển khai event sourcing framework.
+### 8. Outbox, retry và chống trùng
 
----
+Employee lưu yêu cầu + Outbox trong cùng transaction. Auth lưu Account, kết quả
+xử lý và Outbox kết quả trong cùng transaction. Với từ chối nghiệp vụ, lưu kết quả
+thất bại + Outbox mà không tạo Account. Unique constraint có thể làm transaction
+bị rollback; phải xử lý xung đột và ghi kết quả trong transaction hợp lệ, không
+bắt lỗi rồi tiếp tục ghi trên transaction đã bị đánh dấu rollback.
 
-## 6. Employee và User
+Worker đọc bản ghi đã commit, gửi theo lô, dùng claim/lease khi chạy nhiều instance,
+retry có backoff và chỉ đánh dấu đã gửi sau broker ack. Crash sau ack nhưng trước
+đánh dấu có thể gửi trùng; producer idempotence không thay thế consumer chống trùng.
 
-Không mặc định:
+- Consumer ghi dấu chống trùng cùng transaction với nghiệp vụ: Employee dùng
+  `provisioning_processed_events`; Auth lưu event/request và kết quả trong
+  `account_provisioning_results`.
+- Auth còn lưu unique `requestId`, payload/kết quả tương ứng và unique employee/email.
+  Cùng yêu cầu được giao lại thì không tạo Account mới hoặc đổi kết quả thành lỗi
+  trùng; dùng kết quả đã lưu và Outbox để hoàn tất giao nhận.
+- Yêu cầu mới cho nhân viên đã có Account trả `ACCOUNT_ALREADY_EXISTS`; không tự
+  gắn lại email/tài khoản hoặc kích hoạt tài khoản đang bị khóa. Có đối soát riêng.
+- Employee đối chiếu request/employee, kiểm soát cập nhật phiên bản nguyên tử và
+  chỉ commit offset sau transaction database thành công.
 
-```text
-User == Employee
+| Tình huống | Xử lý |
+|---|---|
+| Employee không tồn tại/không đủ quyền | Từ chối tại Employee trước khi ghi yêu cầu/Outbox |
+| Transaction ghi yêu cầu thất bại | Rollback yêu cầu và Outbox; hồ sơ đã tạo trước đó vẫn giữ nguyên |
+| Kafka hoặc Auth tạm dừng | Outbox/message chờ xử lý; yêu cầu vẫn `PENDING` |
+| Auth lỗi database tạm thời | Rollback và retry, không phát lỗi nghiệp vụ giả |
+| Auth từ chối email/tài khoản trùng | Phát `AccountCreationFailed`; chỉ yêu cầu chuyển `FAILED` |
+| Account đã tạo nhưng kết quả chưa đến | Outbox Auth tiếp tục gửi; theo dõi và đối soát |
+| Kết quả không khớp request/employee | Không cập nhật nhầm hồ sơ; đưa vào quy trình kiểm tra/retry/DLT |
+| Payload lỗi hoặc retry vượt ngưỡng | Hiện retry, chưa có DLT; thiết kế mở rộng cần DLT/cảnh báo/replay và chỉ ack gốc khi chuyển DLT thành công |
+
+Chốt retention Kafka, Outbox và dấu chống trùng theo downtime/replay. Không xóa dấu
+chống trùng trong khi còn khả năng chạy lại message liên quan. Kafka không giữ dữ
+liệu vô hạn và không tạo transaction nguyên tử chung với database hai service.
+
+<a id="events-9-topic-và-mở-rộng-service"></a>
+
+### 9. Topic và mở rộng service
+
+Topic/group đã cấu hình cho luồng mới (đã có listener trạng thái sau kích hoạt):
+
+| Topic | Message | Producer | Consumer group |
+|---|---|---|---|
+| `hrm.employee.account-requests.v1` | `EmployeeAccountRequested` | Employee | Auth: `auth-account-requests-v1` |
+| `hrm.auth.account-results.v1` | `AccountCreated`, `AccountCreationFailed` | Auth | Employee: `employee-account-results-v1` |
+| `hrm.auth.account-lifecycle.v1` | `AccountStatusChanged`, snapshot khi mở rộng | Auth | Employee: `employee-account-lifecycle-v1` |
+
+Compose đã tạo hai topic yêu cầu/kết quả, giữ `hrm.employee.lifecycle.v1`,
+`hrm.auth.account-lifecycle.v1` để mở rộng và `hrm.local.smoke.v1` để thử kết nối.
+Consumer hiện nghe cả topic yêu cầu, kết quả và trạng thái sau kích hoạt.
+`KafkaConnectionTests` kiểm tra kết nối riêng; xem [Kafka local](#kafka).
+
+Payroll/Leave có thể nghe `EmployeeCreated`/`EmployeeTerminated` qua topic vòng đời
+sau này, không nghe yêu cầu cấp tài khoản. Mỗi bên cần nhận đủ message có consumer
+group riêng; instance của cùng bên dùng chung group để chia tải. Khi Employee cần
+nhận kết quả và vòng đời tài khoản, cấu hình group riêng theo listener, không ép
+hai loại xử lý vào một group mặc định duy nhất.
+
+REST dùng để tạo hồ sơ, ghi nhận yêu cầu và đọc tiến độ. Chỉ thêm Saga/workflow
+khi có quy trình nhiều bước, thứ tự, timeout và bù trừ cần quản lý rõ ràng. Sự kiện
+khóa Account có độ trễ; JWT đã cấp có thể còn hiệu lực, cần thiết kế thu hồi riêng
+nếu yêu cầu chặn quyền ngay.
+
+<a id="events-10-lộ-trình-triển-khai-theo-phase"></a>
+
+### 10. Lộ trình triển khai theo phase
+
+Outbox và chống trùng được triển khai từ lần đầu giao tiếp nghiệp vụ. Hạ tầng local
+và luồng cấp tài khoản chờ kích hoạt đã có. Đã có kích hoạt tối thiểu; cần hoàn tất các phần
+phục hồi/đối soát còn thiếu trước khi tuyên bố hoàn thành MVP hoặc production. MVP hoàn thành ở phase 3; production cần
+các tiêu chí phase 4–6.
+
+| Phase | Mục tiêu | Kết quả kiểm chứng |
+|---|---|---|
+| 0 | Chốt hợp đồng và chuẩn bị service | API yêu cầu, quyền, lỗi, trạng thái và thiết lập mật khẩu rõ ràng |
+| 1 | Hạ tầng local | Topic/group đúng flow mới, hai service kết nối được |
+| 2 | Employee gửi yêu cầu | Hồ sơ độc lập; yêu cầu + Outbox cùng commit; worker gửi đúng Kafka |
+| 3 | Auth xử lý và trả kết quả | Account chờ kích hoạt, Employee nhận thành công/thất bại, kích hoạt được |
+| 4 | Phục hồi và dữ liệu cũ | Retry, sai thứ tự, khóa/mở, đối soát hoạt động |
+| 5 | Staging | Kiểm chứng tải, bảo mật, transaction và phục hồi |
+| 6 | Production | Rollout, giám sát, rollback và vận hành |
+
+<a id="events-phase-0--chốt-hợp-đồng-và-chuẩn-bị-service"></a>
+
+#### Phase 0 — Chốt hợp đồng và chuẩn bị service
+
+1. Chốt API mục 4, envelope mục 7, topic/group mục 9, unique và idempotency key.
+   Không bổ sung `employee_references` hoặc điều kiện `EMPLOYEE_NOT_SYNCED` cho flow này.
+2. Phân quyền tạo hồ sơ/yêu cầu tại tầng service Employee, kiểm tra phạm vi nhân
+   viên được quản lý. Auth mặc định cấp `EMPLOYEE`; chốt luồng riêng để cấp quyền cao hơn.
+3. Chuẩn bị mô hình tài khoản chờ kích hoạt, cách thiết lập mật khẩu và gửi lời mời
+   do Auth sở hữu; thiết kế retry gửi lời mời riêng, tránh tạo lại Account.
+4. Chốt kết quả `ACCOUNT_ALREADY_EXISTS`/`EMAIL_ALREADY_USED` và việc ghi nhận lỗi
+   unique khi xử lý đồng thời. Hoàn thiện validation BCrypt theo byte cho các
+   đường đặt mật khẩu; không chuyển thành lỗi 500 ngoài dự kiến.
+5. Chốt kiểm soát `/register` cũ và migration tăng dần. Giữ `ddl-auto: validate`;
+   không dùng script reset database để nâng cấp dữ liệu hiện có.
+
+**Hoàn thành khi:** hợp đồng và quy tắc rõ ràng; test service xác nhận quyền, lỗi
+đầu vào, phạm vi cấp role và thiết kế kích hoạt đã sẵn sàng để triển khai.
+
+<a id="events-phase-1--dựng-kafka-local"></a>
+
+#### Phase 1 — Dựng Kafka local
+
+**Đã có:** [Compose, cấu hình Spring và smoke test](#kafka), topic
+`hrm.employee.account-requests.v1`/`hrm.auth.account-results.v1`, group riêng cho hai
+consumer. Vẫn giữ volume, healthcheck và topic smoke. Một broker local không là
+cấu hình production.
+
+<a id="events-phase-2--employee-gửi-yêu-cầu-cấp-tài-khoản"></a>
+
+#### Phase 2 — Employee gửi yêu cầu cấp tài khoản
+
+**Đã triển khai:** API, idempotency key, bảng yêu cầu, Outbox và worker gửi Kafka.
+
+| Dữ liệu bổ sung tại Employee | Mục đích |
+|---|---|
+| `account_provisioning_requests` | requestId, employeeId, email, requestedBy, idempotency key/hash, trạng thái, lỗi, thời điểm |
+| `event_outbox` | eventId, aggregateId, type, payload, trạng thái gửi, retry và claim/lease |
+
+1. Giữ tạo Employee độc lập. Thêm API yêu cầu/truy vấn có phân quyền ở mục 4.
+2. Lưu yêu cầu `PENDING` và Outbox `EmployeeAccountRequested` cùng transaction;
+   kết quả HTTP `202` chỉ xác nhận đã tiếp nhận.
+3. Worker gọi `AccountProvisioningProducer`, key là `employeeId`; chỉ đánh dấu
+   Outbox sau broker ack. Retry giữ nguyên `eventId`, `requestId` và payload.
+4. Chống yêu cầu đồng thời bằng ràng buộc database; mất response HTTP gửi lại cùng
+   idempotency key trả cùng yêu cầu. Không phụ thuộc vào bản sao `accountStatus`
+   để kết luận chắc chắn Auth chưa có Account.
+
+**Hoàn thành khi:** không chọn cấp tài khoản thì không phát yêu cầu. ID không tồn
+tại/không đủ quyền bị từ chối; rollback không để lại Outbox; Kafka tắt thì yêu cầu
+vẫn được ghi `PENDING` và gửi lại khi broker phục hồi. Chưa có consumer Auth thì
+chưa tuyên bố flow cấp tài khoản hoàn thành.
+
+<a id="events-phase-3--auth-tạo-account-và-employee-nhận-kết-quả"></a>
+
+#### Phase 3 — Auth tạo Account và Employee nhận kết quả
+
+**Đã có phần cấp tài khoản:** Auth tạo Account chờ kích hoạt, ghi kết quả/Outbox;
+Employee nhận và cập nhật yêu cầu/bản sao theo version. Đã có luồng đặt mật khẩu/
+kích hoạt và cập nhật sau kích hoạt qua `AccountStatusChanged`. Nghiệm thu phase
+cần kiểm chứng cả luồng thành công, thất bại và khôi phục bên dưới.
+
+| Service | Dữ liệu bổ sung |
+|---|---|
+| Auth | `account_provisioning_results`, `event_outbox`, `account_link_versions`, trạng thái/kích hoạt tài khoản |
+| Employee | `provisioning_processed_events`, `employee_account_versions` để chống trùng và cập nhật bản sao |
+
+1. Consumer Auth validate message rồi gọi service nghiệp vụ; tin xác minh ID của
+   Employee qua nguồn nội bộ được kiểm soát. Không gọi lại Employee chỉ để xác minh ID.
+2. Chống trùng event/request và ràng buộc unique employee/email. Lưu Account chờ
+   kích hoạt + kết quả xử lý + Outbox `AccountCreated` cùng transaction; từ chối
+   nghiệp vụ ghi `AccountCreationFailed`. Lỗi hạ tầng rollback/retry.
+3. `account_link_versions` tăng nguyên tử theo employeeId, không xóa khi xóa Account.
+   Kết quả chứa request/employee/correlation ID đúng yêu cầu; không cần accountId.
+4. Consumer Employee hoàn tất đúng yêu cầu và cập nhật bản sao theo version trong
+   cùng transaction với dấu chống trùng. Kết quả cũ không ghi đè yêu cầu mới hoặc
+   trạng thái Account mới hơn. API sửa hồ sơ không được ghi đè cột trạng thái từ entity cũ.
+5. Auth cung cấp luồng thiết lập mật khẩu/kích hoạt, sau đó phát
+   `AccountStatusChanged` với version mới để Employee chuyển sang `ACTIVE`.
+   Gửi lời mời có retry riêng; tài khoản chờ kích hoạt không đăng nhập được.
+6. UI theo dõi tại Employee: `PENDING` → `SUCCEEDED`/`FAILED`; hiển thị trạng thái
+   kích hoạt riêng. Chỉ báo Account đã tạo khi nhận kết quả Auth.
+
+**Hoàn thành khi:** tạo hồ sơ → yêu cầu tại Employee → Auth tạo Account → Employee
+hiển thị `SUCCEEDED`/`PENDING_ACTIVATION` → kích hoạt → `ACTIVE`. Luồng thất bại
+trả lỗi rõ ràng; retry không tạo Account thứ hai; consumer khôi phục sau downtime
+trong retention. Không tự xóa Employee khi tạo Account thất bại.
+
+<a id="events-phase-4--phục-hồi-lỗi-trạng-thái-và-dữ-liệu-đã-tồn-tại"></a>
+
+#### Phase 4 — Phục hồi lỗi, trạng thái và dữ liệu đã tồn tại
+
+**Phạm vi:** chuẩn bị hệ thống để chịu gián đoạn và nâng cấp từ dữ liệu hiện có.
+
+1. Hoàn thiện claim/lease của worker cho nhiều instance, giới hạn batch, retry có
+   backoff và thu hồi lease hết hạn. Không giữ transaction database dài trong lúc
+   chờ mạng. Chỉ worker còn quyền claim mới đánh dấu bản ghi đã gửi.
+2. Phân biệt lỗi tạm thời với payload không hợp lệ. Thêm dead-letter topic (DLT),
+   thông tin lỗi và quy trình kiểm tra/chạy lại. Chỉ bỏ qua message ở topic gốc
+   sau khi lưu chuyển sang DLT thành công; lỗi gửi DLT cũng phải được retry.
+3. Khi replay cùng sự kiện, giữ `eventId`; consumer đã thành công sẽ bỏ qua. Nếu
+   sửa payload để phát sự kiện thay thế, cấp `eventId` mới, giữ dấu liên hệ với
+   sự kiện lỗi và tuân thủ phiên bản do service sở hữu dữ liệu quyết định.
+4. Thêm thao tác khóa/mở Account có phân quyền tại Auth; cập nhật `is_active`, tăng
+   phiên bản và ghi Outbox `AccountStatusChanged` cùng transaction. Không coi cập
+   nhật SQL thủ công là đã phát sự kiện. Xác minh sự kiện `ACTIVE` cũ không ghi đè
+   `DISABLED` mới.
+5. Thêm job đối soát yêu cầu `PENDING` và tài khoản cũ. Auth tra cứu kết quả theo
+   `requestId` và xuất `AccountSnapshot` có phiên bản từ database của mình qua kênh
+   nội bộ được kiểm soát; Employee áp dụng bản sao. Không cần nạp toàn bộ ID nhân
+   viên sang Auth trước khi cấp tài khoản; không đọc bảng xuyên service.
+6. Với dữ liệu cũ chưa có version, khởi tạo version trong transaction tại nguồn.
+   Snapshot đọc trạng thái/version nhất quán; nếu sự kiện mới đến trước snapshot
+   cũ thì consumer bỏ qua snapshot cũ. Khi dữ liệu đích sai nhưng version bằng nhau,
+   dùng quy trình sửa có kiểm soát từ nguồn với version mới, không mở quyền ghi đè
+   tùy ý mọi message cùng version.
+7. Đối soát cả nhân viên không có Account: chỉ đặt `NOT_CREATED` khi Auth xác nhận
+   đã kiểm tra đầy đủ nhân viên đó bằng snapshot có phiên bản. Không suy ra việc
+   chưa có Account chỉ từ việc chưa nhận sự kiện hoặc một trang kết quả bị thiếu.
+8. Nếu mở rộng điều kiện cấp tài khoản theo trạng thái làm việc, kiểm tra tại
+   Employee khi nhận yêu cầu và chốt cách xử lý khi nhân viên nghỉ việc lúc yêu cầu
+   đang chờ. Bổ sung sự kiện vòng đời/hủy yêu cầu nếu cần; không giả định request
+   cũ tự bị hủy hoặc Auth tự biết trạng thái nhân viên mới nhất.
+
+**Hoàn thành khi:** đã kiểm chứng crash sau commit nhưng trước ack, message trùng/sai
+thứ tự, broker hoặc consumer dừng, payload lỗi và replay. Dữ liệu seed/cũ được đối
+soát; có báo cáo các ID không khớp và yêu cầu tồn đọng cần xử lý. Replay không tạo
+thêm Account, mở lại Account bị khóa hoặc ghi đè kết quả của yêu cầu khác.
+
+<a id="events-phase-5--kiểm-chứng-trên-staging"></a>
+
+#### Phase 5 — Kiểm chứng trên staging
+
+**Phạm vi:** chứng minh các yêu cầu production bằng môi trường tương đương.
+
+1. Dùng PostgreSQL và Kafka thật trong kiểm thử tích hợp tầng service. Chạy nhiều
+   instance producer/consumer, kiểm chứng cạnh tranh worker và consumer rebalance.
+   H2 hoặc mock không đủ để kết luận về khóa PostgreSQL hay mất kết nối Kafka.
+2. Chốt tải dự kiến, độ trễ đồng bộ chấp nhận được, thời gian gián đoạn cần chịu và
+   thời gian phục hồi; ghi giá trị đo được cùng điều kiện thử. Retention Kafka và
+   thời gian giữ Outbox/dấu chống trùng phải phù hợp, không xóa dữ liệu còn cần replay.
+3. Thêm metric và cảnh báo cho tuổi bản ghi Outbox chưa gửi, số lần retry, consumer
+   lag, DLT, yêu cầu `PENDING` quá lâu và thời gian xử lý. Log có `eventId`,
+   `requestId`, `correlationId`, `employeeId`, không có mật khẩu/token.
+4. Hoàn thiện phân quyền API theo role và phạm vi dữ liệu tại các service. Các bộ
+   đếm chống brute-force cần dùng chung khi Auth chạy nhiều instance; kiểm chứng
+   việc nhận IP client đúng khi chạy sau reverse proxy đáng tin cậy.
+5. Tách credential từng service, giới hạn quyền đọc/ghi topic và group bằng ACL,
+   bật TLS/xác thực và bảo vệ khóa JWT. Kiểm chứng client không có quyền bị từ chối.
+6. Chốt yêu cầu thu hồi quyền: JWT hợp lệ và bản sao `accountStatus` không bảo đảm
+   khóa ngay. Nếu cần chặn ngay, thiết kế cơ chế kiểm tra/thu hồi riêng và đo độ trễ;
+   nếu chấp nhận độ trễ thì ghi rõ giới hạn đó. Không dùng bản sao trạng thái để
+   phân quyền khi chưa có chính sách về độ trễ và đối soát.
+7. Thử nâng cấp schema/event tương thích ngược, rollback ứng dụng, backup/restore
+   database và đối soát sau phục hồi. Không xóa topic/reset offset để chữa lỗi tùy tiện.
+
+**Hoàn thành khi:** có kết quả kiểm chứng đáp ứng tải, độ trễ, phục hồi và bảo mật
+đã chốt; người vận hành thực hiện được quy trình DLT, replay và đối soát. Còn các
+tiêu chí này chưa đạt thì chưa chuyển sang production.
+
+<a id="events-phase-6--rollout-và-vận-hành-production"></a>
+
+#### Phase 6 — Rollout và vận hành production
+
+**Phạm vi:** triển khai có kiểm soát, giữ khả năng phục hồi.
+
+1. Chọn cụm Kafka hoặc dịch vụ quản lý đáp ứng yêu cầu sẵn sàng. Cấu hình tham khảo
+   cho cụm đủ broker: replication factor 3, `min.insync.replicas=2`, producer
+   `acks=all`; khi không đủ replica đồng bộ, chấp nhận tạm dừng ghi và giữ Outbox.
+   Cần bố trí replica giữa các miền lỗi; cấu hình local một broker không đạt mục
+   tiêu này. Đối chiếu [Apache Kafka broker configs](https://kafka.apache.org/38/configuration/broker-configs/).
+2. Triển khai migration bổ sung tương thích với bản ứng dụng cũ; sau đó consumer
+   hiểu hợp đồng mới, rồi producer/worker. Chuẩn bị topic/group và quyền truy cập,
+   đối soát dữ liệu cũ; chỉ bật API yêu cầu mới khi cả hai chiều và luồng kích hoạt
+   sẵn sàng. Kiểm soát đường `/register` cũ để không bỏ qua Outbox/chính sách mới.
+3. Rollout theo nhóm instance hoặc phạm vi người dùng, kiểm tra lỗi API, Outbox,
+   DLT và độ trễ cập nhật `accountStatus`; chỉ mở rộng khi đạt tiêu chí phase 5.
+4. Khi cần rollback, dừng thành phần lỗi và giữ dữ liệu Outbox/topic/version để
+   phục hồi. Bản rollback phải hiểu schema/event đang tồn tại; không đưa bản Auth
+   cũ không ghi Outbox trở lại đường ghi Account mà không tạm dừng thao tác hoặc
+   có cơ chế bù dữ liệu đã được kiểm chứng.
+5. Phân công người nhận cảnh báo, lịch dọn dữ liệu theo retention, kiểm tra backup,
+   diễn tập phục hồi và kiểm soát thay khóa/credential. Mở rộng partition/broker
+   dựa trên số liệu tải; kiểm chứng lại thứ tự/phiên bản khi đổi cấu hình.
+
+**Hoàn thành khi:** luồng thực tế chạy qua cả hai chiều; số liệu trong giai đoạn
+quan sát đạt yêu cầu đã chốt; người vận hành có runbook và thực hiện được phục hồi.
+Hoàn thành phase này không thay thế việc theo dõi và bảo trì sau triển khai.
+
+<a id="events-11-chiến-lược-kiểm-thử"></a>
+
+### 11. Chiến lược kiểm thử
+
+Theo yêu cầu dự án, tập trung **test service**, không thêm test controller cho
+lộ trình này. Giữ các test hiện có; không xóa chúng chỉ vì đổi trọng tâm kiểm thử.
+
+| Nhóm kiểm thử | Nội dung |
+|---|---|
+| Service nghiệp vụ | Phân quyền qua proxy, xác minh nhân viên, idempotency HTTP/request, tạo Account chờ kích hoạt, lỗi trùng |
+| Transaction với PostgreSQL | Dữ liệu + Outbox cùng commit/rollback, unique constraint, khóa/phiên bản và cạnh tranh cập nhật |
+| Service xử lý sự kiện | Validate payload, chống trùng event/request, kết quả cũ, version cũ, mapping đúng request/employee |
+| Tích hợp Kafka | Gửi/nhận qua broker, offset sau commit, retry, DLT, restart và rebalance |
+| Job đồng bộ | Backfill/snapshot theo trang, chạy lại, cạnh tranh với sự kiện mới, đối soát dữ liệu cũ |
+
+Kafka listener chỉ giải mã/định tuyến và gọi service xử lý; business logic nằm
+trong service để kiểm thử độc lập. Mock hữu ích cho lỗi có chủ đích, nhưng các cam
+kết về transaction, offset và cạnh tranh phải có bằng chứng trên database/broker thật.
+
+Outbox tiếp tục là lựa chọn của thiết kế này: đồng bộ transaction database và Kafka
+không tự tạo một transaction nguyên tử xuyên hai hệ thống; lỗi commit phía sau vẫn
+cần xử lý. Xem [Spring Kafka transactions](https://docs.spring.io/spring-kafka/reference/4.2/kafka/transactions.html).
+
+<a id="events-12-điểm-bắt-đầu-và-phạm-vi-từng-đợt"></a>
+
+### 12. Điểm bắt đầu và phạm vi từng đợt
+
+- **Đợt đầu: phase 0–1.** Hoàn thiện hợp đồng, lỗi nghiệp vụ và hạ tầng local.
+- **Đợt MVP: phase 2–3.** `EmployeeAccountRequested`, `AccountCreated`,
+  `AccountCreationFailed` và cập nhật sau kích hoạt; tạo Employee trước, yêu cầu
+  cấp Account tại Employee sau bằng `employeeId`.
+- **Đợt củng cố: phase 4.** `AccountStatusChanged`, phục hồi lỗi và dữ liệu cũ.
+- **Đợt đưa vào sử dụng: phase 5–6.** Kiểm chứng staging rồi rollout production.
+
+Không đưa Payroll, Leave hoặc workflow/Saga vào đợt MVP. Luồng thiết lập mật khẩu/
+kích hoạt tối thiểu là điều kiện để tài khoản được cấp có thể sử dụng an toàn;
+không trì hoãn nó rồi dùng mật khẩu chung. Chỉ mở rộng sau khi flow hai service
+đã đạt tiêu chí của phase tương ứng.
+
+<a id="kafka"></a>
+
+## Kafka local cho HRM
+
+Kafka local và hai service đã có luồng Employee gửi `EmployeeAccountRequested`,
+Auth tạo Account rồi trả `AccountCreated` / `AccountCreationFailed`.
+Xem [schema, cách bật và ví dụ API](back-end/modules/employee-service/README.md#provisioning).
+Luồng tạo tài khoản và [email đặt mật khẩu/kích hoạt qua Resend](back-end/modules/auth-service-main/README.md#activation) đã có.
+
+Ngoài provisioning Auth–Employee, Leave/Attendance đã có outbox cho Notification. Bộ `kafka-init` hiện chỉ tạo năm topic liệt kê bên dưới, **chưa tạo** `hrm.requests.notifications.v1`; tạo riêng và bật `HRM_NOTIFICATIONS_ENABLED` theo [Notification](back-end/modules/notification-service/README.md).
+
+<a id="kafka-1-khởi-chạy"></a>
+
+### 1. Khởi chạy
+
+Cần Docker Engine và Docker Compose v2 trở lên. Chạy các lệnh sau từ thư mục
+`back-end/modules`:
+
+```bash
+docker compose -f infra/kafka/compose.yaml up -d
+docker compose -f infra/kafka/compose.yaml ps -a
+docker compose -f infra/kafka/compose.yaml logs kafka-init
 ```
 
-Nên phân biệt:
+Kết quả đúng: `kafka` ở trạng thái `healthy`, `kafka-init` kết thúc với `Exited (0)`.
+Init chỉ chạy tạo topic, nên kết thúc là bình thường. Lệnh `up -d` có thể trả về
+trước khi init hoàn tất; kiểm tra trạng thái này trước khi chạy smoke test.
+Có thể chạy lại init bằng `docker compose -f infra/kafka/compose.yaml run --rm kafka-init`.
+Topic đã tồn tại sẽ được giữ nguyên; init không sửa cấu hình topic cũ.
 
-```text
-User
-    └── Account / Authentication
+| Thành phần | Cấu hình local |
+|---|---|
+| Image | `apache/kafka:4.1.2` |
+| Chế độ | KRaft, một node broker/controller, không cần ZooKeeper |
+| Service chạy trên máy host/IDE | `localhost:9092` |
+| Client cùng Docker network `hrm-kafka_default` | `kafka:19092` |
+| Lưu dữ liệu | Named volume `hrm-kafka_kafka-data` |
+| Topic | Một partition, replication factor 1, retention 7 ngày |
 
-Employee
-    └── HR Profile
+Cổng host chỉ bind `127.0.0.1`. Nếu sau này chạy service trong container, phải nối
+vào cùng network và đặt `KAFKA_BOOTSTRAP_SERVERS=kafka:19092`; `localhost` trong
+container trỏ về chính container đó.
+
+<a id="kafka-2-topic-và-service"></a>
+
+### 2. Topic và service
+
+| Topic | Message | Producer | Consumer group |
+|---|---|---|---|
+| `hrm.employee.account-requests.v1` | `EmployeeAccountRequested` | Employee | Auth: `auth-account-requests-v1` |
+| `hrm.auth.account-results.v1` | `AccountCreated`, `AccountCreationFailed` | Auth | Employee: `employee-account-results-v1` |
+| `hrm.employee.lifecycle.v1` | Dành cho mở rộng vòng đời nhân viên | Chưa dùng | Chưa có |
+| `hrm.auth.account-lifecycle.v1` | `AccountStatusChanged` sau kích hoạt | Auth | Employee: `employee-account-lifecycle-v1` |
+| `hrm.local.smoke.v1` | Message thử kết nối | Smoke test | Group thử riêng |
+
+Hai service có `spring-boot-starter-kafka` và cấu hình `application.yaml`:
+
+- `KAFKA_BOOTSTRAP_SERVERS`: mặc định `localhost:9092`.
+- `HRM_EVENTS_ENABLED`: Auth mặc định `false`, Employee mặc định `true`; cấu hình rõ cả hai sau khi tạo schema đầy đủ và Kafka topics để worker/listener chạy.
+- Listener dùng `hrm.events.request-group` / `result-group` riêng, không dùng một
+  group chung giữa Auth và Employee; topic cũng cấu hình qua `hrm.events.*`.
+- Producer String key/value, `acks=all`, idempotence, giới hạn thời gian chờ gửi.
+- Consumer tắt auto commit, đọc `earliest` khi chưa có offset, ack từng record sau
+  khi transaction nghiệp vụ hoàn tất. Hiện lỗi được retry vô hạn, chưa có DLT.
+- Broker/consumer tắt tự tạo topic. Outbox giữ sự kiện đã commit và retry khi broker lỗi.
+
+Flow cấp tài khoản dùng `EmployeeAccountRequested`. Không gửi payload thử vào
+topic nghiệp vụ. Idempotence producer không thay
+thế Outbox hoặc chống trùng event/request ở consumer.
+
+<a id="kafka-3-kiểm-tra-kết-nối-từ-cả-hai-service"></a>
+
+### 3. Kiểm tra kết nối từ cả hai service
+
+Cần JDK 21. Các test dưới đây khởi tạo riêng phần Kafka của Spring bằng cấu hình
+thật trong `src/main/resources/application.yaml`, không khởi tạo controller,
+database hoặc JWT. Mỗi service gửi rồi đọc lại message với marker riêng trên topic
+smoke; không ghi dữ liệu thử vào topic nghiệp vụ.
+
+```bash
+(cd auth-service-main && KAFKA_SMOKE_TEST=true ./mvnw -Dtest=KafkaConnectionTests test)
+(cd employee-service && KAFKA_SMOKE_TEST=true ./mvnw -Dtest=KafkaConnectionTests test)
 ```
 
-Một Employee có thể có hoặc chưa có User account.
+Test này mặc định được bỏ qua khi chạy `./mvnw test`; chỉ bật khi broker local và
+topic đã sẵn sàng. Các lần chạy dùng group thử riêng, không commit offset của
+consumer nghiệp vụ.
 
-### Hiện trạng
+Xem topic:
 
-`users.employee_id` tại Auth bắt buộc và duy nhất: mỗi UUID nhân viên có tối đa một tài khoản, kể cả tài khoản quản trị. Đây là liên kết logic giữa hai database, không có foreign key xác minh hồ sơ tại Employee. Auth nhận/trả `employeeId` qua API và đưa `employee_id` vào access JWT; `sub` vẫn là ID tài khoản.
-
-Employee hiện lưu:
-
-- UUID `id`, `employeeCode`, `firstName`, `lastName`, email, điện thoại, ngày sinh và ngày vào làm.
-- Phòng ban, chức danh, quản lý trực tiếp; có kiểm tra vòng lặp quan hệ quản lý.
-- Trạng thái làm việc: `ACTIVE`, `INACTIVE`, `PROBATION`, `RESIGNED`, `TERMINATED`.
-- Trạng thái tài khoản đồng bộ: `NOT_CREATED`, `PENDING_ACTIVATION`, `ACTIVE`, `DISABLED`.
-- Thời điểm tạo/cập nhật. Đây chưa phải lịch sử thay đổi nghiệp vụ đầy đủ.
-
-Chưa có ngày nghỉ việc, hợp đồng, lịch sử điều chuyển có ngày hiệu lực hoặc hồ sơ cá nhân mở rộng. Trạng thái yêu cầu cấp tài khoản (`PENDING`, `SUCCEEDED`, `FAILED`) độc lập với trạng thái làm việc và trạng thái tài khoản.
-
-### Mã nhân viên — thiết kế tiếp theo, chưa triển khai tự cấp
-
-Hiện `employeeCode` được nhập trong form và gửi qua API tạo/sửa, có ràng buộc không rỗng và duy nhất. Thiết kế tiếp theo là backend tự cấp `NV` + số thứ tự tối thiểu 6 chữ số, ví dụ `NV000123`:
-
-- Dùng PostgreSQL sequence, không dùng `COUNT(*) + 1` hoặc `MAX(...) + 1` khi tạo hồ sơ. Giữ unique constraint và chấp nhận nhảy số khi transaction thất bại.
-- Không reset theo năm/phòng ban, không tái sử dụng mã người đã nghỉ. Số lớn hơn 6 chữ số vẫn được giữ đầy đủ.
-- Cấp khi lưu hồ sơ; chỉ trả mã đã cấp sau khi transaction thành công. Form tạo thông báo tự cấp, form sửa hiển thị chỉ đọc. Backend không nhận mã tùy ý trong dữ liệu tạo/sửa sau khi chuyển đổi contract.
-- Giữ mã ổn định khi đổi tên, điện thoại hoặc công việc. Dùng để hiển thị, tìm kiếm và đối chiếu báo cáo; liên kết dữ liệu vẫn dùng UUID.
-- Trước khi chuyển đổi, giữ các mã cũ và khởi tạo sequence cao hơn phần số lớn nhất của mã hiện có dạng `NV` + số. Cần kiểm tra dữ liệu và migration riêng; hiện chưa có sequence này.
-
-### Hồ sơ nhân sự mở rộng — roadmap
-
-Không đưa toàn bộ dữ liệu HR vào một bảng `employees`. Tổ chức theo nhóm thông tin và vòng đời dữ liệu:
-
-| Nhóm | Phạm vi dự kiến |
-| --- | --- |
-| Cá nhân và liên hệ | Ảnh, tên thường dùng, email cá nhân, địa chỉ, liên hệ khẩn cấp |
-| Công việc | Địa điểm, loại hình làm việc, cấp bậc, thử việc/chính thức, ngày nghỉ việc |
-| Lịch sử công việc | Điều chuyển, thăng chức, thay quản lý với ngày hiệu lực và người thực hiện |
-| Hợp đồng | Nhiều hợp đồng/phụ lục, thời hạn và tài liệu đi kèm |
-| Hành chính | Giấy tờ định danh, thông tin thuế/bảo hiểm, người phụ thuộc theo nhu cầu |
-| Trình độ và tài liệu | Học vấn, kỹ năng, chứng chỉ, CV và tài liệu nhân sự |
-| Lương và thanh toán | Tài khoản ngân hàng, thành phần lương và lịch sử điều chỉnh; phân quyền riêng |
-| Nghiệp vụ liên quan | Chấm công, phân ca, nghỉ phép, tăng ca thuộc module sở hữu tương ứng |
-
-Thông tin hiện tại, danh sách nhiều bản ghi và lịch sử có ngày hiệu lực cần mô hình riêng. Ví dụ chuyển phòng ban ngày 01/10 không làm mất thông tin phòng ban áp dụng trong tháng 9. Giao diện có thể chia tab Tổng quan, Cá nhân, Công việc, Hợp đồng, Tài liệu, Công/Phép, Lương và Lịch sử theo quyền và tính năng đã triển khai.
-
-Đối với Attendance MVP, bổ sung dữ liệu phục vụ công trước: ngày vào/nghỉ, phạm vi quản lý, địa điểm và phân ca. Check-in trực tiếp phải xác minh Employee đang đủ điều kiện làm việc; HR có thể ghi nhận thủ công cho Employee không có tài khoản với phân quyền và audit tương ứng. Đây là yêu cầu tương lai, chưa được bảo đảm chỉ bằng JWT hiện tại.
-
----
-
-## 7. Leave Management
-
-### Đã triển khai
-
-`leave-service` (`:8084`) sở hữu `leave_db`. Nhân viên gửi form tại `/leave` gồm loại nghỉ (`ANNUAL`, `UNPAID`), ngày bắt đầu/kết thúc và lý do riêng (việc cá nhân, khám bệnh…). Danh tính lấy từ JWT; đơn được lưu `PENDING` và xuất hiện tại `/leave/inbox` cho HR/ADMIN.
-
-HR/ADMIN duyệt hoặc từ chối (bắt buộc lý do khi từ chối), nhưng không tự xử lý đơn của mình. Nhân viên chỉ xem đơn/lịch sử của mình và được rút đơn đang chờ. Chi tiết tại `/leave/requests/:id`; backend thực thi quyền độc lập với giao diện. Vòng đời: `PENDING → APPROVED / REJECTED / CANCELLED`.
-
-Leave hỗ trợ nghỉ cả/nửa ngày, phép năm và không lương, từ hôm nay theo `Asia/Ho_Chi_Minh`, tối đa 366 ngày lịch. Chặn đơn chờ/đã duyệt trùng buổi; thao tác dùng `If-Match` và audit cùng transaction. Có sổ số dư phép năm; Attendance đọc coverage qua REST. Chưa có email thông báo, đồng bộ Kafka hoặc tự cập nhật ngày công đã snapshot. Xem README Leave cho quy tắc ngày lịch và số dư cụ thể.
-
-### Phần mở rộng
-
-Release Leave đầy đủ cần bổ sung chính sách và tích hợp:
-
-- Company holiday
-- Employee leave request
-- Leave approval
-- Leave rejection
-- Leave balance
-- Leave type
-
-Ví dụ:
-
-```text
-ANNUAL
-UNPAID
+```bash
+docker compose -f infra/kafka/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
 ```
 
-Cần phân biệt:
+Sau khi chạy smoke test, kiểm tra lưu dữ liệu qua restart:
 
-```text
-Company Holiday
+```bash
+docker compose -f infra/kafka/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 \
+  --topic hrm.local.smoke.v1 --partition 0 --offset earliest \
+  --max-messages 1 --timeout-ms 15000
+
+docker compose -f infra/kafka/compose.yaml restart kafka
+docker compose -f infra/kafka/compose.yaml up -d --wait kafka
+
+docker compose -f infra/kafka/compose.yaml exec -T kafka \
+  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 \
+  --topic hrm.local.smoke.v1 --partition 0 --offset earliest \
+  --max-messages 1 --timeout-ms 15000
 ```
 
-với:
+Hai lần phải in cùng message đầu tiên (thực hiện liên tiếp, trước khi hết retention).
+Kiểm tra này xác nhận việc lưu dữ liệu qua restart, chưa chứng minh khả năng chịu
+lỗi khi mất ổ đĩa hoặc mất máy.
 
-```text
-Employee Leave
+<a id="kafka-4-dừng-và-xem-log"></a>
+
+### 4. Dừng và xem log
+
+```bash
+docker compose -f infra/kafka/compose.yaml logs --tail 100 kafka
+docker compose -f infra/kafka/compose.yaml down
 ```
 
-Company Holiday là ngày nghỉ chung của công ty.
+`down` giữ volume; chạy lại `up -d` sẽ sử dụng dữ liệu cũ. Không thêm `-v` nếu muốn
+giữ dữ liệu: `down -v` xóa volume, toàn bộ message và consumer offset của cụm local.
+Không đổi `CLUSTER_ID` khi tái sử dụng volume đã format.
 
-Employee Leave là ngày nghỉ do một nhân viên đăng ký.
+Nếu không kết nối được: kiểm tra broker healthy, init exit code 0, cổng 9092 còn
+trống và bootstrap address đúng theo nơi chạy client. Bootstrap thành công chưa
+đủ nếu advertised listener trỏ tới địa chỉ client không truy cập được.
 
-`COMPANY_HOLIDAY` không phải leave type và không tạo đơn nghỉ phép cho từng nhân viên. Holiday thuộc lịch công ty/địa điểm; Leave tham chiếu lịch đó khi tính thời lượng nghỉ.
+<a id="kafka-5-phạm-vi-production"></a>
 
-Khi mở rộng Leave cần hoàn thiện:
+### 5. Phạm vi production
 
-- Mở rộng vòng đời hiện có khi cần thay đổi/hủy đơn đã duyệt, kèm kiểm soát ảnh hưởng số dư và công.
-- Người duyệt theo quan hệ quản lý, cơ chế bàn giao khi đổi quản lý và quy tắc không tự duyệt.
-- Tính phép theo phần thời gian làm việc đã lên lịch; loại trừ ngày lễ, ngày nghỉ và giờ nghỉ giữa ca, xử lý nghỉ nửa ngày/theo giờ và đơn chồng lấn.
-- Sổ biến động phép để audit việc cấp, trừ, hoàn và điều chỉnh phép; số dư là dữ liệu tổng hợp. Duyệt/hủy và cập nhật phép phải atomic, idempotent, không trừ hoặc hoàn hai lần.
-- Nghỉ được duyệt cập nhật đánh giá công nhưng không xóa event chấm công thực tế.
+Compose này dùng PLAINTEXT và một broker, chỉ dành cho local. Trước production,
+thực hiện các phase staging/production trong tài liệu chính: TLS/SASL, ACL theo
+service/topic, nhiều broker và quorum phù hợp, replication/ISR, giám sát, backup
+và quy trình khôi phục. `acks=all` với một replica vẫn chỉ lưu trên một broker.
 
----
-
-## 8. Company Calendar
-
-### Đã triển khai
-
-Calendar Service sở hữu `calendar_db`, gồm `calendar_events` và `calendar_event_audit`. Dữ liệu lịch đến từ PostgreSQL; frontend không dùng JSON mẫu. Phạm vi hiện tại là một công ty, timezone `Asia/Ho_Chi_Minh`, audience `ALL`.
-
-- Nhân viên xem lịch tại `/calendar` qua `EventCalendarView.vue`. `GET /api/v1/calendar?year=...` đi qua Gateway, yêu cầu Bearer access JWT và trả các sự kiện `PUBLISHED`/`CANCELLED` có audience `ALL` giao với năm được chọn. Response gồm `year`, `availableYears`, `events`; database chưa có sự kiện phù hợp thì trả danh sách rỗng.
-- HR/ADMIN quản lý tại `/calendar-events`, tạo tại `/calendar-events/new` và xem/sửa chi tiết tại `/calendar-events/:id`. Backend kiểm tra cùng quyền tại `/api/v1/calendar-events`, gồm danh sách phân trang, chi tiết, tạo, sửa, xóa nháp, công bố và hủy.
-- Hỗ trợ `HOLIDAY`, `COMPANY_MEAL`, `TEAM_BUILDING`, `TRAINING`, `MEETING`, `COMPANY_EVENT`, `OTHER`. Holiday luôn là sự kiện cả ngày, gồm `PUBLIC_HOLIDAY`, `COMPANY_DAY_OFF`, `SUBSTITUTE_DAY_OFF`; các sự kiện khác có thể cả ngày hoặc có giờ.
-- Vòng đời là `DRAFT → PUBLISHED → CANCELLED`; chỉ bản nháp được xóa vật lý. Sửa/hủy sự kiện đã công bố cần lý do và chỉ được thực hiện trước khi sự kiện bắt đầu. Sự kiện bị hủy vẫn hiển thị trạng thái để nhân viên biết thay đổi.
-- Các thao tác sửa/xóa/công bố/hủy yêu cầu `If-Match` theo version, kết hợp optimistic locking. Mỗi thay đổi ghi audit trong cùng transaction; chưa có API/giao diện đọc audit.
-
-Frontend tách lời gọi API trong `src/calendar/api.js`, xử lý form quản trị trong `management.js`, nhãn trong `constants.js` và xử lý ngày trong `utils.js`. Health trực tiếp của Calendar tại `/actuator/health` công khai; đường `/api/v1/calendar/health-check` qua Gateway yêu cầu access token.
-
-### Phần mở rộng theo roadmap
-
-Calendar chưa có audience theo phòng ban/nhân viên, sự kiện lặp, nhắc lịch hoặc tích hợp Leave/tính công. Đơn nghỉ cá nhân thuộc Leave Service; số dư phép chưa triển khai. Holiday hiện được HR/ADMIN nhập và công bố, chưa tự suy ra ngày nghỉ bù hay lịch năm sau; không tự tạo đơn nghỉ hoặc trừ phép.
-
-Calendar tổng hợp trong tương lai cần hiển thị:
-
-- Company holidays
-- Working days
-- Employee leave
-- Shift
-- Overtime
-- Các event liên quan đến HR
-
-Ví dụ:
-
-```text
-Company Calendar
-├── Holiday
-├── Working Day
-├── Leave
-├── Shift
-└── Overtime
-```
-
-Lịch ngày nghỉ/sự kiện công ty đã có; phần tổng hợp ca làm việc, nghỉ phép và overtime thuộc release Leave/Calendar. Attendance MVP cần bổ sung lịch làm việc cá nhân. Khi tích hợp Leave, Calendar dùng chung chỉ hiển thị thông tin nghỉ cần thiết theo quyền; lý do nghỉ và tài liệu đính kèm không công khai cho toàn công ty.
-
----
-
-## 9. Work Shift
-
-Shift được triển khai trong Attendance, có API/UI quản lý mẫu ca và phân công.
-
-Thiết kế chung tại [Attendance Design](back-end/modules/ATTENDANCE-DESIGN.md):
-`attendance-service` Java 21/JPA sở hữu lịch/ca và công, đã hỗ trợ `FIXED_SHIFT` (giờ cố
-định, kể cả part-time); thiết kế dự kiến mở rộng `FLEXIBLE_DURATION` (đủ thời lượng ngày). Hiện
-bật ca cố định do HR/Admin quản lý, có thể tùy chỉnh giờ và áp dụng toàn bộ
-hoặc một/vài nhân viên theo ngày hiệu lực. `FLEXIBLE_DURATION` để giai đoạn sau,
-thuộc nhóm tính năng nâng cao mặc định ẩn, chỉ ADMIN được mở khóa khi đã triển
-khai đầy đủ; hiện chưa có chức năng mở khóa. Leave tiếp tục sở hữu đơn và số dư
-phép theo ngày.
-
-Ca mặc định ban đầu (có thể chỉnh sửa):
-
-```text
-Company Default Shift
-Morning: 08:00 → 12:00
-Afternoon: 13:30 → 17:30
-Break: 12:00 → 13:30
-Required Work: 8 hours
-Late / Early Rounding: ceil to 15 minutes
-Grace Period: 0 minutes
-```
-
-Không hard-code giờ làm việc trong Attendance Service.
-
-Attendance phải lấy rule từ Shift / Work Schedule.
-
-Ví dụ:
-
-```text
-Employee
-    ↓
-Work Schedule
-    ↓
-Shift
-    ↓
-Attendance
-```
-
-Điều này cho phép hỗ trợ nhiều ca làm việc trong tương lai.
-
-### Quy tắc lịch và tính công cho v0.1
-
-- Phân biệt mẫu ca (`work_shifts`), lịch làm việc (`work_schedules`) và ca đã phân công cho một nhân viên/ngày (`work_schedule_assignments`).
-- Mỗi nhân viên có tối đa một ca được phân công trong một ngày công. MVP chỉ chấp nhận ca bắt đầu và kết thúc trong cùng ngày địa phương; từ chối cấu hình ca qua đêm hoặc nhiều ca/ngày bằng validation rõ ràng.
-- Lưu thời điểm bắt đầu/kết thúc, timezone, giờ nghỉ cố định và grace period trong snapshot ca được phân công. HR có thể đánh dấu ngày không làm việc/ngày ngoại lệ trước khi tích hợp Holiday từ Calendar vào lịch phân ca.
-- Mỗi ca có cửa sổ check-in/check-out cấu hình rõ, nằm trong ngày công ở MVP và bao phủ thời gian ca. Ngoài cửa sổ hoặc không có ca thì từ chối thao tác trực tiếp; HR xử lý bằng correction. Không đặt giới hạn cửa sổ ngầm trong code.
-- Phiên chuyển `NOT_STARTED → OPEN → CLOSED`. Không check-out khi chưa có check-in; không tạo phiên thứ hai cho cùng ca trong MVP. Retry cùng request không tạo thêm event.
-- Qua hạn check-out mà phiên còn mở thì đánh dấu `MISSING_CHECK_OUT`; không tự tạo check-out ở giờ kết thúc ca và không cộng thời gian vô hạn. Lần chấm công ngày sau không được tự ghép vào phiên cũ.
-- Với ca cố định, xét đi trễ/về sớm theo phần ca phải làm; làm tròn lên riêng mỗi loại theo bước 15 phút để tính công. Chính sách hiện tại không có khoảng miễn trễ: trễ 5 phút tính 15 phút. Giữ nguyên event thực tế, lưu riêng thời lượng quy đổi. Lịch linh hoạt ở phần mở rộng xét đủ thời lượng ngày, không gắn cờ đi trễ/về sớm.
-- Thời lượng có mặt hợp lệ là khoảng check-in/check-out sau khi trừ phần giao với giờ nghỉ không tính công; khoảng không hợp lệ phải báo lỗi. Lưu riêng phần giao với giờ làm việc theo lịch; thời gian ngoài lịch chưa được tự công nhận là overtime hoặc dùng tính lương.
-- Chưa đủ cặp vào/ra thì thời lượng ở trạng thái chưa xác định, không hiển thị như 0 giờ đã chốt. Không có event sau khi hết ca được đánh dấu `NO_RECORD`, chưa tự kết luận nghỉ không phép khi chưa tích hợp dữ liệu Leave.
-
-Ca qua đêm, nhiều ca/ngày, nhiều phiên vào/ra và nghỉ giữa ca theo event thuộc v0.2. Rule chấm công phải được mở rộng trước khi bật các kiểu lịch đó.
-
----
-
-## 10. Device Integration
-
-Khi tích hợp thiết bị chấm công, không đưa logic vendor trực tiếp vào Attendance domain.
-
-Thiết kế theo adapter/integration:
-
-```text
-integration/
-├── wifi/
-├── rfid/
-├── fingerprint/
-├── face/
-└── vendors/
-```
-
-Ví dụ:
-
-```text
-Fingerprint Device
-        ↓
-Vendor Adapter
-        ↓
-Device Event
-        ↓
-Attendance Service
-        ↓
-Attendance Event
-```
-
-Nếu sau này đổi nhà cung cấp thiết bị, chỉ cần thay đổi adapter/integration tương ứng.
-
-Corporate network dự kiến triển khai trong v0.1. RFID/fingerprint/face/vendor integration thuộc release riêng. Khi tích hợp thiết bị, cần xác thực nguồn gửi, ánh xạ employee/device, chống trùng theo `(provider, device_id, provider_event_id)`, xử lý event đến muộn/sai thứ tự và đồng hồ thiết bị lệch. Event chưa ánh xạ hoặc chưa hợp lệ phải được giữ để đối soát, không âm thầm bỏ hoặc tính công ngay.
-
----
-
-## 11. Database
-
-### Database hiện tại
-
-Auth, Employee và Calendar dùng PostgreSQL với Hibernate `ddl-auto: validate`; Leave dùng PostgreSQL/JDBC và transaction cục bộ. Schema được chuẩn bị bằng SQL trong `docs/sql` của từng service; chưa tích hợp Flyway/Liquibase. Script `CREATE TABLE IF NOT EXISTS` không thay thế migration nâng cấp bảng đã tồn tại.
-
-| Database | Bảng đang có |
-| --- | --- |
-| `auth_db` | `users`, `user_roles`, `refresh_sessions`, `account_provisioning_results`, `account_link_versions`, `event_outbox`, `account_activation_tokens`, `activation_mail_outbox` |
-| `employee_db` | `employees`, `departments`, `positions`, `account_provisioning_requests`, `provisioning_processed_events`, `employee_account_versions`, `event_outbox` |
-| `calendar_db` | `calendar_events`, `calendar_event_audit` (Compose triển khai dùng tên `workforce_db`) |
-| `leave_db` | `leave_requests`, `leave_request_history`, `leave_request_owners` (khóa theo nhân viên để chặn gửi trùng đồng thời) |
-
-Hai bảng `event_outbox` nằm trong hai database khác nhau, mỗi service tự quản lý. Foreign key chỉ áp dụng bên trong database sở hữu; Auth lưu `employee_id` làm tham chiếu logic sang Employee.
-
-### Schema nghiệp vụ dự kiến
-
-Thiết kế database theo domain, tránh tạo một bảng khổng lồ chứa toàn bộ HRM.
-
-Ví dụ:
-
-```text
-employees
-users
-departments
-positions
-
-attendance_events
-attendance_sessions
-attendance_corrections
-attendance_daily
-
-work_shifts
-work_schedules
-work_schedule_assignments
-
-leave_types
-leave_requests
-leave_balances
-leave_balance_entries
-
-calendar_events
-calendar_event_audit
-
-devices
-device_events
-```
-
-Foreign key, unique constraint, check constraint và index phải được sử dụng phù hợp với nghiệp vụ.
-
-Không tạo index một cách máy móc.
-
-Danh sách này kết hợp schema hiện có và roadmap; `employees`, `users`, `departments`, `positions`, `calendar_events`, `calendar_event_audit`, `leave_requests`, `leave_request_history`, `leave_request_owners` đã có ở các database tương ứng. Holiday được lưu trong `calendar_events` với `type=HOLIDAY`, không có bảng `company_holidays` riêng. Các bảng ca/phân công/snapshot/sự kiện/idempotency đã có tại Attendance; Device và các bảng mở rộng vẫn thuộc roadmap. Chỉ tạo thêm bảng phục vụ release đang triển khai; cấu hình địa điểm và allowlist mạng dự kiến thuộc Attendance, phân quyền tài khoản thuộc Auth.
-
-Ràng buộc tối thiểu MVP: mã nhân viên duy nhất, liên kết User–Employee một-một khi có liên kết, một assignment cho mỗi nhân viên/ngày, một session cho mỗi assignment, một daily summary cho mỗi nhân viên/ngày, thời gian kết thúc không trước thời gian bắt đầu và khóa idempotency duy nhất trong phạm vi actor/operation. Ràng buộc một ca/ngày được thay đổi bằng migration khi triển khai v0.2.
-
----
-
-## 12. Backend
-
-Stack hiện tại trong các Maven project:
-
-- Java 21, Spring Boot 4.1.1 và Maven Wrapper riêng cho từng service.
-- Auth, Employee và Calendar dùng Spring MVC, Spring Security, Spring Data JPA/Hibernate, PostgreSQL; Gateway dùng Spring Cloud Gateway WebFlux.
-- Auth/Employee dùng Spring Kafka; outbox và các thao tác khóa/chống trùng sử dụng JDBC bên cạnh JPA. Calendar dùng REST, optimistic locking và audit trong transaction cục bộ.
-- Leave dùng Spring MVC/Security, JDBC/PostgreSQL, khóa theo nhân viên khi gửi và version khi xử lý đơn.
-- Auth dùng JJWT cho JWT; Employee, Calendar, Leave và Gateway dùng OAuth2 Resource Server/Nimbus để xác minh access token.
-- Springdoc/Swagger cho Auth/Employee/Calendar; contract Leave nằm trong README của service. Employee, Calendar, Leave và Gateway có Actuator health.
-- Test backend dùng Spring Boot Test; Auth/Employee có H2, Calendar/Leave có kiểm thử tích hợp PostgreSQL, Gateway có backend HTTP giả lập. Kafka smoke test bật riêng khi có broker local.
-
-Kafka đã phục vụ nghiệp vụ cấp tài khoản, không còn là đề xuất cho tương lai. Chưa có Redis, SQS, EventBridge hoặc công cụ migration tự động trong các service. Email activation dùng worker của Auth, chưa có Notification Service độc lập.
-
-Khi triển khai Attendance, ưu tiên transaction database cục bộ cho event/session/daily và idempotency. Không mặc định đưa đường ghi công qua Kafka chỉ vì hệ thống đã có broker. Việc chọn service chứa Attendance/Shift cần được xác định trước khi implementation, không suy ra rằng chúng đã tồn tại trong Employee.
-
----
-
-## 13. Authentication / Authorization
-
-### Đã triển khai và giới hạn hiện tại
-
-- Auth hỗ trợ login, refresh token rotation, logout/logout-all và `/me`; mật khẩu lưu bằng BCrypt. Access và refresh JWT dùng cặp khóa RSA và audience riêng.
-- Employee, Calendar, Leave và Gateway xác minh Bearer access token RS256, issuer, audience, thời hạn và các claim bắt buộc; claim `roles` được ánh xạ sang quyền Spring Security.
-- Leave cho nhân viên tạo/xem/rút đơn chờ của mình; HR/ADMIN xem hàng chờ và duyệt/từ chối, không tự duyệt. Lý do nghỉ không công khai sang lịch chung.
-- Calendar cho mọi tài khoản đã xác thực xem lịch công ty đã công bố/hủy; API quản lý và route `/calendar-events` chỉ dành cho HR/ADMIN. Gateway kiểm tra JWT, các service tiếp tục thực thi quyền nghiệp vụ.
-- API cấp tài khoản tại Employee và API gửi/đọc lời mời kích hoạt tại Auth yêu cầu HR/ADMIN. API register trực tiếp tại Auth cũng yêu cầu HR/ADMIN, nhưng trả `409` khi bật luồng cấp tài khoản qua Kafka.
-- CRUD nhân viên, phòng ban và chức danh hiện chỉ yêu cầu access token hợp lệ; chưa thực thi đầy đủ quyền HR hoặc giới hạn chỉ đọc/sửa hồ sơ của mình. Route frontend của các trang này cũng chưa giới hạn theo role.
-- Employee dùng `accountStatus` để hiển thị, chưa dùng để thu hồi quyền tại bộ lọc JWT. Logout thu hồi refresh session; access token đã phát hành có thể tiếp tục được Employee chấp nhận đến khi hết hạn. `application.yaml` của Auth hiện đặt access token `1d`, refresh token `7d`; cấu hình triển khai có thể ghi đè.
-- Chưa có đồng bộ đầy đủ việc nghỉ việc/khóa tài khoản hoặc quyền truy cập dữ liệu nhạy cảm của hồ sơ mở rộng. Các yêu cầu bên dưới là mục tiêu cần hoàn thiện trước khi dùng dữ liệu nhân sự thật.
-
-### Phân quyền nghiệp vụ cần hoàn thiện
-
-Hệ thống phải phân biệt:
-
-```text
-Authentication
-```
-
-và:
-
-```text
-Authorization
-```
-
-Các role hiện có, với phạm vi nghiệp vụ mục tiêu:
-
-```text
-EMPLOYEE
-MANAGER
-HR
-ADMIN
-```
-
-Nhưng authorization phải dựa trên nghiệp vụ thực tế.
-
-Ví dụ:
-
-Employee:
-
-```text
-View own attendance
-Create own leave request
-View company calendar
-```
-
-Manager:
-
-```text
-View team attendance
-Approve team leave
-```
-
-HR:
-
-```text
-Manage employees
-Manage attendance
-Manage leave
-Manage shifts
-```
-
-Admin:
-
-```text
-System configuration
-Device management
-Access control
-```
-
-Phạm vi dữ liệu bắt buộc khi triển khai các nghiệp vụ tương ứng:
-
-- Employee chỉ chấm công và xem dữ liệu của chính mình; backend suy ra Employee từ principal, không tin `employee_id` do client gửi để tự chấm công.
-- v0.1 Manager được xem nhân viên báo cáo trực tiếp đang thuộc phạm vi quản lý; quyền mặc định không mở rộng sang mọi phòng ban. Khi chuyển quản lý, quản lý cũ mất quyền truy cập, quản lý mới xem lịch sử của nhân viên trong phạm vi hiện tại; HR giữ quyền đối soát toàn công ty.
-- HR được quản lý công trong phạm vi công ty, nhưng không tự điều chỉnh công của mình; cần HR khác hoặc người được cấp quyền điều chỉnh độc lập. Mọi correction lưu người thực hiện, lý do và giá trị trước/sau.
-- Admin quản trị tài khoản/cấu hình; role Admin không tự cấp quyền đọc toàn bộ dữ liệu HR hoặc sửa công nếu chưa có quyền nghiệp vụ tương ứng.
-- Kiểm tra quyền ở backend cho cả API danh sách, chi tiết, export và thao tác ghi. Giao diện ẩn nút không thay thế authorization.
-- Hồ sơ cá nhân, giấy tờ, ngân hàng và lương cần quyền riêng theo nhóm thông tin; quyền quản trị tài khoản không tự cấp quyền đọc các dữ liệu này.
-- Leave đã có HR/ADMIN duyệt đơn trong phạm vi một công ty; quy tắc Manager duyệt theo nhân viên trực thuộc chưa triển khai. Không ai được tự duyệt đơn của mình.
-
----
-
-## 14. API Design
-
-### API hiện có
-
-API đang dùng prefix `/api/v1`, được định tuyến tới service sở hữu:
-
-| Service | Endpoint chính |
-| --- | --- |
-| Auth | `/api/v1/auth/login`, `/refresh`, `/logout`, `/logout-all`, `/me`, `/register` (các đường dẫn rút gọn cùng prefix `/api/v1/auth`) |
-| Auth activation | `POST /api/v1/auth/activate`; `GET/POST /api/v1/auth/activation-invitations/{employeeId}` |
-| Employee | `GET/POST /api/v1/employees`; `GET/PUT /api/v1/employees/{id}`; `PATCH /api/v1/employees/{id}/status` |
-| Danh mục tại Employee | `GET/POST /api/v1/departments`, `/api/v1/positions`; `GET/PUT` chi tiết theo `/{id}` |
-| Cấp tài khoản tại Employee | `POST /api/v1/employees/{employeeId}/account-requests`; `GET /api/v1/employees/{employeeId}/account-requests/{requestId}` |
-| Lịch công ty tại Calendar | `GET /api/v1/calendar?year=...` cho mọi tài khoản đã xác thực |
-| Quản lý sự kiện tại Calendar | `GET/POST /api/v1/calendar-events`; `GET/PUT/DELETE /api/v1/calendar-events/{id}`; `PATCH /api/v1/calendar-events/{id}/publish`, `/{id}/cancel` (cùng prefix); yêu cầu HR/ADMIN |
-
-Auth hiện dùng response theo contract riêng; Employee và Calendar dùng DTO/phân trang và Problem Detail cho lỗi. Calendar dùng `ETag`/`If-Match` để kiểm tra version khi sửa/xóa/công bố/hủy. Chưa có một response envelope thống nhất toàn bộ API. Xem OpenAPI của từng service trước khi tích hợp.
-
-Leave dùng `/api/v1/leave/requests`: `POST` gửi đơn; `GET /mine`, `/inbox`, `/{id}`, `/{id}/history`; `PATCH /{id}/approve`, `/reject`, `/cancel` (cùng prefix). Các PATCH yêu cầu `If-Match`; inbox và duyệt/từ chối chỉ cho HR/ADMIN. Xem [contract Leave](back-end/modules/leave-service/README.md).
-
-### API dự kiến cho nghiệp vụ tiếp theo
-
-API nên thiết kế theo domain.
-
-Ví dụ:
-
-```text
-/api/v1/employees
-/api/v1/attendance
-/api/v1/shifts
-/api/v1/devices
-```
-
-Không tạo API theo database table một cách máy móc.
-
-Ví dụ ưu tiên:
-
-```text
-POST /api/v1/attendance/check-in
-POST /api/v1/attendance/check-out
-```
-
-thay vì cho client trực tiếp:
-
-```text
-POST /api/v1/attendance-events
-```
-
-đối với các business operation quan trọng.
-
-API tối thiểu v0.1:
-
-```text
-POST /api/v1/attendance/check-in
-POST /api/v1/attendance/check-out
-GET  /api/v1/attendance/mine
-GET  /api/v1/work-schedules/me
-GET  /api/v1/attendance/reports
-POST /api/v1/attendance/corrections
-```
-
-Các endpoint ghi hỗ trợ `Idempotency-Key`; backend kiểm tra phạm vi actor/operation và nội dung request. Cùng key/cùng nội dung trả lại kết quả đã lưu; cùng key/khác nội dung trả conflict. API correction tách quyền với API tự chấm công. Lịch sử/báo cáo hỗ trợ khoảng ngày, phân trang và lọc theo phạm vi được phép.
-
----
-
-## 15. Frontend
-
-### Hiện trạng
-
-Frontend dùng Vue 3, Vue Router và Vite; Node.js 24 theo `package.json`. Có các trang đăng nhập, tổng quan, tài khoản cá nhân, tạo tài khoản, quản lý nhân viên/phòng ban/chức danh, theo dõi provisioning và email lời mời, trạng thái kết nối, xem/quản lý lịch qua Calendar API, gửi/theo dõi đơn nghỉ và hàng chờ HR qua Leave API.
-
-- `src/auth/`: HTTP client, phiên và quyền; access token nằm trong bộ nhớ, refresh token trong `localStorage` dùng chung giữa các tab. Web Locks tuần tự hóa refresh; đăng xuất đồng bộ qua sự kiện storage. Khi tải lại trang hoặc mở tab mới, frontend khôi phục phiên qua Auth.
-- `src/hrm/api.js`: gọi Employee API qua client có Bearer token.
-- `src/router/`: guard đăng nhập và quyền cho route tạo tài khoản, quản lý lịch. Việc ẩn giao diện không thay thế phân quyền backend.
-- `src/calendar/`: gọi API đọc/quản lý lịch, xử lý form, version và ngày giờ tại `Asia/Ho_Chi_Minh`; không dùng dữ liệu JSON mẫu.
-- `src/leave/`: API và validation form nghỉ phép; route `/leave`, `/leave/inbox`, `/leave/requests/:id`.
-- `src/components/`: form chọn tham chiếu, phân trang, theo dõi yêu cầu cấp tài khoản và lời mời kích hoạt.
-
-Vite proxy đưa toàn bộ `/api` tới Gateway `:8080`, có thể đổi bằng `API_PROXY_TARGET`. Gateway chuyển tiếp tới Auth `:8081`, Employee `:8082`, Calendar `:8083`, Leave `:8084` hoặc Attendance `:8085`. Trang đặt mật khẩu `/activate` và assets `/activation/*` do Auth phục vụ và được Gateway định tuyến; Vite hiện chỉ proxy `/api`.
-
-Chưa có màn hình check-in/check-out, bảng công, phân ca, số dư phép hay lương. Trang tổng quan hiện hiển thị thông tin tài khoản, chưa phải dashboard chấm công.
-
-### Màn hình theo roadmap
-
-Frontend là web application phục vụ hai nhóm chính:
-
-### Employee
-
-```text
-Dashboard
-My Profile
-Attendance
-Leave
-Company Calendar
-Work Schedule
-Notifications
-```
-
-### HR / Manager / Admin
-
-```text
-Dashboard
-Employees
-Departments
-Attendance
-Leave Requests
-Shifts
-Devices
-Reports
-Company Calendar
-Settings
-```
-
-UI cần responsive và có thể sử dụng tốt trên desktop và mobile.
-
-Danh sách màn hình trên là định hướng dài hạn. v0.1 chỉ triển khai đăng nhập, chấm công/trạng thái hôm nay, lịch sử và lịch làm việc cá nhân; màn hình HR quản lý nhân viên tối thiểu, phân ca, bảng công/correction/export; màn hình Admin quản lý tài khoản và cấu hình mạng. Các chức năng chưa phát hành không xuất hiện như tính năng khả dụng.
-
----
-
-## 16. Business Rules
-
-Khi phân tích nghiệp vụ, luôn xác định rõ:
-
-1. Actor
-2. Preconditions
-3. Business rules
-4. Main flow
-5. Alternative flow
-6. Error cases
-7. Database impact
-8. Authorization
-9. Audit requirements
-
-Ví dụ với Check-in:
-
-```text
-Actor:
-Employee
-
-Preconditions:
-- Employee active
-- User authenticated
-- Employee được suy ra từ tài khoản, đang trong thời gian làm việc tại công ty
-- Source IP đã xác minh thuộc allowlist corporate network
-- Có assignment hợp lệ và đang trong cửa sổ check-in
-- Phiên của assignment đang NOT_STARTED
-
-Business rules:
-- Xử lý idempotency trước khi áp dụng lại thao tác nghiệp vụ
-- Kiểm tra trạng thái và cập nhật bằng concurrency control ở database
-- Dùng thời gian server; xác định work_date từ assignment
-- Ghi nhận thời gian thực tế, xác định late từ snapshot ca
-- Lưu attendance event, mở session, cập nhật daily và kết quả idempotency atomically
-
-Result:
-Một CHECK_IN event được tạo, session OPEN, daily được cập nhật
-Retry cùng request trả lại kết quả trước, không thêm event
-```
-
-Check-out đóng đúng session của ca, không chỉ tìm một check-in bất kỳ trong ngày. Correction yêu cầu quyền độc lập, lý do và phiên bản dữ liệu đang sửa; sau khi áp dụng phải kiểm tra lại thứ tự vào/ra và tính lại session/daily trong cùng transaction. Các tình huống từ chối phải trả mã lỗi nghiệp vụ và hướng xử lý rõ ràng cho UI.
-
----
-
-## 17. Code Quality
-
-Ưu tiên:
-
-- Clean Code
-- SOLID
-- Separation of Concerns
-- Domain-driven module boundaries
-- Dependency Injection
-- Transaction boundary rõ ràng
-- Validation ở đúng layer
-- Exception handling nhất quán
-- Auditability
-
-Không over-engineer.
-
-Nếu một abstraction chưa có giá trị thực tế, không tạo abstraction chỉ để "đẹp kiến trúc".
-
----
-
-## 18. Transaction
-
-### Transaction hiện tại của luồng tài khoản
-
-- Employee commit yêu cầu cấp tài khoản và event outbox trong cùng database transaction.
-- Auth commit tài khoản, kết quả xử lý và event outbox trong transaction riêng; khi bật activation, token và mail outbox cũng được ghi cùng nghiệp vụ tạo tài khoản.
-- Worker gửi Kafka/HTTP Resend sau commit, ngoài transaction ghi nghiệp vụ; retry dựa trên outbox và lease. Consumer cập nhật dữ liệu trong transaction trước khi hoàn tất xử lý record.
-- Không có distributed transaction giữa Auth, Employee, Kafka và Resend. Trạng thái có thể tạm thời chưa đồng bộ; UI theo dõi tiến độ thay vì coi `202` là đã cấp/kích hoạt tài khoản.
-
-### Luồng Attendance và yêu cầu mở rộng
-
-Transaction phải được đặt dựa trên business operation.
-
-Ví dụ:
-
-```text
-Check-in
-    ├── Validate
-    ├── Create Attendance Event
-    └── Update Daily Attendance
-```
-
-Nếu các operation phải atomic, chúng phải nằm trong cùng transaction.
-
-Đặc biệt chú ý:
-
-- Transaction propagation
-- Rollback rules
-- Checked vs unchecked exception
-- `readOnly`
-- Concurrency
-- Duplicate check-in
-- Idempotency
-
-Attendance là nghiệp vụ có khả năng xảy ra request đồng thời hoặc duplicate request, vì vậy phải cân nhắc database constraint và concurrency control.
-
-Quyết định cho MVP:
-
-- Một transaction bao gồm ghi nhận idempotency, khóa/kiểm tra assignment hoặc session, ghi event/correction, cập nhật session/daily và lưu kết quả trả về. Lỗi ở bất kỳ bước ghi nào phải rollback toàn bộ.
-- Dùng unique constraint kết hợp row lock hoặc optimistic locking để bảo vệ trạng thái. Khi session chưa tồn tại, khóa assignment hoặc dùng thao tác insert có constraint; không chỉ kiểm tra tồn tại bằng Java rồi insert.
-- Hai check-in với key khác nhau cho cùng ca chỉ có một thao tác thành công; thao tác còn lại nhận conflict. Hai request cùng key/cùng nội dung nhận cùng kết quả thành công đã lưu, kể cả khi đến đồng thời.
-- Check-out và correction cũng phải chống cập nhật đồng thời; correction từ dữ liệu cũ phải trả conflict để người dùng tải lại.
-- Gửi notification, gọi thiết bị hoặc dịch vụ ngoài không nằm trong transaction ghi công. Bổ sung cơ chế giao nhận đáng tin cậy ở release có nghiệp vụ tương ứng.
-
----
-
-## 19. AWS / Deployment
-
-### Chạy local hiện tại
-
-Môi trường phát triển gồm PostgreSQL, Kafka khi bật provisioning, năm tiến trình Spring Boot (Auth, Employee, Calendar, Leave, Gateway) và Vite. `infra/kafka` dựng Kafka/topics local; `infra/gateway` là cấu hình Compose riêng cho backend, database và Gateway HTTPS.
-
-1. Chuẩn bị JDK 21, Node.js 24, PostgreSQL và Docker Compose nếu dùng Kafka local. Tạo `auth_db`/`employee_db`/`calendar_db`/`leave_db`, chạy SQL schema của từng service; dùng seed local nếu cần tài khoản khởi đầu và dữ liệu lịch. Schema hiện tại không tự nâng cấp database cũ.
-2. Tạo cặp khóa JWT cho Auth theo tài liệu JWT; cấu hình Employee, Calendar, Leave và Gateway đọc đúng **access public key**. Đường dẫn khóa tương đối tính từ working directory của từng service.
-3. Từ thư mục gốc, chạy `docker compose -f back-end/modules/infra/kafka/compose.yaml up -d`, kiểm tra broker healthy và `kafka-init` kết thúc thành công.
-4. Đặt `HRM_EVENTS_ENABLED=true` ở Auth và Employee để chạy provisioning. Nếu chỉ chạy chức năng không cần Kafka, đặt `false` rõ ràng ở cả hai; không coi cấp tài khoản bất đồng bộ là khả dụng trong chế độ đó.
-5. Trong `frontend`, chạy `npm ci` để cài dependencies. Sau đó chạy `./run-all.sh` tại gốc repository để khởi động cả năm backend và Vite; nhấn `Ctrl+C` để dừng toàn bộ. Script Bash cần lệnh `setsid` và tự nạp `.env` của Auth nếu có.
-6. Attendance cần áp [schema SQL](back-end/modules/attendance-service/docs/sql/README.md), cấu hình mạng chấm công và HR phân công ca qua `/attendance/schedules` trước khi check-in.
-7. Nếu chạy riêng từng ứng dụng, dùng `./mvnw spring-boot:run` trong từng thư mục backend và `npm run dev` trong `frontend`. Spring Boot không tự đọc `.env`; cấu hình environment qua shell hoặc IDE. Frontend gọi Gateway `:8080` qua `API_PROXY_TARGET`; các cổng backend mặc định lần lượt là Auth `:8081`, Employee `:8082`, Calendar `:8083`, Leave `:8084`, Attendance `:8085`.
-7. Để thử kích hoạt qua email, cấu hình riêng `AUTH_ACTIVATION_ENABLED`, token secret, Resend và URL kích hoạt theo tài liệu activation. Đây là tính năng có điều kiện, không tự bật khi chỉ chạy frontend.
-
-Kiểm tra thay đổi backend bằng `./mvnw test` tại từng service; frontend có `npm run lint`, `npm run test`, `npm run build` và Playwright E2E. H2 và test giả lập không thay thế kiểm chứng PostgreSQL/Kafka thực tế cho các thay đổi transaction hoặc tích hợp.
-
-### Cấu hình triển khai hiện có và định hướng AWS
-
-Repository có [Compose triển khai backend qua Gateway](back-end/modules/infra/gateway/README.md), gồm Auth, Employee, Calendar (tên `workforce`), Leave, bốn database PostgreSQL và Kafka. Chỉ Gateway publish HTTPS `:443`; backend/database dùng mạng nội bộ. Cần chuẩn bị khóa JWT, chứng chỉ TLS và biến môi trường theo hướng dẫn. Schema chỉ được khởi tạo tự động khi database volume còn trống; database cũ cần nâng cấp riêng.
-
-Frontend production cần build/host riêng và gọi Gateway. Gateway định tuyến API Auth/Employee/Calendar/Leave cùng trang `/activate`, assets `/activation/*` tới service sở hữu. Route Vue dùng history fallback; API và trang kích hoạt không được fallback về `index.html` của Vue.
-
-Kafka Compose hiện dùng một broker KRaft, PLAINTEXT và replication factor 1, chỉ dành cho local. Repository chưa có cấu hình production đầy đủ. Lựa chọn AWS không phải điều kiện để hoàn thành chức năng chấm công.
-
-Nếu dùng AWS, phân biệt luồng triển khai:
-
-```text
-Build Docker image
-   ↓
-AWS ECR
-   ↓
-AWS ECS / Fargate
-```
-
-và luồng request:
-
-```text
-Client → HTTPS / reverse proxy hoặc ALB → Auth / Employee → Database tương ứng
-                                             ↕
-                                           Kafka
-```
-
-Khi chọn Fargate, VPC, subnet và security group phải được cấu hình ngay từ đầu; VPC không phải hạng mục chờ scale mới bổ sung. Xem [AWS Fargate task networking](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-networking.html).
-
-Trước pilot có dữ liệu thật: cấu hình HTTPS, database không public, secrets ngoài source code, trusted proxy, backup/khôi phục đã thử, health check, log lỗi và audit. Log vận hành không chứa token hoặc dữ liệu nhân sự không cần thiết. Có thể dùng dịch vụ managed tương ứng khi triển khai AWS.
-
-Chỉ bổ sung theo nhu cầu:
-
-```text
-VPC Endpoint
-SQS
-EventBridge
-Redis
-```
-
-Không đưa tất cả AWS services vào hệ thống nếu chưa có nhu cầu.
-
----
-
-## 20. Cách trả lời trong project này
-
-Khi tôi hỏi về implementation, hãy:
-
-1. Giải thích **business context** trước nếu cần.
-2. Giải thích architecture.
-3. Giải thích database/domain model.
-4. Giải thích backend flow.
-5. Đưa code hoàn chỉnh khi tôi yêu cầu code.
-6. Giải thích từng phần quan trọng của code.
-7. Nêu rõ transaction boundary.
-8. Nêu rõ authentication/authorization nếu liên quan.
-9. Nêu các edge cases.
-10. Nếu có nhiều phương án, so sánh ưu/nhược điểm trước khi đề xuất.
-
-Không bỏ qua các bước quan trọng chỉ để câu trả lời ngắn.
-
----
-
-## 21. Quy tắc khi sửa code
-
-Khi refactor hoặc sửa code hiện có:
-
-- Chỉ thay đổi phần liên quan đến yêu cầu.
-- Không tự ý thay đổi các giá trị không liên quan.
-- Không tự ý đổi naming, font, UI, config hoặc business rule nếu chưa được yêu cầu.
-- Giữ nguyên behavior hiện tại nếu thay đổi đó không nằm trong yêu cầu.
-- Nếu cần thay đổi một phần khác để implementation hoạt động chính xác, phải nói rõ lý do.
-
----
-
-## 22. Phase / Release Plan
-
-Mục tiêu dài hạn là **Company HR / Employee Management Platform**. Thứ tự triển khai hiện tại ưu tiên hoàn thành và vận hành chấm công trước khi mở rộng HRM.
-
-Các version dưới đây là mốc phạm vi dự kiến, chưa phải thông báo tính năng đã phát hành. **Hiện đã có nền tảng Auth–Employee–Calendar–Leave–Gateway–Kafka–Frontend, nhưng chưa hoàn thành v0.1 Attendance MVP.** Calendar/Holiday và gửi/duyệt đơn Leave cơ bản đã được triển khai trước phần tích hợp Leave/Attendance ở v0.3. Chỉ chuyển release khi tiêu chí hoàn thành của release hiện tại đạt; lịch phát hành được xác định sau khi có kế hoạch triển khai và nguồn lực.
-
-| Phase | Release                         | Kết quả chính                                                        | Mức ưu tiên                        |
-| ----- | ------------------------------- | -------------------------------------------------------------------- | ---------------------------------- |
-| 1     | v0.1 — Attendance MVP           | Nhân viên chấm công qua mạng công ty; HR xem và điều chỉnh bảng công | Đang ưu tiên                       |
-| 2     | v0.2 — Attendance mở rộng       | Ca qua đêm, nhiều ca/phiên, đối soát và chốt công                    | Sau MVP                            |
-| 3     | v0.3 — Leave & Calendar         | Đơn nghỉ phép, số dư phép, tích hợp Holiday và lịch tổng hợp         | Sau khi chấm công ổn định          |
-| 4     | v0.4 — Device Integration       | Kết nối thiết bị thực tế và đồng bộ công đáng tin cậy                | Theo thiết bị doanh nghiệp sử dụng |
-| 5     | v0.5 — HR & Employee Experience | Hồ sơ/cơ cấu tổ chức mở rộng, thông báo và báo cáo quản trị          | Sau các nghiệp vụ cốt lõi          |
-| 6     | v1.x — HR mở rộng               | Payroll, Recruitment, Performance theo từng dự án nghiệp vụ          | Khi có nhu cầu được xác nhận       |
-
-### Phase 1 — v0.1: Attendance MVP
-
-**Mục tiêu:** hoàn thành luồng sử dụng hằng ngày từ đăng nhập, chấm công đến HR kiểm tra và xử lý sai sót.
-
-Phạm vi bắt buộc:
-
-- Đăng nhập/đăng xuất, quản lý tài khoản, Employee active/inactive và quyền Employee/Manager/HR/Admin theo mục 13.
-- Nhân viên, phòng ban và quản lý trực tiếp ở mức tối thiểu để phân quyền và lọc bảng công.
-- Mẫu ca trong ngày, ngày làm việc, ngày ngoại lệ, phân ca cho nhân viên, timezone và snapshot rule. Mỗi nhân viên tối đa một ca/ngày và một phiên vào/ra cho ca đó.
-- Corporate network provider dùng allowlist IP/CIDR, trusted proxy và cấu hình địa điểm; có kiểm chứng đường mạng thực tế trước pilot.
-- Check-in/check-out, trạng thái hôm nay, lịch sử cá nhân và lịch làm việc cá nhân trên desktop/mobile.
-- Lưu event, session và daily summary; chống thao tác trùng và cập nhật đồng thời; hiển thị đi muộn, về sớm, thiếu check-out và không có ghi nhận.
-- HR xem/lọc bảng công theo ngày, nhân viên, phòng ban; export CSV theo quyền và giới hạn khoảng ngày.
-- HR bổ sung/sửa/vô hiệu hóa lần ghi nhận bằng correction có audit và tính lại dữ liệu liên quan. Nhân viên liên hệ HR khi cần sửa; workflow gửi/duyệt yêu cầu chưa nằm trong MVP.
-- Migration database, triển khai pilot, log/audit, backup và khôi phục theo mục 19.
-
-Thứ tự thực hiện trong release:
-
-1. Hoàn thiện nền tảng đã có: phân quyền dữ liệu, migration có version, cấu hình vận hành và đối soát luồng cấp/kích hoạt tài khoản.
-2. Tự cấp mã nhân viên theo mục 6, bổ sung dữ liệu phục vụ công, xác định nơi triển khai Attendance/Shift và xây phân ca. Kế thừa danh mục phòng ban/chức danh đã có.
-3. Hoàn thành check-in/check-out xuyên suốt từ web tới database, gồm xác thực mạng, transaction và idempotency.
-4. Hoàn thành lịch sử, bảng công, correction và export.
-5. Kiểm thử tích hợp, thử trên mạng triển khai thực tế và nghiệm thu pilot.
-
-Tiêu chí hoàn thành:
-
-- Nhân viên active có ca hợp lệ chấm công được qua mạng đã cấu hình; ngoài mạng, ngoài cửa sổ hoặc không có quyền bị từ chối với lý do rõ ràng.
-- Thử giả forwarded headers không vượt qua kiểm tra mạng; hành vi VPN đã được kiểm chứng và ghi nhận theo mục 4.
-- Double-click, retry sau timeout và hai request đồng thời không tạo hai check-in/check-out cho cùng phiên; retry cùng key trả kết quả đã lưu.
-- Event/session/daily/idempotency nhất quán sau lỗi giữa transaction; lịch sử, báo cáo và CSV cho cùng một kết quả.
-- Đi muộn, về sớm, giờ nghỉ, không có event, thiếu check-out và check-out không có check-in được xử lý theo rule. UI không biến dữ liệu chưa đủ thành công đã chốt.
-- Correction giữ được dữ liệu gốc và lý do, không ghi đè thay đổi đồng thời, cập nhật đúng kết quả tổng hợp và không cho tự sửa công.
-- Thay đổi lịch tương lai không thay kết quả quá khứ; nhân viên/manager không xem hoặc export được dữ liệu ngoài phạm vi.
-- Validation từ chối ca qua đêm/nhiều ca trong MVP; giao diện responsive hoạt động cho toàn bộ luồng chính.
-- Có kiểm thử tích hợp với PostgreSQL cho transaction/concurrency/constraint và kiểm thử authorization; đã thử khôi phục backup trên môi trường riêng trước pilot có dữ liệu thật.
-
-Ngoài phạm vi nghiệp vụ v0.1: ca qua đêm, nhiều ca/ngày, nhiều lần ra/vào, break events, workflow duyệt sửa công, số dư/chính sách phép, tính phép, tích hợp Holiday vào công/phép, Calendar tổng hợp, overtime được duyệt, tính lương, thiết bị sinh trắc học, Notification Service độc lập và multi-tenant. Auth, Employee, Calendar/Holiday, Leave cơ bản, Gateway, Kafka và email kích hoạt đã có trong nền tảng; không coi chúng là phần phải chờ release sau mới bổ sung.
-
-### Phase 2 — v0.2: Attendance mở rộng và đối soát
-
-**Điều kiện bắt đầu:** v0.1 đã được nghiệm thu pilot; các lỗi ảnh hưởng tính đúng của dữ liệu được xử lý trước khi thêm tính năng.
-
-Phạm vi:
-
-- Ca qua đêm, nhiều ca/ngày và nhiều phiên vào/ra; migration bỏ giới hạn một assignment/ngày và một session/assignment, thay bằng ràng buộc không chồng lấn và tối đa một phiên mở cho nhân viên tại một thời điểm. Giữ daily summary là tổng hợp theo ngày công.
-- Gán `work_date` theo ngày bắt đầu ca; chống ca/phiên chồng lấn, xác định ca rõ ràng khi các cửa sổ chấm công giao nhau.
-- Break events nếu doanh nghiệp cần ghi nhận nghỉ thực tế; không trừ hai lần với giờ nghỉ cố định.
-- Nhân viên gửi yêu cầu bổ sung/sửa công; Manager/HR duyệt theo quyền, không tự duyệt. Khi duyệt mới áp dụng correction.
-- Đối soát và khóa kỳ công; mở lại kỳ phải có quyền, lý do và audit. Correction vào kỳ đã khóa phải qua luồng mở lại.
-- Ghi nhận và phê duyệt overtime theo rule doanh nghiệp; tách thời gian có mặt ngoài ca khỏi overtime được công nhận.
-
-Tiêu chí hoàn thành:
-
-- Ca `22:00–06:00` có check-out ngày sau nhưng thuộc đúng ngày công; nhiều ca/phiên không bị ghép nhầm hoặc tính trùng.
-- Grace period, break, phần giao với lịch và overtime cho kết quả nhất quán ở biên thời gian.
-- Duyệt yêu cầu lặp lại không tạo correction trùng; từ chối hoặc hủy yêu cầu chưa duyệt không sửa dữ liệu công.
-- Kỳ đã khóa không bị thay đổi bởi API trực tiếp hoặc tác vụ tính lại; mở lại có lịch sử truy vết.
-- Migration và tính lại có kiểm chứng không làm đổi dữ liệu v0.1 ngoài phạm vi được yêu cầu.
-
-### Phase 3 — v0.3: Leave, Holiday và Company Calendar
-
-**Mục tiêu:** mở rộng Calendar/Holiday hiện có để nối lịch nghỉ với lịch làm việc và kết quả chấm công. CRUD, công bố/hủy và giao diện lịch công ty, cùng gửi/duyệt/rút đơn nghỉ cơ bản đã có.
-
-Phạm vi:
-
-- Leave type, đơn nghỉ, duyệt/từ chối/hủy, bàn giao người duyệt và nghỉ một phần ngày.
-- Chính sách cấp phép, sổ biến động phép và số dư; quy tắc chuyển kỳ/hết hạn được xác định theo chính sách doanh nghiệp.
-- Mở rộng ngày lễ/lịch hiện có sang phạm vi địa điểm và tích hợp vào lịch làm việc; thay thế thao tác nhập ngày ngoại lệ thủ công khi phù hợp, không áp dụng hồi tố ngầm.
-- Calendar tổng hợp lịch làm việc, ngày lễ, nghỉ được duyệt và overtime đã có ở v0.2.
-- Cập nhật đánh giá công khi duyệt/hủy phép; thay đổi tác động kỳ công đã khóa phải qua đối soát/mở lại.
-- Thông báo trong ứng dụng cho việc cần duyệt và kết quả xử lý; có retry và chống gửi trùng nếu xử lý bất đồng bộ.
-
-Tiêu chí hoàn thành:
-
-- Ngày lễ không tạo leave request hoặc trừ phép; thời gian nghỉ được tính theo lịch áp dụng.
-- Đơn chồng lấn, nghỉ nửa ngày/theo giờ, duyệt đồng thời, hủy đơn và hoàn phép không làm sai số dư.
-- Người duyệt đúng phạm vi và không tự duyệt; đổi quản lý không để đơn bị kẹt hoặc lộ dữ liệu cho quản lý cũ.
-- Calendar bảo vệ lý do nghỉ/tài liệu riêng tư; Leave, số dư và Attendance nhất quán sau duyệt/hủy.
-
-### Phase 4 — v0.4: Device Integration
-
-**Mục tiêu:** thêm nguồn ghi nhận từ thiết bị vào luồng Attendance đã có. Corporate network đã hoàn thành từ v0.1.
-
-Phạm vi:
-
-- Device registry, xác thực integration, ánh xạ mã nhân viên trên thiết bị với Employee.
-- Triển khai một adapter cho thiết bị/vendor thực tế trước; chỉ thêm RFID, fingerprint hoặc face adapter khi có yêu cầu và thiết bị kiểm thử.
-- Nhận batch/offline events, chống trùng, lưu dữ liệu nhận để đối soát, xử lý sai thứ tự và thời gian thiết bị lệch.
-- Đối soát event tới muộn với ca, correction và kỳ đã khóa; không ghi đè công đã chốt.
-- Chỉ nhận dữ liệu chấm công cần thiết; không mặc định lưu ảnh hoặc mẫu sinh trắc học trong HRM.
-
-Tiêu chí hoàn thành:
-
-- Gửi lại một event/batch không nhân đôi công; event chưa ánh xạ hoặc không hợp lệ có trạng thái và đường xử lý rõ ràng.
-- Event tới muộn/sai thứ tự được đối soát đúng, giữ riêng thời điểm thực tế và thời điểm nhận.
-- Provider mới dùng chung rule Attendance, không đưa logic vendor vào domain.
-- Kiểm thử end-to-end bằng thiết bị hoặc môi trường vendor tương ứng; lỗi đồng bộ có thể retry và truy vết.
-
-### Phase 5 — v0.5: HR và Employee Experience
-
-Phạm vi:
-
-- Hồ sơ nhân viên mở rộng theo mục 6, hợp đồng và lịch sử thay đổi tổ chức/quản lý có ngày hiệu lực. Danh mục chức danh cơ bản đã có, không chờ đến phase này.
-- Cơ cấu phòng ban/team nhiều cấp và chính sách phạm vi quản lý tương ứng.
-- Dashboard, báo cáo quản trị và notification đa kênh theo nhu cầu; kế thừa báo cáo/thông báo tối thiểu của các release trước.
-
-Tiêu chí hoàn thành:
-
-- Chuyển phòng ban, quản lý hoặc trạng thái làm việc không làm mất lịch sử và không mở rộng quyền ngoài chính sách.
-- Báo cáo đối soát được với Attendance/Leave, áp dụng đúng phạm vi dữ liệu.
-- Notification có trạng thái gửi, retry và chống trùng; lỗi gửi không làm rollback nghiệp vụ đã hoàn tất.
-
-### Phase 6 — v1.x: Mở rộng nghiệp vụ HR
-
-Payroll, Recruitment và Performance là các nhánh nghiệp vụ riêng, mỗi nhánh phải có phân tích, release scope và tiêu chí nghiệm thu trước khi triển khai. Không mặc định đưa tất cả vào cùng một release.
-
-Payroll chỉ bắt đầu khi rule tính lương được xác nhận và nguồn công/phép đã đối soát, khóa kỳ; thay đổi hồi tố phải có cơ chế điều chỉnh rõ ràng. Recruitment/Performance được ưu tiên theo nhu cầu thực tế sau đó.
-
-### Scale và hạ tầng — theo bằng chứng vận hành
-
-Scale là công việc xuyên suốt theo nhu cầu. Hệ thống đã có bốn service nghiệp vụ, API Gateway và Kafka; bước tiếp theo là vận hành đáng tin cậy các thành phần đó trước khi thêm broker, cache hoặc service mới. Chỉ mở rộng kiến trúc khi có số liệu tải, yêu cầu độ tin cậy hoặc nhu cầu triển khai độc lập; không mặc định phải tách mỗi domain HR thành một microservice.
+Tham khảo cấu hình từ [Apache Kafka Docker](https://kafka.apache.org/41/getting-started/docker/)
+và [Spring Boot Kafka](https://docs.spring.io/spring-boot/reference/messaging/kafka.html).

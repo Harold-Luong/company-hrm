@@ -1,8 +1,78 @@
 # Attendance Service
 
+**Mục lục**
+
+- [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
+- [Phạm vi đã triển khai](#phạm-vi-đã-triển-khai)
+- [Chính sách chế độ chấm công](#chính-sách-chế-độ-chấm-công)
+- [Kiến trúc code và dữ liệu](#kiến-trúc-code-và-dữ-liệu)
+- [Chạy local](#chạy-local)
+- [API](#api)
+- [Quy tắc tính và UI](#quy-tắc-tính-và-ui)
+- [Kiểm thử](#kiểm-thử)
+- [API đơn đi trễ/về sớm](#api-đơn-đi-trễvề-sớm)
+- [Ca cố định, lịch mặc định và lịch riêng](#ca-cố-định-lịch-mặc-định-và-lịch-riêng)
+- [OT cần duyệt trước khi làm](#ot-cần-duyệt-trước-khi-làm)
+- [Đơn bổ sung / điều chỉnh chấm công](#đơn-bổ-sung--điều-chỉnh-chấm-công)
+- [Attendance database](#attendance-database)
+- [Helper tính công trong Attendance](#helper-tính-công-trong-attendance)
+- [Thiết kế chung: lịch làm việc, nghỉ phép và chấm công](#thiết-kế-chung-lịch-làm-việc-nghỉ-phép-và-chấm-công)
+
 Spring Boot **4.1.1**, **Java 21**, **JPA/Hibernate**, PostgreSQL riêng `attendance_db`, cổng `8085`.
 Cấu trúc controller → service → repository/entity giống Employee.
-[Thiết kế tổng thể](../ATTENDANCE-DESIGN.md) mô tả cả phần mở rộng chưa triển khai.
+[Thiết kế tổng thể](#design) mô tả cả phần mở rộng chưa triển khai.
+
+Cấu hình `.env` và cách chạy Maven/Git Bash: [hướng dẫn chạy độc lập](../../../README.md#local). Mẫu `.env` dùng PostgreSQL `55432` và allowlist loopback; bảng bên dưới ghi mặc định trong mã nguồn.
+
+Thông báo đơn đi trễ/về sớm có outbox Kafka tùy chọn: cần SQL `004_notification_outbox.sql`, topic và `HRM_NOTIFICATIONS_ENABLED=true`. Xem [Notification](../notification-service/README.md). Điều chỉnh công/OT chưa phát thông báo qua luồng này.
+
+`GET /api/v1/attendance/requests/pending-count` trả `{ "count": N }` cho HR/ADMIN,
+đếm cả đơn đi trễ và về sớm đang `PENDING`, phục vụ badge hàng chờ duyệt.
+
+## Cấu hình và chạy độc lập
+
+Project Maven riêng, Java 21, cổng mặc định 8085. Build/chạy từ thư mục
+attendance-service; không cần chạy Maven ở gốc repository hoặc build service khác.
+
+Điều kiện: PostgreSQL/schema và access public key để khởi động. Nghiệp vụ chấm công cần Employee, Leave, Calendar qua `REST`; cấu hình ba URL nguồn. `HRM_NOTIFICATIONS_ENABLED=false` khi không dùng Kafka.
+
+1. Chuẩn bị database/user riêng và SQL theo phần database trong `README` này.
+2. Tạo `.env` từ [.env.example](.env.example) nếu chưa có, rồi sửa host/port,
+   mật khẩu, đường dẫn khóa và các cờ tính năng theo môi trường thực tế.
+3. Nạp biến vào đúng terminal hoặc Run Configuration của IDE trước khi chạy.
+
+Các lệnh sau dùng Git Bash/Bash, bắt đầu từ gốc repository:
+
+```bash
+cd back-end/modules/attendance-service
+test -f .env || cp .env.example .env
+# Sửa và lưu .env trước khi chạy các lệnh tiếp theo.
+set -a
+source ./.env
+set +a
+mvn spring-boot:run
+```
+
+Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
+trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+
+| Biến môi trường                             | Cấu hình cho project này                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `SERVER_PORT`                               | 8085                                                                                      |
+| `SPRING_DATASOURCE_URL`                     | jdbc:postgresql://localhost:5432/attendance_db; sửa port nếu DB dùng 55432 hoặc port khác |
+| `SPRING_DATASOURCE_USERNAME`                | attendance_user                                                                           |
+| `SPRING_DATASOURCE_PASSWORD`                | Mật khẩu của user database này                                                            |
+| `JWT_ACCESS_PUBLIC_KEY`                     | file:/duong-dan-tuyet-doi/access-public.pem                                               |
+| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE` | auth-service / hrm-api-access, khớp Auth                                                  |
+
+Chỉ cần access public key của Auth; không cấp private key cho project này.
+
+`SPRING_DATASOURCE_*` ưu tiên hơn biến `<SERVICE>_DB_*`; `SERVER_PORT` ưu tiên hơn
+biến cổng riêng nếu có. Không giữ hai bộ giá trị mâu thuẫn trong environment.
+Dừng bằng `Ctrl+C` trong terminal này. Build riêng bằng `mvn package`; kiểm thử theo
+phần kiểm thử bên dưới. Với backend có wrapper có thể dùng `./mvnw` hoặc `mvnw.cmd`
+thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy project.
 
 ## Phạm vi đã triển khai
 
@@ -64,14 +134,16 @@ một hàng điều phối chung; cần đánh giá tải trước khi mở rộ
 - `AttendanceCalculator` tính công; `AttendancePermissionService` giải thích phần
   đi trễ/về sớm được duyệt; `OvertimeService` tính OT riêng. `AttendanceCsvExporter`
   xuất cùng dữ liệu báo cáo JSON, giữ BOM và escape công thức CSV.
-- [WorkTimeSupport](docs/WORKTIME-CALCULATION.md) cung cấp các hàm nội bộ
+- [WorkTimeSupport](#worktime) cung cấp các hàm nội bộ
   `calculate(input)` và `calculatePeriod(inputs)` để tính công hưởng lương từ
   tham số. Helper và kiểm thử nằm trong module Attendance, không có POM/dependency
   riêng. API/UI hiện hành chưa sử dụng các trường kết quả mở rộng này.
 
-[Schema duy nhất](docs/sql/001_attendance_schema.sql) khai báo trực tiếp toàn bộ
-bảng, index, FK và trigger hiện hành. Trong giai đoạn phát triển, cập nhật file
-này và tạo lại database khi thay đổi cấu trúc; không duy trì chuỗi migration.
+[Schema nghiệp vụ chính](docs/sql/001_attendance_schema.sql) khai báo bảng, index,
+FK và trigger cho chấm công. Thông báo Kafka dùng thêm
+[004_notification_outbox.sql](docs/sql/004_notification_outbox.sql). Chưa có công cụ
+migration tự động; database có dữ liệu cần kế hoạch nâng cấp riêng. Chỉ tạo lại
+database phát triển khi chấp nhận mất dữ liệu, theo [hướng dẫn SQL](#database).
 
 Idempotency mặc định giữ payload trả về của `CHECK_IN`, `CHECK_OUT`, `OT_CHECK_IN`,
 `OT_CHECK_OUT` trong 180 ngày. Job chạy 03:00 giờ Việt Nam, tối đa 500 payload/lần;
@@ -84,7 +156,7 @@ trả HTTP 409, không thực hiện lại nghiệp vụ. `APPLY_SCHEDULE`, `DEC
 ## Chạy local
 
 Yêu cầu JDK 21, PostgreSQL, public key Auth và các service Employee/Leave/Calendar.
-Tạo user/database riêng rồi áp [schema SQL](docs/sql/README.md) trước khi chạy.
+Tạo user/database riêng rồi áp [schema SQL](#database) trước khi chạy.
 JPA dùng `ddl-auto=validate`, không tự tạo bảng trong ứng dụng.
 
 ```bash
@@ -111,17 +183,17 @@ công cho IP đó. Biến `ATTENDANCE_ALLOWED_NETWORKS` nếu được đặt s�
 danh sách mặc định. Khi triển khai, cấu hình allowlist theo IP client mà Gateway
 thực sự nhìn thấy; Vite dev proxy không dùng để xác minh mạng công ty trong production.
 
-| Biến                                            | Mặc định local                                        |
-| ----------------------------------------------- | ----------------------------------------------------- |
-| `ATTENDANCE_PORT`                               | `8085`                                                |
-| `ATTENDANCE_DB_URL`                             | `jdbc:postgresql://localhost:5432/attendance_db`      |
-| `ATTENDANCE_DB_USER` / `ATTENDANCE_DB_PASSWORD` | `attendance_user` / `attendance_password` (chỉ local) |
-| `JWT_ACCESS_PUBLIC_KEY`                         | `file:../auth-service-main/keys/access-public.pem`    |
-| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE`     | `auth-service` / `hrm-api-access`                     |
-| `EMPLOYEE_SERVICE_URL`                          | `http://localhost:8082`                               |
-| `LEAVE_SERVICE_URL`                             | `http://localhost:8084`                               |
-| `CALENDAR_SERVICE_URL`                          | `http://localhost:8083`                               |
-| `ATTENDANCE_ALLOWED_NETWORKS`                   | `127.0.0.1/32,::1/128,113.161.73.224/32,10.0.0.0/8` |
+| Biến                                            | Mặc định local                                               |
+| ----------------------------------------------- | ------------------------------------------------------------ |
+| `ATTENDANCE_PORT`                               | `8085`                                                       |
+| `ATTENDANCE_DB_URL`                             | `jdbc:postgresql://localhost:5432/attendance_db`             |
+| `ATTENDANCE_DB_USER` / `ATTENDANCE_DB_PASSWORD` | `attendance_user` / `attendance_password` (chỉ local)        |
+| `JWT_ACCESS_PUBLIC_KEY`                         | `file:../auth-service-main/keys/access-public.pem`           |
+| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE`     | `auth-service` / `hrm-api-access`                            |
+| `EMPLOYEE_SERVICE_URL`                          | `http://localhost:8082`                                      |
+| `LEAVE_SERVICE_URL`                             | `http://localhost:8084`                                      |
+| `CALENDAR_SERVICE_URL`                          | `http://localhost:8083`                                      |
+| `ATTENDANCE_ALLOWED_NETWORKS`                   | `127.0.0.1/32,::1/128,113.161.73.224/32,192.168.1.5/32`      |
 | `ATTENDANCE_TRUSTED_PROXIES`                    | `127.0.0.1/32,::1/128`; Gateway chạy cùng máy khi phát triển |
 
 Compose tại `../infra/gateway` có database, mount schema và URL các nguồn nội bộ.
@@ -222,14 +294,19 @@ audit, không đổi ca/giờ vào ra. Chưa có transaction xuyên các service
 
 Frontend đã kết nối API thật, dùng phiên đăng nhập sẵn có:
 
-| Trang                                          | Đường dẫn               |
-| ---------------------------------------------- | ----------------------- |
-| Công của tôi: giờ vào/ra, ca hôm nay, lịch sử  | `/attendance`           |
-| Ca làm việc: tạo/sửa/vô hiệu hóa/lịch sử       | `/attendance/shifts`    |
-| Phân công: phạm vi, hiệu lực, preview, lịch sử | `/attendance/schedules` |
-| Bảng công: bộ lọc, đối soát, tải CSV           | `/attendance/reports`   |
+| Trang                                          | Đường dẫn                    |
+| ---------------------------------------------- | ---------------------------- |
+| Công của tôi: giờ vào/ra, ca hôm nay, lịch sử  | `/attendance`                |
+| Đơn đi trễ/về sớm cá nhân                      | `/attendance/requests`       |
+| Hàng chờ duyệt đi trễ/về sớm (HR/ADMIN)        | `/attendance/requests/inbox` |
+| Bổ sung/điều chỉnh công; duyệt cho HR/ADMIN    | `/attendance/corrections`    |
+| Đăng ký/chấm giờ OT; duyệt cho HR/ADMIN        | `/attendance/overtime`       |
+| Ca làm việc: tạo/sửa/vô hiệu hóa/lịch sử       | `/attendance/shifts`         |
+| Phân công: phạm vi, hiệu lực, preview, lịch sử | `/attendance/schedules`      |
+| Bảng công: bộ lọc, đối soát, tải CSV           | `/attendance/reports`        |
 
-Ba trang quản lý chỉ dành HR/ADMIN; API vẫn tự kiểm tra quyền.
+Các trang quản lý ca, phân công, báo cáo và hàng chờ đi trễ/về sớm chỉ dành HR/ADMIN;
+API vẫn tự kiểm tra quyền. OT/điều chỉnh có phần cá nhân và phần xét duyệt theo role.
 
 ## Kiểm thử
 
@@ -249,7 +326,7 @@ không thay thế kiểm tra triển khai đầy đủ nhiều service.
 
 ## API đơn đi trễ/về sớm
 
-Contract, ví dụ đối soát và UI: [Requests UI/API](../../../frontend/src/attendance/REQUESTS-UI.md).
+Contract, ví dụ đối soát và UI: [Requests UI/API](../../../frontend/README.md#requests).
 Các route đều dưới `/api/v1/attendance/requests`, dùng JWT hiện tại. `GET /` của
 người gọi; `GET /inbox` dành HR/ADMIN; `POST /` cần Idempotency-Key; `PUT /{id}`,
 `POST /{id}/cancel`, `POST /{id}/decision` dùng If-Match. GET chi tiết/history chỉ
@@ -277,7 +354,6 @@ Hiện Attendance chỉ ghi một cặp vào/ra mỗi ngày. Đơn có thể xin
 phần thiếu thực tế chỉ đối soát từ cặp giờ đã ghi; chưa đo việc rời/quay lại giữa
 hai buổi nếu không có sự kiện tương ứng. Không tự suy ra giờ vắng từ đơn được duyệt.
 
-
 ## Ca cố định, lịch mặc định và lịch riêng
 
 Mỗi ca dùng `FIXED_SHIFT`, có giờ bắt đầu/kết thúc cụ thể cho từng khoảng làm việc,
@@ -299,15 +375,15 @@ Ca cũ mặc định `overnight: false`. Chặn ca đêm chồng giờ với ca 
 
 UI `/attendance/overtime`, API `/api/v1/attendance/overtime`:
 
-| API | Chức năng |
-| --- | --- |
-| `GET /overtime` | Danh sách đơn của mình; lọc `status`, `page`, `size` |
-| `GET /overtime/inbox` | HR/Admin xem đơn cần xử lý |
-| `POST /overtime` | Gửi đơn, bắt buộc `Idempotency-Key` |
-| `POST /overtime/{id}/cancel` | Chủ đơn rút PENDING, dùng `If-Match` |
-| `POST /overtime/{id}/decision` | HR/Admin duyệt/từ chối, dùng `If-Match`; không tự duyệt |
-| `POST /overtime/{id}/check-in` | Chủ đơn bắt đầu OT đã duyệt qua mạng công ty, dùng `Idempotency-Key` |
-| `POST /overtime/{id}/check-out` | Kết thúc OT qua mạng công ty, dùng `Idempotency-Key` |
+| API                             | Chức năng                                                            |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `GET /overtime`                 | Danh sách đơn của mình; lọc `status`, `page`, `size`                 |
+| `GET /overtime/inbox`           | HR/Admin xem đơn cần xử lý                                           |
+| `POST /overtime`                | Gửi đơn, bắt buộc `Idempotency-Key`                                  |
+| `POST /overtime/{id}/cancel`    | Chủ đơn rút PENDING, dùng `If-Match`                                 |
+| `POST /overtime/{id}/decision`  | HR/Admin duyệt/từ chối, dùng `If-Match`; không tự duyệt              |
+| `POST /overtime/{id}/check-in`  | Chủ đơn bắt đầu OT đã duyệt qua mạng công ty, dùng `Idempotency-Key` |
+| `POST /overtime/{id}/check-out` | Kết thúc OT qua mạng công ty, dùng `Idempotency-Key`                 |
 
 Body đăng ký: `{"start":"2030-01-07T18:00","end":"2030-01-07T20:00","reason":"Bảo trì"}`.
 Thời gian đăng ký theo `Asia/Ho_Chi_Minh`, chính xác đến phút, dưới 24 giờ,
@@ -327,7 +403,6 @@ Bảng công có `overtime.approvedMinutes`, `overtime.countedMinutes`, `pending
 Preview phân công thêm `approvedOvertimeConflicts`; chặn sửa lịch ảnh hưởng OT đã duyệt.
 Ngày giờ, người duyệt, IP chấm giờ và kết quả thao tác được lưu trong DB.
 
-
 ### Khởi tạo lịch mặc định tự động
 
 `DefaultScheduleInitializer` chạy lúc service khởi động, dùng mẫu ca seed UUID
@@ -345,7 +420,6 @@ Sau khi tạo database từ schema hiện tại, khởi động backend để t�
 còn thiếu. Khởi động lại nhiều lần không tạo thêm
 bản ghi hoặc thay phiên bản khi lịch mặc định đã tồn tại. Test fixture có thể tắt bước
 khởi tạo bằng `attendance.initialize-default-schedule=false`.
-
 
 ## Đơn bổ sung / điều chỉnh chấm công
 
@@ -375,16 +449,16 @@ giờ ngoài cửa sổ ghi nhận, giờ đảo thứ tự hoặc cặp giờ k
 
 API dưới `/api/v1/attendance/corrections`:
 
-| Method / đường dẫn | Chức năng |
-| --- | --- |
-| `GET /` | Đơn của mình; `status`, `page`, `size` |
-| `GET /inbox` | HR/ADMIN; lọc và phân trang |
-| `GET /{id}` | Chi tiết; chủ đơn hoặc HR/ADMIN |
-| `GET /{id}/history` | Lịch sử có snapshot trước/sau, phân trang |
-| `POST /` | Gửi đơn; `Idempotency-Key` |
-| `PUT /{id}` | Chủ đơn sửa PENDING; `If-Match` |
-| `POST /{id}/cancel` | Chủ đơn rút PENDING; `If-Match` |
-| `POST /{id}/decision` | HR/ADMIN duyệt/từ chối; `If-Match` |
+| Method / đường dẫn    | Chức năng                                 |
+| --------------------- | ----------------------------------------- |
+| `GET /`               | Đơn của mình; `status`, `page`, `size`    |
+| `GET /inbox`          | HR/ADMIN; lọc và phân trang               |
+| `GET /{id}`           | Chi tiết; chủ đơn hoặc HR/ADMIN           |
+| `GET /{id}/history`   | Lịch sử có snapshot trước/sau, phân trang |
+| `POST /`              | Gửi đơn; `Idempotency-Key`                |
+| `PUT /{id}`           | Chủ đơn sửa PENDING; `If-Match`           |
+| `POST /{id}/cancel`   | Chủ đơn rút PENDING; `If-Match`           |
+| `POST /{id}/decision` | HR/ADMIN duyệt/từ chối; `If-Match`        |
 
 Body tạo/sửa: `workDate`, `shiftId`, `shiftVersion`, `recordVersion` (null khi chưa
 có ngày công), `proposedCheckIn`, `proposedCheckOut` (ISO-8601 có offset), `reason`.
@@ -392,4 +466,591 @@ Lấy phiên bản ca từ API lịch cá nhân, phiên bản ngày công từ A
 Body xét duyệt: `status` (`APPROVED`/`REJECTED`), `reviewNote`.
 Tạo đơn dùng idempotency; thay đổi dùng optimistic version và khóa điều phối DB.
 Schema chính bổ sung hai bảng `attendance_corrections`, `attendance_correction_history`;
-áp trên database mới theo quy trình phát triển trong `docs/sql/README.md`.
+áp trên database mới theo [quy trình database](#database).
+
+<a id="database"></a>
+
+## Attendance database
+
+Attendance dùng PostgreSQL riêng `attendance_db`, JPA `ddl-auto=validate`, không
+query/FK chéo database. Schema nghiệp vụ chính:
+[001_attendance_schema.sql](docs/sql/001_attendance_schema.sql). Khi bật thông báo Kafka, áp thêm
+[004_notification_outbox.sql](docs/sql/004_notification_outbox.sql); xem [Notification](../notification-service/README.md).
+Lệnh `psql` bên dưới dùng cổng mặc định `5432`; thêm `-p 55432` nếu dùng cluster trong [hướng dẫn chạy độc lập](../../../README.md#local).
+
+Trong giai đoạn phát triển, sửa cấu trúc trực tiếp trong file này rồi tạo lại
+database. Không cần chạy các file migration theo thứ tự. File dùng `CREATE IF NOT
+EXISTS` để có thể chạy lại trên cùng schema và giữ seed duy nhất; nó không chuyển
+đổi cấu trúc database cũ.
+
+<a id="database-tạo-mới"></a>
+
+### Tạo mới
+
+Tạo user/database bằng tài khoản quản trị PostgreSQL (mật khẩu ví dụ chỉ dùng local):
+
+```sql
+CREATE USER attendance_user WITH PASSWORD 'attendance_password';
+CREATE DATABASE attendance_db OWNER attendance_user;
+```
+
+Nếu đã có user thì chỉ tạo database. Từ thư mục `attendance-service`, chạy:
+
+```bash
+psql -h localhost -U attendance_user -d attendance_db -v ON_ERROR_STOP=1 -f docs/sql/001_attendance_schema.sql
+```
+
+Có thể mở file trong DBeaver, chọn kết nối `attendance_db` bằng `attendance_user`
+và chạy **toàn bộ script**, gồm cả `BEGIN`, function/trigger và `COMMIT`.
+
+<a id="database-tạo-lại-database-khi-phát-triển"></a>
+
+### Tạo lại database khi phát triển
+
+Dừng Attendance, đóng các kết nối tới `attendance_db`. Trên kết nối quản trị tới
+`postgres`, chạy từng lệnh dưới đây ngoài transaction. Thao tác này xóa toàn bộ
+dữ liệu Attendance; nếu cần giữ dữ liệu thì xuất bản sao lưu trước.
+
+```sql
+DROP DATABASE IF EXISTS attendance_db;
+CREATE DATABASE attendance_db OWNER attendance_user;
+```
+
+Sau đó chạy lại `001_attendance_schema.sql` bằng lệnh phía trên; nếu bật thông báo,
+áp thêm `004_notification_outbox.sql`, rồi khởi động backend. Script schema không tự xóa database.
+
+Compose chỉ mount file này vào `docker-entrypoint-initdb.d`, tự chạy với volume
+PostgreSQL mới. Với database trống đã tạo lại trong Compose, từ `infra/gateway`:
+
+```bash
+docker compose exec -T attendance-db psql -U attendance_user -d attendance_db -v ON_ERROR_STOP=1 < ../../attendance-service/docs/sql/001_attendance_schema.sql
+```
+
+<a id="database-nội-dung-schema"></a>
+
+### Nội dung schema
+
+- 13 bảng cho mẫu ca/phiên bản, phân công, ngày công, đơn đi trễ/về sớm, OT,
+  đơn bổ sung/điều chỉnh, lịch sử và idempotency.
+- FK `(shift_id, shift_version)` từ ngày công, phân công và đơn tới revision;
+  không lưu JSON ca lặp trong các bảng này. Trigger chặn UPDATE revision, FK
+  ngăn xóa revision đang được sử dụng.
+- Unique nhân viên/ngày, ngày công/loại sự kiện và actor/type/idempotency key;
+  index phục vụ báo cáo theo khoảng ngày, lịch sử và kiểm tra OT trùng giờ.
+- `response_body` của operations cho phép null để dọn payload vào/ra hết hạn;
+  khóa chống trùng vẫn được giữ. Cấu hình job trong README service.
+- Seed hàng điều phối và mẫu ca UUID `00000000-0000-0000-0000-000000000001`,
+  giờ `08:00–12:00, 13:30–17:30`, cửa sổ chấm công `06:00–22:00`.
+  Khi backend khởi động, `DefaultScheduleInitializer` áp lịch thứ Hai–thứ Sáu
+  từ ngày khởi tạo, không ngày kết thúc, nếu chưa có lịch mặc định công ty.
+
+<a id="database-kiểm-thử"></a>
+
+### Kiểm thử
+
+`./mvnw test` đọc schema chính; test H2 bỏ khối được đánh dấu `POSTGRESQL ONLY`
+cho partial index và trigger, không duy trì thêm file schema SQL riêng.
+
+Kiểm tra đầy đủ trên PostgreSQL, dùng một schema thử riêng và tự xóa sau khi chạy:
+
+```bash
+# Cấu hình PGHOST, PGPORT, PGUSER, PGDATABASE; xác thực qua PGPASSWORD hoặc .pgpass.
+scripts/verify-schema.sh
+```
+
+Script kiểm tra tạo đủ bảng, seed không trùng khi chạy lại, FK, revision bất biến
+và unique sự kiện chấm công. [Contract và cấu hình service](README.md).
+
+<a id="worktime"></a>
+
+## Helper tính công trong Attendance
+
+`WorkTimeSupport.calculate(input)` là hàm hỗ trợ nội bộ của `attendance-service`,
+thuộc package `com.company.attendance.service.worktime`. Helper nhận tham số rõ
+ràng, không truy cập database/API hay đồng hồ hệ thống. Không có Maven module,
+JAR phát hành hoặc dependency riêng; code và test được build cùng Attendance.
+
+API/UI hiện tại vẫn dùng `AttendanceCalculator`; việc đưa các trường công hưởng
+lương từ helper vào báo cáo API/UI chưa được triển khai. Việc chuyển code vào
+service không thay đổi công thức hay contract của các endpoint hiện hành.
+
+<a id="worktime-build-và-sử-dụng"></a>
+
+### Build và sử dụng
+
+Từ thư mục `back-end/modules/attendance-service`:
+
+```bash
+./mvnw test
+# Hoặc chỉ kiểm thử helper
+./mvnw -Dtest=WorkTimeSupportTest test
+```
+
+Ví dụ được kiểm tra trong [WorkTimeSupportTest](src/test/java/com/company/attendance/service/worktime/WorkTimeSupportTest.java), gồm nghỉ phép năm cả/nửa ngày, ngày lễ và OT. Chạy lệnh kiểm thử helper ở trên để đối chiếu kết quả.
+
+Kết quả nghỉ phép năm cả ngày trên ca 8 giờ:
+
+```text
+status=ON_LEAVE
+workedMinutes=0
+annualLeaveMinutes=480
+payableMinutes=480
+payableDays=1.000000
+```
+
+<a id="worktime-api"></a>
+
+### API
+
+```java
+WorkTimeResult day = WorkTimeSupport.calculate(input);
+WorkTimePeriodResult period = WorkTimeSupport.calculatePeriod(List.of(inputDay1, inputDay2));
+```
+
+| Tham số `WorkTimeInput` | Ý nghĩa                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `workDate`, `zone`      | Ngày bắt đầu ca và múi giờ nghiệp vụ                                                                 |
+| `schedule`              | Các khoảng làm việc theo thứ tự, không trùng, tên buổi duy nhất; danh sách rỗng là không có lịch làm |
+| `calendarDay`           | `WORKDAY` hoặc `PAID_HOLIDAY` đã được xác minh là ngày nghỉ hưởng lương áp dụng cho nhân viên        |
+| `leaves`                | Các đơn phép thuộc nhân viên/ngày này; `FULL_DAY` hoặc tên buổi khớp ca                              |
+| `attendance`            | Check-in/out thực tế dạng `Instant`; `Punch.none()` khi chưa có ghi nhận                             |
+| `overtime`              | Đơn OT, trạng thái duyệt và cặp giờ vào/ra OT riêng                                                  |
+| `recordingClosesAt`     | Thời điểm hết cửa sổ chấm công, dùng phân biệt đang làm và thiếu giờ ra                              |
+| `now`                   | Mốc thời gian tính báo cáo; truyền rõ để cùng input luôn cho cùng kết quả                            |
+| `policy`                | Chuẩn phút/ngày, bước làm tròn trễ/sớm và mẫu số quy đổi công                                        |
+
+`WorkTimePolicy.standard()` dùng chuẩn 480 phút/ngày, trễ và sớm làm tròn riêng lên
+15 phút, quy đổi theo `STANDARD_DAY`. Có thể dùng `ASSIGNED_SHIFT` nếu chính sách
+coi làm đủ một ca part-time là một công. Ví dụ ca 4 giờ đầy đủ tương ứng 0,5 công
+với `STANDARD_DAY`, hoặc 1 công với `ASSIGNED_SHIFT`. Đây là tham số nghiệp vụ,
+không phải quy định pháp luật hay công thức tiền lương bắt buộc.
+
+Giờ ca/OT dự kiến phải chính xác đến phút. Giờ thực tế giữ số giây (bỏ phần lẻ
+nhỏ hơn một giây khi tính thời lượng). Ca qua đêm dùng `Instant` của ngày hôm sau
+cho giờ kết thúc; ca dài tối đa 24 giờ. OT thuộc ngày bắt đầu OT.
+
+<a id="worktime-kết-quả-và-quy-tắc"></a>
+
+### Kết quả và quy tắc
+
+- `scheduledMinutes`: toàn bộ thời lượng ca, giữ nguyên cả vào ngày nghỉ Calendar.
+- `requiredWorkMinutes`: phần ca còn phải làm sau khi áp dụng Calendar và phép APPROVED.
+- `workedActualSeconds`: thời gian thực tế giao với các khoảng phải làm; loại giờ nghỉ giữa ca.
+- `workedCountedMinutes`: phút phải làm trừ trễ và sớm đã làm tròn riêng, tối thiểu 0.
+  Vào sớm/ở lại muộn không bù đi trễ và không tự tạo OT.
+- `paidHolidayMinutes`, `annualLeaveMinutes`, `otherPaidLeaveMinutes`, `unpaidLeaveMinutes`:
+  tách từng loại nghỉ. Phép PENDING/REJECTED/CANCELLED không giảm giờ phải làm.
+- `payableMinutes = workedCountedMinutes + paidHolidayMinutes + annualLeaveMinutes + otherPaidLeaveMinutes`.
+  Nghỉ không lương không được cộng.
+- `workedDays`, `paidAbsenceDays`, `payableDays`: công quy đổi theo policy, 6 chữ số thập phân.
+  Đây là công hưởng lương, **không phải số ngày trừ quỹ phép**. Leave Service vẫn sở hữu
+  quỹ phép và chính sách nửa ngày/cả ngày; helper không ghi sổ số dư.
+- Ngày nghỉ Calendar ưu tiên hơn phép; không áp dụng/trừ phút phép trên ngày đó.
+  Ngày không có lịch làm không tự phát sinh công hay phút phép dù có Calendar/đơn phép.
+  Không thể suy ra ngày nghỉ chỉ từ thứ Bảy/Chủ nhật: caller phải truyền lịch thực tế.
+- Thiếu check-in/out, giờ đảo ngược hoặc dữ liệu phép xung đột: số công chưa xác định là
+  `null`, không thay bằng 0. Phép có lương đã biết vẫn hiển thị riêng ở các trường phút nghỉ.
+- Chỉ OT APPROVED mới tính; số phút OT là phần giao giờ thực tế/giờ đã duyệt, làm tròn
+  xuống phút. OT không cộng vào công thường và không tính hệ số lương. OT thiếu giờ
+  ghi nhận trả `null`, OT chưa duyệt trả 0. Có thể có OT riêng vào ngày nghỉ hưởng lương.
+- `issues` và trạng thái chỉ rõ xung đột; `complete()` yêu cầu cả công thường và OT
+  có kết quả. `status` ở cấp ngày mô tả công thường; mỗi OT có trạng thái riêng.
+
+Tổng hợp kỳ chỉ nhận dữ liệu của **một nhân viên**, cùng policy/múi giờ, mỗi ngày một
+lần. `knownPayableMinutes` là tổng phần đã xác định; `payableMinutes/payableDays`
+trả `null` nếu còn ngày công chưa rõ. `incompleteDates` liệt kê ngày thiếu công/OT.
+Với `STANDARD_DAY`, tổng công kỳ được chia từ tổng phút một lần; với `ASSIGNED_SHIFT`
+cộng số công từng ca đã quy đổi. Kỳ rỗng trả 0. Lịch/OT chồng giờ giữa hai ngày,
+ngày lặp hoặc mã OT lặp bị từ chối để tránh cộng trùng.
+
+<a id="worktime-trách-nhiệm-bên-gọi"></a>
+
+### Trách nhiệm bên gọi
+
+Caller xác định nhân viên đủ điều kiện, lịch riêng/lịch mặc định có hiệu lực,
+Calendar đã công bố và áp dụng, phép thuộc đúng ngày, cũng như quyền/ngày giờ duyệt
+OT. Cung cấp snapshot nếu cần tái lập báo cáo. Helper không xác thực quyền, mạng
+chấm công, không duyệt đơn hoặc thay dữ liệu nguồn. Khi tính một ngày riêng lẻ,
+caller kiểm tra cả lịch/OT ngày liền kề; `calculatePeriod` tự kiểm tra chồng giờ
+qua ngày trong tập input được truyền.
+
+Đơn Late/Early có phép không tự bù công theo chính sách hiện tại nên không thay đổi
+kết quả phút công của helper. Phân loại sai lệch có phép/chưa có phép vẫn do
+Attendance đối soát. Việc sửa Leave để tính số ngày trừ quỹ theo Calendar/lịch,
+nối kết quả vào UI/CSV và khóa kỳ là các bước tích hợp riêng.
+
+<a id="design"></a>
+
+## Thiết kế chung: lịch làm việc, nghỉ phép và chấm công
+
+<a id="design-trạng-thái-và-phạm-vi"></a>
+
+### Trạng thái và phạm vi
+
+Tài liệu gồm thiết kế tổng thể và lộ trình mở rộng. [Attendance Service](README.md)
+đã triển khai Java 21/JPA, ca cố định, phân công theo hiệu lực, check-in/out qua mạng
+công ty, tổng hợp phép/ngày nghỉ và CSV tạm tính; có UI tương ứng. Mẫu mặc định
+08:00–12:00, 13:30–17:30 tự áp dụng thứ Hai–thứ Sáu khi service khởi động nếu
+công ty chưa có lịch. Lịch riêng và lịch công ty HR đã cấu hình được giữ nguyên.
+Attendance cũng quản lý đơn đi trễ/về sớm, ca cố định qua đêm và OT có duyệt.
+Leave hỗ trợ bước 0,5 ngày và endpoint coverage tối thiểu phục vụ Attendance.
+Đã có đơn bổ sung/điều chỉnh công và duyệt. Chưa có lịch linh hoạt, chốt kỳ
+hoặc tự đồng bộ nguồn. Các mô hình/contract dự kiến bên dưới không đồng nghĩa đã
+triển khai toàn bộ; API hiện hành nằm trong README service.
+
+Attendance hiện dùng lớp cha JPA chung cho metadata audit, version và xét duyệt;
+giữ các bảng nghiệp vụ/lịch sử riêng để bảo toàn FK và snapshot. Báo cáo và lịch
+cá nhân đọc dữ liệu theo khoảng ngày, tránh truy vấn từng ngày. Xem
+[kiến trúc hiện hành](#kiến-trúc-code-và-dữ-liệu)
+và [schema nghiệp vụ chính](docs/sql/001_attendance_schema.sql).
+Ngày công, quy tắc lịch và đơn đi trễ/về sớm tham chiếu phiên bản ca bất biến thay
+vì sao chép JSON ca. Snapshot nguồn được thu gọn theo từng ngày; vẫn giữ bằng
+chứng chấm công từng ngày và ràng buộc chống ghi trùng vào/ra. Trong giai đoạn
+phát triển, cập nhật schema này và tạo lại database khi thay đổi cấu trúc.
+
+Thiết kế dùng chung cho giờ cố định, ca part-time và lịch linh hoạt chỉ yêu cầu
+đủ thời lượng trong ngày. Trước mắt triển khai giờ cố định; các chế độ sau dùng
+cùng mô hình dữ liệu. Ví dụ chính sách của nhiều công ty không đồng nghĩa triển
+khai multi-tenant: phạm vi hiện tại vẫn là một công ty, `Asia/Ho_Chi_Minh`.
+
+<a id="design-1-hai-chế-độ-tính-công-độc-lập-với-full-timepart-time"></a>
+
+### 1. Hai chế độ tính công, độc lập với full-time/part-time
+
+| Chế độ              | Điều kiện hoàn thành                    | Đi trễ/về sớm                           | Ví dụ                                                          |
+| ------------------- | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------- |
+| `FIXED_SHIFT`       | Làm trong các khoảng giờ được phân công | Đánh giá theo đầu/cuối phần ca phải làm | Mặc định 08:00–12:00, 13:30–17:30; có thể cấu hình 13:00–15:00 |
+| `FLEXIBLE_DURATION` | Đủ thời lượng yêu cầu trong ngày        | Không áp dụng                           | Đủ 8 giờ/ngày; hoặc part-time đủ 2,5 giờ/ngày                  |
+
+Full-time/part-time mô tả lịch và thời lượng được phân công, không phải thuật
+toán tính công thứ ba. Ca cố định 2 giờ dùng cùng thuật toán với ca cố định 8 giờ.
+Lịch linh hoạt không cần khai báo một giờ bắt đầu/kết thúc giả để tính đi trễ.
+
+Ưu tiên hiện tại là **`FIXED_SHIFT`**, phù hợp với lịch có khung giờ xác định,
+kể cả ca part-time. **`FLEXIBLE_DURATION` thuộc giai đoạn nâng cao**, mặc định
+ẩn và chỉ xuất hiện sau khi ADMIN mở khóa ở cấp công ty. HR và nhân viên không
+được tự thay đổi trạng thái mở khóa; backend phải kiểm tra trạng thái này khi
+tạo/sửa ca, kể cả khi gọi API trực tiếp. Việc mở khóa chỉ cung cấp thêm lựa chọn,
+không tự chuyển các ca cố định đã có sang chế độ linh hoạt.
+
+Đây là chính sách cho giai đoạn sau: hiện chưa triển khai cách tính công linh
+hoạt hoặc chức năng mở khóa. UI chỉ dùng ca cố định và `ShiftService` vẫn từ chối
+`FLEXIBLE_DURATION`, kể cả yêu cầu gửi bởi ADMIN.
+
+Chính sách mặc định của công ty tạo phân công cho nhân viên. Cho phép phân công
+riêng theo nhân viên và ngày hiệu lực; mỗi ngày phải xác định được duy nhất một
+chính sách áp dụng. Không suy ra chế độ từ lần chấm công hoặc tự đổi chế độ khi
+nhân viên đi trễ. Không có lịch hoặc lịch chồng lấn thì báo cần xử lý.
+
+<a id="design-11-hradmin-tạo-ca-và-chọn-phạm-vi-áp-dụng"></a>
+
+#### 1.1. HR/Admin tạo ca và chọn phạm vi áp dụng
+
+HR và ADMIN được tạo, sửa phiên bản ca `FIXED_SHIFT` và phân công; backend
+kiểm tra quyền cho từng thao tác. Nhân viên xem lịch được gán, không tự sửa ca.
+
+Ca mặc định ban đầu:
+
+| Phần lịch                  | Thời gian                | Thời lượng làm việc |
+| -------------------------- | ------------------------ | ------------------- |
+| `MORNING`                  | 08:00–12:00              | 240 phút            |
+| Nghỉ trưa, không tính công | 12:00–13:30              | 0 phút              |
+| `AFTERNOON`                | 13:30–17:30              | 240 phút            |
+| Cả ngày                    | Hai khoảng làm việc trên | 480 phút / 8 giờ    |
+
+Hai khoảng sáng/chiều thuộc **một ca/ngày**, không phải hai phân công hoặc hai
+phiên chấm công. Giờ mặc định là dữ liệu cấu hình; không hard-code trong thuật
+toán. HR/Admin có thể sửa từng khoảng hoặc tạo mẫu ca khác chỉ có một khoảng.
+
+Ví dụ giữ sáng 08:00–12:00 và đổi chiều thành 13:00–15:00 thì ngày chuẩn là
+**6 giờ**, nghỉ giữa giờ 12:00–13:00. Nếu chọn một ca chỉ gồm 13:00–15:00 thì
+ngày chuẩn là **2 giờ**. Form hiển thị tổng thời lượng và khoảng nghỉ sau chỉnh
+sửa để phân biệt hai lựa chọn này; không tiếp tục yêu cầu đủ 8 giờ cho ca đã đổi.
+
+Luồng quản trị: tạo/chọn mẫu ca → chỉnh các khoảng giờ → chọn phạm vi → chọn
+ngày bắt đầu, ngày kết thúc tùy chọn và các ngày làm việc áp dụng → xem trước
+lịch cũ/mới, tổng giờ, nhân viên bị ảnh hưởng và xung đột → lưu áp dụng.
+
+| Phạm vi           | Hành vi                                                                                                                                                                                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mặc định công ty  | Nhân viên không có phân công riêng kế thừa; nhân viên mới cũng kế thừa theo ngày hiệu lực và lịch làm việc                                                                                    |
+| Một/vài nhân viên | Chọn danh sách nhân viên, tạo phân công riêng; không sửa mẫu đang áp dụng cho người khác                                                                                                      |
+| Toàn bộ nhân viên | Áp dụng cho mọi nhân viên đủ điều kiện trong khoảng hiệu lực, đồng thời thay thế phân công riêng trùng phạm vi sau khi hiển thị trong bản xem trước; cập nhật mặc định cho người gia nhập sau |
+
+Phân công riêng có ưu tiên cao hơn mặc định công ty. Hai phân công riêng cùng
+nhân viên chồng ngày không được âm thầm chọn theo thời điểm tạo: thao tác thay
+thế phải tách/kết thúc khoảng hiệu lực cũ và ghi lịch sử. Hết hạn phân công
+riêng thì quay về mặc định có hiệu lực lúc đó. Áp dụng toàn bộ không bỏ sót
+nhân viên đang có lịch riêng; nếu chỉ muốn đổi mặc định và giữ ngoại lệ thì
+chọn rõ phạm vi "Mặc định công ty".
+
+Mẫu ca đã được dùng phải tạo revision mới khi sửa. Bước lưu áp dụng cập nhật
+phân công tương lai trong phạm vi đã chọn, giữ snapshot lịch cũ ngoài phạm vi.
+Ngày đã có chấm công/đơn đã duyệt bị ảnh hưởng hoặc thuộc kỳ đã khóa phải qua
+luồng đối soát/điều chỉnh tương ứng; không đổi giờ hoặc thời lượng phép ngầm.
+Thao tác hàng loạt cần có batch ID, version và idempotency; trả kết quả rõ ràng,
+không báo thành công toàn bộ khi còn nhân viên chưa áp dụng được.
+
+Validation: ca trong ngày có các khoảng bắt đầu trước kết thúc và không chồng
+lấn. Ca qua đêm đã hỗ trợ một khoảng với `overnight: true`, kết thúc ngày sau;
+thời lượng chuẩn là tổng khoảng làm việc. Nhãn buổi phục vụ ánh xạ phép không
+bị suy ra lại từ mốc 12:00.
+Đổi chiều sang 13:00–15:00 thì nghỉ `AFTERNOON` loại đúng 120 phút khỏi công;
+số dư phép vẫn theo đơn vị 0,5 ngày theo chính sách hiện tại. Ca một khoảng
+phải có ánh xạ nghỉ nửa ngày rõ ràng trước khi nhận loại đơn đó (xem mục 4).
+
+<a id="design-2-trách-nhiệm-service-và-dữ-liệu"></a>
+
+### 2. Trách nhiệm service và dữ liệu
+
+| Service    | Sở hữu                                                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Employee   | Nhân viên, phòng ban, ngày bắt đầu/kết thúc làm việc                                                                                         |
+| Calendar   | Ngày lễ/ngày nghỉ chung có hiệu lực                                                                                                          |
+| Leave      | Đơn nghỉ cả ngày/nửa ngày, số dư phép, phê duyệt và lịch sử nghỉ phép                                                                        |
+| Attendance | Mẫu ca, phân công, sự kiện vào/ra, đơn đi trễ/về sớm, điều chỉnh công và lịch sử duyệt, OT, công tạm tính và CSV; chốt kỳ còn trong lộ trình |
+
+Chưa cần Shift Service hoặc Report Service riêng. Không đọc chéo database.
+Attendance lấy dữ liệu qua API nội bộ có xác thực hoặc bản sao từ sự kiện;
+ghi event/session/daily và kết quả idempotency trong transaction database cục bộ.
+
+Mô hình dự kiến trong Attendance:
+
+| Thành phần                                  | Trường/quy tắc chính                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `attendance_policies`                       | `mode`, `timezone`, quy tắc nghỉ giữa giờ, quy tắc làm tròn, ngày hiệu lực, version                                 |
+| `work_shifts`                               | Mẫu có tên, revision, các khoảng làm việc gắn nhãn buổi và giờ nghỉ cho `FIXED_SHIFT`                               |
+| `work_schedule_rules`                       | Phạm vi công ty/danh sách nhân viên, ngày bắt đầu/kết thúc, ngày làm việc áp dụng, shift revision, lịch sử thay thế |
+| `work_schedule_assignments`                 | Nhân viên, ngày công, policy/shift snapshot, thời lượng chuẩn, cửa sổ ghi nhận                                      |
+| `attendance_events` / `attendance_sessions` | Giờ vào/ra gốc, nguồn, thời điểm server nhận, phiên hợp lệ                                                          |
+| `attendance_corrections`                    | Bổ sung/điều chỉnh có người thực hiện, lý do, lịch sử                                                               |
+| `attendance_daily`                          | Thời lượng thực tế, được tính công, phép, sai lệch, nguồn và phiên bản tính                                         |
+| `attendance_periods`                        | Kỳ, trạng thái mở/khóa, revision báo cáo                                                                            |
+
+`FIXED_SHIFT` lấy thời lượng chuẩn từ tổng các khoảng làm việc của ca; không
+lưu một mục tiêu độc lập có thể mâu thuẫn với ca. `FLEXIBLE_DURATION` có
+`target_minutes` (ví dụ 480 hoặc 150) và cửa sổ được ghi nhận trong ngày.
+Cửa sổ này xác định thời gian hợp lệ, không phải mốc đi trễ/về sớm.
+
+Snapshot phân công phải gồm cả policy, giờ nghỉ, mục tiêu, lịch nghỉ và phiên
+bản nguồn. Sửa mẫu ca/chính sách chỉ ảnh hưởng các phân công tương lai; tính lại
+quá khứ là thao tác tường minh có audit. Thiếu dữ liệu nguồn không mặc định là
+không có ngày lễ/đơn phép.
+
+<a id="design-3-giờ-thực-tế-nghỉ-giữa-giờ-và-ngày-công"></a>
+
+### 3. Giờ thực tế, nghỉ giữa giờ và ngày công
+
+- Lưu timestamp gốc; không sửa giờ vào/ra thành giờ đã làm tròn.
+- Gán `work_date` theo lịch và timezone, hiện một ca/ngày và một cặp vào/ra.
+  Ca qua đêm đã có và thuộc ngày bắt đầu ca; nhiều ca/phiên vẫn cần mở rộng.
+- Thời lượng được chứng minh bởi cặp vào/ra hợp lệ, trừ giờ nghỉ không tính công.
+  Với nghỉ trưa cố định, chỉ trừ phần giao thực tế với khoảng nghỉ; không trừ
+  một giờ nghỉ trưa cho ca 10:00–12:00 nếu ca không giao với giờ nghỉ.
+- Lịch linh hoạt vẫn cần chính sách nghỉ rõ ràng. Ví dụ vào 09:00, ra 18:00,
+  nghỉ 12:00–13:00 thì làm 8 giờ, không phải 9 giờ.
+- Khi hỗ trợ nhiều phiên, lấy hợp các khoảng hợp lệ và loại giờ nghỉ một lần;
+  không tính khoảng ra ngoài giữa hai phiên là giờ làm. Nghỉ linh hoạt cần
+  dữ liệu break/phiên tương ứng, không suy ra từ lần vào đầu và ra cuối.
+- Thiếu check-in/check-out: `INCOMPLETE`, chưa có thời lượng cuối cùng. Không
+  có event sau hạn: `NO_RECORD`, cần đối chiếu phép trước khi kết luận vắng.
+  Ngày nghỉ toàn bộ có đơn hợp lệ không đòi cặp vào/ra cho phần đã nghỉ.
+
+<a id="design-4-kết-hợp-nghỉ-phép-theo-ngày"></a>
+
+### 4. Kết hợp nghỉ phép theo ngày
+
+Leave giữ đơn vị **0,5 ngày** cho `ANNUAL`/`UNPAID`; chỉ `ANNUAL` trừ số dư phép
+năm. Phút quy đổi phục vụ đối soát công, không thay đơn vị số dư và không tự
+biến thiếu giờ thành đơn nghỉ phép.
+
+- `FIXED_SHIFT`: nghỉ buổi sáng/chiều loại đúng khoảng tương ứng khỏi thời gian
+  phải làm. Bản phân công cần ánh xạ buổi theo lịch, không hard-code nửa ngày
+  bằng 4 giờ. Ví dụ nghỉ sáng thì xét đi trễ từ đầu ca chiều.
+- `FLEXIBLE_DURATION`: đề xuất nghỉ 0,5 ngày giảm 50% mục tiêu ngày, nghỉ 1 ngày
+  giảm toàn bộ mục tiêu. Mục tiêu 480 phút, nghỉ 0,5 ngày thì còn phải làm 240
+  phút. Nếu không ràng buộc buổi nghỉ, UI/API tương lai cần lựa chọn `HALF_DAY`
+  trung tính; giá trị này **chưa được API Leave hiện tại hỗ trợ**. Không âm thầm
+  đổi nghĩa `MORNING`/`AFTERNOON` trong đơn cũ.
+- Part-time: cần cấu hình quyền hưởng phép và ánh xạ nghỉ trước khi cho gửi đơn.
+  Đề xuất nghỉ toàn bộ ngày được phân công là 1 ngày theo lịch cá nhân, nửa ngày
+  là một nửa lịch/mục tiêu cá nhân; đây là chính sách cần chốt trước khi bật,
+  không tự áp 12 ngày/năm hoặc coi ca 2 giờ là 0,5 ngày của lịch full-time.
+- Ngày lễ/ngày không làm việc không trừ phép. Leave hiện còn tính theo ngày
+  lịch nên phải nâng cấp cách tính và lưu snapshot trước khi tích hợp chính thức.
+- Chỉ đơn `APPROVED` có hiệu lực; đơn chờ duyệt được hiển thị để HR đối soát.
+  Khoảng nghỉ không được tính hai lần. Đi làm trùng khoảng phép cố định phải
+  báo xung đột để xử lý; không tự hoàn số dư hoặc cộng hai lần vào công.
+
+Ký hiệu dùng trong công thức: `B` là thời lượng chuẩn của ngày sau lịch nghỉ
+chung, `L` là thời lượng nghỉ phép đã duyệt quy đổi, `R = max(0, B - L)` là phần
+còn phải làm. Với fixed, `L` lấy từ phần giao với lịch; với flex lấy từ hạn mức
+được duyệt theo chính sách. Luôn bảo đảm `0 <= L <= B`.
+
+<a id="design-5-thuật-toán-theo-chế-độ"></a>
+
+### 5. Thuật toán theo chế độ
+
+<a id="design-51-fixed_shift"></a>
+
+#### 5.1. `FIXED_SHIFT`
+
+Xét giờ vào/ra so với phần ca phải làm sau khi loại phép và giờ nghỉ. Lưu riêng
+đi trễ/về sớm thực tế và phần được quy đổi. Quy tắc đã chốt:
+
+```text
+round15(duration_seconds) = ceil(max(0, duration_seconds) / 900) * 15
+```
+
+0 phút → 0; 5 phút → 15; 15 phút → 15; 16 phút → 30; 31 phút → 45.
+Không cắt bỏ giây trước khi tính: 15 phút 1 giây → 30 phút. Không có khoảng
+miễn trễ mặc định; bước 15 phút không phải grace period.
+
+Làm tròn riêng đi trễ và về sớm từng ca, rồi cộng ngày/tháng. Với một phiên
+hợp lệ, phần phải làm chỉ thiếu ở đầu/cuối và chưa có chính sách bù công:
+
+```text
+work_minutes_counted = max(0, R - round15(late_seconds) - round15(early_seconds))
+```
+
+Phần thiếu đầu/cuối chỉ đếm phút phải làm, không tính giờ nghỉ/phép và không
+đếm chồng nhau. Trừ vào `R`, không trừ lại từ giờ thực tế (tránh trừ hai lần).
+Ca có dữ liệu không đầy đủ hoặc các khoảng vắng giữa giờ không được áp công
+thức giản lược này. Khi mở rộng nhiều phiên, phải tính thêm các khoảng vắng
+và chốt quy tắc quy đổi tương ứng trước khi đưa vào sử dụng.
+
+Đi trễ rồi ở lại ngoài ca không tự bù. Lưu riêng thời gian ngoài lịch; không
+tự công nhận overtime hoặc cộng vào công chuẩn.
+
+<a id="design-52-flexible_duration"></a>
+
+#### 5.2. `FLEXIBLE_DURATION`
+
+`W` là thời lượng làm hợp lệ trong cửa sổ ngày, sau khi loại giờ nghỉ. Không
+tính đi trễ/về sớm; các trường đó là `null`/không áp dụng, không gán 0 để giả
+định nhân viên đã tuân thủ một ca cố định.
+
+```text
+shortfall_actual = max(0, R - W)
+work_minutes_counted = min(R, W)
+extra_minutes = max(0, W - R)
+```
+
+Đủ `R` thì hoàn thành yêu cầu, bất kể bắt đầu sớm hay muộn trong cửa sổ hợp lệ.
+Thiếu thì ghi `SHORT_HOURS`. Không tự bù thiếu hôm nay bằng giờ dư hôm khác.
+Phần dư được lưu riêng; chưa phải overtime đã duyệt.
+
+**Đề xuất mặc định:** thiếu thời lượng linh hoạt giữ đúng số phút/giây thực tế,
+`shortfall_rounding=NONE`. Quy tắc 15 phút đã chốt cho đi trễ/về sớm không tự
+áp sang thiếu thời lượng. Nếu công ty chọn `CEIL_15`, làm tròn phần thiếu một
+lần/ngày và tính `max(0, R - rounded_shortfall)`; không làm tròn giờ vào/ra hoặc
+làm tròn riêng từng phiên. Lựa chọn này phải được lưu trong policy snapshot.
+
+<a id="design-6-đơn-đi-trễvề-sớm-và-bù-công"></a>
+
+### 6. Đơn đi trễ/về sớm và bù công
+
+Attendance lưu `attendance_requests` và `attendance_request_history`: nhân viên,
+ngày công, snapshot ca, loại `LATE_ARRIVAL`/`EARLY_DEPARTURE`, buổi, giờ dự kiến,
+lý do, trạng thái, version và lịch sử xét duyệt. API `/api/v1/attendance/requests`;
+UI `/attendance/requests`. Giờ dự kiến chính xác đến phút và nằm trong khoảng
+làm việc; backend tự tính số phút xin phép. Quy tắc làm tròn 15 phút áp dụng khi
+tính sai lệch chấm công, không bắt buộc số phút xin phép là bội số của 15.
+
+Chỉ áp dụng loại đơn này cho `FIXED_SHIFT`. Với flex thuần túy không có mốc trễ/
+sớm, giao diện không yêu cầu đơn đó. Nếu tương lai có xin miễn một phần thời
+lượng ngày, cần nghiệp vụ riêng; không dùng nhãn đi trễ cho thiếu giờ linh hoạt.
+
+HR/ADMIN duyệt, cấm tự duyệt, dùng `If-Match`, audit và khóa điều phối trong
+transaction Attendance để kiểm tra lịch và đơn khác. Attendance kiểm tra phép
+qua REST của Leave; không có transaction chung giữa hai service. Phân công và
+snapshot được xác minh trong Attendance, không tin giờ ca hoặc thời lượng client gửi.
+
+Phê duyệt xác nhận khoảng vắng được cho phép, không tự đổi timestamp, trừ phép
+năm hoặc bù đủ công. Đề xuất mặc định `permission_credit=NONE`; bù công có
+lương cần chính sách riêng được cấu hình trước khi bật. Khi đối soát, lấy giao
+của khoảng vắng thực tế với khoảng đã duyệt để xác định phần có phép. Giữ các
+phần này ở độ chính xác thực tế; làm tròn tổng đi trễ/về sớm một lần theo mục 5,
+không làm tròn từng phần có phép/chưa có phép rồi cộng gây tăng mức khấu trừ.
+
+<a id="design-7-ví-dụ-đối-chiếu"></a>
+
+### 7. Ví dụ đối chiếu
+
+Các ví dụ fixed không có bù công; flex dùng `shortfall_rounding=NONE`. Cặp giờ
+trong bảng đủ dữ liệu; mọi giờ nghỉ đều ghi rõ.
+
+| Lịch                              | Nghỉ phép                 | Ghi nhận                       | Giờ làm thực tế hợp lệ | Giờ làm tính công | Kết quả khác                                       |
+| --------------------------------- | ------------------------- | ------------------------------ | ---------------------- | ----------------- | -------------------------------------------------- |
+| Fixed mặc định 08–12, 13:30–17:30 | Nghỉ sáng                 | 13:38–17:30                    | 3h52                   | 3h45              | Phép 0,5 ngày; trễ thực tế 8p, quy đổi 15p         |
+| Fixed đã đổi 08–12, 13–15         | Nghỉ sáng                 | 13:08–15:00                    | 1h52                   | 1h45              | Ngày chuẩn 6h; phép sáng quy đổi 4h                |
+| Fixed chỉ có 13–15                | Không                     | 13:00–15:00                    | 2h                     | 2h                | Ngày chuẩn 2h, không thiếu 6h                      |
+| Fixed 10–12                       | Không                     | 10:08–12:00                    | 1h52                   | 1h45              | Trễ quy đổi 15p                                    |
+| Fixed 13–15:30                    | Không                     | 13:08–15:30                    | 2h22                   | 2h15              | Trễ quy đổi 15p                                    |
+| Fixed mặc định 08–12, 13:30–17:30 | Không                     | 08:08–17:38, nghỉ 12–13:30     | 7h52 trong ca          | 7h45              | Ngoài ca 8p, không bù trễ                          |
+| Flex 8h, cửa sổ 06–22             | Không                     | 09:08–18:08, nghỉ 12–13        | 8h                     | 8h                | Đủ thời lượng, không có đi trễ                     |
+| Flex 8h, cửa sổ 06–22             | Không                     | 09:08–18:00, nghỉ 12–13        | 7h52                   | 7h52              | Thiếu 8p; nếu policy chọn CEIL_15 thì công là 7h45 |
+| Flex 8h, cửa sổ 06–22             | Nghỉ 0,5 ngày, quy đổi 4h | 13:08–17:08                    | 4h                     | 4h                | Đủ mục tiêu còn lại; phép ghi riêng                |
+| Flex part-time 2h30, cửa sổ 06–22 | Không                     | 14:00–16:30, không có giờ nghỉ | 2h30                   | 2h30              | Đủ thời lượng                                      |
+
+<a id="design-8-tổng-hợp-chốt-công-và-csv"></a>
+
+### 8. Tổng hợp, chốt công và CSV
+
+Kết quả chung cho cả hai chế độ, một dòng/nhân viên/ngày:
+
+- Nhân viên, mã/phòng ban tại kỳ, ngày công, mode, assignment/policy version.
+- `base_required_minutes`, `leave_days`, `annual_leave_minutes`,
+  `unpaid_leave_minutes`, `remaining_required_minutes`.
+- Giờ vào/ra, `worked_actual_minutes`, `work_minutes_counted`.
+- Fixed: phút trễ/sớm thực tế, phút trễ/sớm quy đổi, khoảng vắng có phép và
+  request IDs. Flex: `shortfall_actual_minutes`, `shortfall_counted_minutes`.
+- Phút ngoài lịch/phần dư, trạng thái dữ liệu, đơn đang chờ, nguồn/phép đã áp
+  dụng, calculation revision và trạng thái kỳ.
+
+Không đồng nhất giờ làm tính công với công hưởng lương. Phép năm hưởng lương
+được ghi riêng; nghỉ không lương không cộng vào công hưởng lương. Nếu công ty
+cấu hình phép năm được cộng vào chỉ tiêu công hưởng lương thì cộng phần phép
+đó với công làm việc, tối đa thời lượng chuẩn ngày cho phần công thông thường.
+Không cộng phần dư thành overtime tự động. Nghỉ flex giảm mục tiêu nhưng làm
+vượt mục tiêu còn lại phải hiện phần dư để đối soát, không cộng phép và giờ
+dư hai lần, cũng không tự hoàn phép.
+
+Màn hình và CSV đọc cùng revision tổng hợp. CSV chi tiết giữ cột mode và giá trị
+không áp dụng để phân biệt thiếu giờ với đi trễ. Tổng tháng cộng từ ngày đã tính,
+không làm tròn lại hoặc quy đổi mọi nhân viên sang ngày chuẩn 8h. Xuất UTF-8 BOM,
+escape CSV và vô hiệu hóa ô có nguy cơ bị hiểu là công thức; không xuất lý do
+riêng tư mặc định. Phân quyền xem/export thực thi ở backend.
+
+Luồng đối soát: tính tạm → xử lý thiếu dữ liệu/đơn chờ → xác minh nguồn đã đồng
+bộ → khóa kỳ → xuất bản chính thức. Báo cáo trước khóa ghi rõ tạm tính. Duyệt
+đơn/correction đến muộn vào kỳ khóa phải báo chênh lệch, không ghi đè; mở lại
+có quyền, lý do và audit rồi tạo revision mới. Khi Leave phát sự kiện, dùng
+outbox cùng transaction duyệt và consumer chống trùng/sai thứ tự theo version.
+
+<a id="design-9-trình-tự-triển-khai-và-kiểm-chứng"></a>
+
+### 9. Trình tự triển khai và kiểm chứng
+
+1. Tạo Attendance với policy/phân công/snapshot; HR/Admin quản lý `FIXED_SHIFT`
+   mặc định 08–12, 13:30–17:30 và ca tùy chỉnh, áp dụng toàn bộ hoặc nhân viên
+   được chọn. Ghi nhận vào/ra và tổng hợp có kiểm soát dữ liệu thiếu.
+2. Đơn đi trễ/về sớm đã triển khai trong Attendance, không thuộc Leave.
+   Tiếp tục hoàn thiện tính phép theo lịch/ngày nghỉ và đối soát dữ liệu đã duyệt.
+3. Đối soát, khóa kỳ, CSV chi tiết và tổng tháng.
+4. Triển khai `FLEXIBLE_DURATION` như tính năng nâng cao mặc định ẩn, chỉ ADMIN
+   được mở khóa, sau khi hoàn thiện tính công, UI/validation, chính sách nghỉ/nửa
+   ngày flex và kiểm thử tương ứng. Chọn
+   chế độ theo assignment, không tạo Attendance Service riêng cho từng chế độ.
+
+Các ca nghiệm thu bắt buộc: toàn bộ ví dụ mục 7; 0/15/15 phút 1 giây ở biên
+làm tròn; trễ 5p + sớm 5p → 30p; ca ngắn không cho công âm; nghỉ trưa giao một
+phần; phép cả ngày không có event; thiếu check-out; ngày lễ không trừ phép;
+flex làm dư không tự tính overtime; đơn trùng/duyệt đồng thời; event trùng/sai
+thứ tự; đổi policy không đổi công đã khóa; CSV khớp revision trên màn hình.
+Kiểm tra thêm quyền quản lý ca; lịch mặc định 480 phút; đổi riêng buổi chiều
+thành 13–15 còn 360 phút/ngày; ca chỉ 13–15 là 120 phút; phân công vài nhân viên
+không ảnh hưởng người khác; áp dụng toàn bộ xử lý cả ngoại lệ; hết hạn lịch riêng
+quay về mặc định; ngày hiệu lực không làm đổi snapshot hoặc số dư phép quá khứ.
+
+Đây là tiêu chí cho implementation tương lai, chưa phải bộ test đã chạy.

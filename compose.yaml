@@ -1,4 +1,4 @@
-# Local development stack with demo data; see DOCKER.md.
+# Local development stack with demo data; see README.md#docker.
 name: company-hrm
 
 x-app: &app

@@ -1,5 +1,72 @@
 # Calendar Service — Thiết kế Holiday và sự kiện công ty
 
+**Mục lục**
+
+- [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
+- [1. Trạng thái và phạm vi](#1-trạng-thái-và-phạm-vi)
+- [2. Kiến trúc và quyền sở hữu dữ liệu](#2-kiến-trúc-và-quyền-sở-hữu-dữ-liệu)
+- [3. Quyền truy cập](#3-quyền-truy-cập)
+- [4. Contract xác thực với Auth](#4-contract-xác-thực-với-auth)
+- [5. Loại sự kiện và Holiday](#5-loại-sự-kiện-và-holiday)
+- [6. Mô hình thời gian](#6-mô-hình-thời-gian)
+- [7. Vòng đời và quyền sửa/xóa](#7-vòng-đời-và-quyền-sửaxóa)
+- [8. Database và audit](#8-database-và-audit)
+- [9. REST API](#9-rest-api)
+- [10. Holiday lookup và tích hợp Attendance/Leave](#10-holiday-lookup-và-tích-hợp-attendanceleave)
+- [11. Kafka và outbox](#11-kafka-và-outbox)
+- [12. Audience mở rộng — roadmap](#12-audience-mở-rộng--roadmap)
+- [13. Stack và cấu trúc triển khai](#13-stack-và-cấu-trúc-triển-khai)
+- [14. Cấu hình, API và kiểm thử local](#14-cấu-hình-api-và-kiểm-thử-local)
+- [15. Thứ tự triển khai và nghiệm thu](#15-thứ-tự-triển-khai-và-nghiệm-thu)
+- [Khởi tạo database và chạy Calendar Service](#khởi-tạo-database-và-chạy-calendar-service)
+
+Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và khóa trong `.cache/local/keys`. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+
+## Cấu hình và chạy độc lập
+
+Project Maven riêng, Java 21, cổng mặc định 8083. Build/chạy từ thư mục
+calendar-service; không cần chạy Maven ở gốc repository hoặc build service khác.
+
+Điều kiện: PostgreSQL/schema và access public key. `CRUD`/lịch không cần Kafka hoặc tiến trình Auth để xác minh token đã có.
+
+1. Chuẩn bị database/user riêng và SQL theo phần database trong `README` này.
+2. Tạo `.env` từ [.env.example](.env.example) nếu chưa có, rồi sửa host/port,
+   mật khẩu, đường dẫn khóa và các cờ tính năng theo môi trường thực tế.
+3. Nạp biến vào đúng terminal hoặc Run Configuration của IDE trước khi chạy.
+
+Các lệnh sau dùng Git Bash/Bash, bắt đầu từ gốc repository:
+
+```bash
+cd back-end/modules/calendar-service
+test -f .env || cp .env.example .env
+# Sửa và lưu .env trước khi chạy các lệnh tiếp theo.
+set -a
+source ./.env
+set +a
+mvn spring-boot:run
+```
+
+Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
+trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+
+| Biến môi trường | Cấu hình cho project này |
+| --- | --- |
+| `SERVER_PORT` | 8083 |
+| `SPRING_DATASOURCE_URL` | jdbc:postgresql://localhost:5432/calendar_db; sửa port nếu DB dùng 55432 hoặc port khác |
+| `SPRING_DATASOURCE_USERNAME` | calendar_user |
+| `SPRING_DATASOURCE_PASSWORD` | Mật khẩu của user database này |
+| `JWT_ACCESS_PUBLIC_KEY` | file:/duong-dan-tuyet-doi/access-public.pem |
+| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE` | auth-service / hrm-api-access, khớp Auth |
+
+Chỉ cần access public key của Auth; không cấp private key cho project này.
+
+`SPRING_DATASOURCE_*` ưu tiên hơn biến `<SERVICE>_DB_*`; `SERVER_PORT` ưu tiên hơn
+biến cổng riêng nếu có. Không giữ hai bộ giá trị mâu thuẫn trong environment.
+Dừng bằng `Ctrl+C` trong terminal này. Build riêng bằng `mvn package`; kiểm thử theo
+phần kiểm thử bên dưới. Với backend có wrapper có thể dùng `./mvnw` hoặc `mvnw.cmd`
+thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy project.
+
 ## 1. Trạng thái và phạm vi
 
 `calendar-service` là microservice sở hữu ngày nghỉ chung và sự kiện nội bộ của công ty. **ADMIN và HR có cùng quyền quản lý CRUD, công bố và hủy sự kiện.** EMPLOYEE và MANAGER được xem sự kiện theo phạm vi cho phép.
@@ -12,7 +79,7 @@ Response gồm `year`, `availableYears`, `events`. Mỗi event trả các trư�
 
 `year` mặc định là năm hiện tại tại `Asia/Ho_Chi_Minh`, giới hạn 1900–2100. Truy vấn lấy mọi sự kiện giao với năm; giữ nguyên khoảng ngày/giờ gốc trong DTO. `availableYears` bao gồm các năm có sự kiện hiển thị cho nhân viên, năm được chọn và năm hiện tại. Nếu DB chưa có sự kiện hiển thị cho nhân viên, API trả `events: []`; không nạp dữ liệu mẫu để bù.
 
-Xem [hướng dẫn SQL](docs/sql/README.md) để khởi tạo schema bằng SQL thuần trong query editor. File seed SQL chèn trực tiếp dữ liệu vào `calendar_events` và ghi audit; không dùng bảng import.
+Xem [hướng dẫn SQL](#database) để khởi tạo schema bằng SQL thuần trong query editor. File seed SQL chèn trực tiếp dữ liệu vào `calendar_events` và ghi audit; không dùng bảng import.
 
 Phạm vi phiên bản đầu:
 
@@ -27,7 +94,7 @@ Chưa triển khai: audience phòng ban/team/role/nhân viên cụ thể, recurr
 
 ## 2. Kiến trúc và quyền sở hữu dữ liệu
 
-Hệ thống dùng microservices trong cùng repository. Auth và Employee đã có implementation và trao đổi sự kiện qua Kafka; Calendar đang được bổ sung.
+Hệ thống dùng microservices trong cùng repository. Auth và Employee đã có implementation và trao đổi sự kiện qua Kafka; Calendar đã có API và UI đọc/quản lý lịch.
 
 ```mermaid
 flowchart LR
@@ -41,15 +108,15 @@ flowchart LR
     E <--> K
 ```
 
-API Gateway chưa có trong repository, không phải điều kiện để triển khai CRUD Calendar. Khi triển khai qua reverse proxy, định tuyến `/api/v1/calendar-events` đến Calendar; không đưa API này vào frontend history fallback.
+API Gateway đã có trong repository và định tuyến Calendar tại cổng `8083`. Khi triển khai qua reverse proxy, định tuyến `/api/v1/calendar-events` đến Calendar; không đưa API này vào frontend history fallback.
 
 | Thành phần                            | Dữ liệu và trách nhiệm sở hữu                                             |
 | ------------------------------------- | ------------------------------------------------------------------------- |
 | Auth                                  | Tài khoản, mật khẩu, vai trò, phát JWT và phiên đăng nhập                 |
 | Employee                              | Hồ sơ nhân viên, phòng ban, chức danh, quan hệ quản lý                    |
 | Calendar                              | Sự kiện, Holiday, trạng thái công bố, phạm vi áp dụng và lịch sử thay đổi |
-| Attendance / Leave tương lai          | Phân ca, công, đơn nghỉ và số dư phép theo domain tương ứng               |
-| Announcement / Notification tương lai | Nội dung thông báo và việc gửi email/push/in-app                          |
+| Attendance / Leave hiện tại          | Phân ca, công, đơn nghỉ và số dư phép theo domain tương ứng               |
+| Notification hiện tại / mở rộng | Đã có thông báo đơn Leave/Attendance; thông báo Calendar và email/push thuộc roadmap                          |
 
 Calendar không query database khác hoặc tạo foreign key xuyên service. Auth xác thực đăng nhập; Calendar tự xác minh JWT và quyết định quyền trên dữ liệu Calendar. Việc không quản lý login không có nghĩa Calendar bỏ kiểm tra xác thực.
 
@@ -63,16 +130,16 @@ Calendar không query database khác hoặc tạo foreign key xuyên service. Au
 | Công bố, hủy sự kiện                   | Có         | Không                        |
 | Xóa nháp                               | Có         | Không                        |
 | Xem lịch đã công bố và sự kiện đã hủy  | Có         | Có, trong audience được phép |
-| Xem audit và danh tính người chỉnh sửa | Có         | Không                        |
+| Xem audit và danh tính người chỉnh sửa | Chưa có API/UI; dự kiến HR/ADMIN | Không                        |
 
 ADMIN và HR được quản lý cả sự kiện do người khác tạo trong công ty. Không giới hạn mỗi người chỉ sửa bản ghi của mình. Người có nhiều role được áp dụng quyền quản lý nếu có ADMIN hoặc HR.
 
 Yêu cầu thực thi:
 
 - Kiểm tra quyền ở backend cho từng endpoint; ẩn nút trên UI chỉ phục vụ trải nghiệm.
-- Bật method security; các nghiệp vụ ghi và đọc audit yêu cầu `hasAnyRole('ADMIN', 'HR')`.
-- Danh sách và chi tiết đều áp dụng quyền xem. Nhân viên truy cập ID của bản nháp nhận `404`; không trả nội dung rồi mới lọc trên frontend.
-- Query `status=DRAFT` từ người chỉ có quyền xem bị từ chối `403`. Mặc định họ chỉ nhận `PUBLISHED` và `CANCELLED`.
+- `SecurityConfig` giới hạn API quản lý tại `/api/v1/calendar-events` cho HR/ADMIN; API đọc audit chưa có.
+- Người không có quyền HR/ADMIN gọi API quản lý, gồm danh sách và chi tiết bản nháp, nhận `403`.
+- API lịch nhân viên `/api/v1/calendar` chỉ nhận tham số năm và trả `PUBLISHED`/`CANCELLED` với audience `ALL`; không có tùy chọn đọc bản nháp.
 - Sự kiện bị hủy vẫn hiển thị với nhãn “Đã hủy” để người đã xem lịch biết thay đổi, nhưng không được tính là ngày nghỉ có hiệu lực.
 - DTO dành cho nhân viên không chứa audit, danh tính người sửa hoặc lý do hủy nội bộ.
 - MVP chỉ chấp nhận `audienceType=ALL`; giá trị khác trả `400`. Khi mở rộng audience, bắt buộc kiểm tra cả status và membership ở list, detail, export và Holiday lookup.
@@ -92,7 +159,7 @@ Calendar hoạt động như OAuth2 Resource Server, kế thừa contract access
 
 Không gọi Auth cho mỗi request. Do xác minh JWT cục bộ, logout hoặc đổi role tại Auth không tự thu hồi ngay access token đã phát hành. Calendar có giới hạn này tương tự Employee; không mô tả đây là kiểm tra trạng thái tài khoản tức thời.
 
-Tham khảo implementation trong [Employee SecurityConfig](../employee-service/src/main/java/com/company/employee/config/SecurityConfig.java), [AccessTokenClaimsValidator](../employee-service/src/main/java/com/company/employee/security/AccessTokenClaimsValidator.java) và [JWT của Auth](../auth-service-main/docs/asymmetric-jwt.md).
+Tham khảo implementation trong [Employee SecurityConfig](../employee-service/src/main/java/com/company/employee/config/SecurityConfig.java), [AccessTokenClaimsValidator](../employee-service/src/main/java/com/company/employee/security/AccessTokenClaimsValidator.java) và [JWT của Auth](../auth-service-main/README.md#jwt).
 
 ## 5. Loại sự kiện và Holiday
 
@@ -238,7 +305,7 @@ CREATE INDEX calendar_event_audit_event_idx
 
 Các index là điểm khởi đầu, cần kiểm chứng bằng query plan và dữ liệu thực; không tạo index riêng cho mọi enum chỉ vì trường đó được lọc.
 
-[Seed SQL](docs/sql/002_calendar_seed.sql) chèn trực tiếp 26 bản ghi lịch vào `calendar_events`, trạng thái ban đầu `PUBLISHED`, và ghi audit `CREATE`. Khi chạy lại, seed công bố các bản ghi do seed tạo còn `DRAFT`, version 0 và nội dung chưa chỉnh sửa, kèm audit `PUBLISH`. Không dùng JSON nguồn hoặc bảng import. Cách chạy seed và kiểm tra nằm trong [hướng dẫn SQL](docs/sql/README.md).
+[Seed SQL](docs/sql/002_calendar_seed.sql) chèn trực tiếp 26 bản ghi lịch vào `calendar_events`, trạng thái ban đầu `PUBLISHED`, và ghi audit `CREATE`. Khi chạy lại, seed công bố các bản ghi do seed tạo còn `DRAFT`, version 0 và nội dung chưa chỉnh sửa, kèm audit `PUBLISH`. Không dùng JSON nguồn hoặc bảng import. Cách chạy seed và kiểm tra nằm trong [hướng dẫn SQL](#database).
 
 Audit không có foreign key bắt buộc về event để giữ lịch sử sau khi xóa nháp. Không có API sửa/xóa audit. Lưu snapshot trước/sau, version, actor và lý do trong cùng transaction với thay đổi:
 
@@ -336,9 +403,9 @@ GET /api/v1/calendar-events?from=2027-01-01&to=2027-01-31&type=HOLIDAY&page=0&si
 
 Dùng Problem Detail tương tự Employee. Mã chính: `400` validation, `401` JWT thiếu/sai, `403` không đủ quyền, `404` không tồn tại/không được xem, `409` vi phạm vòng đời, `412` xung đột version, `428` thiếu precondition. Không lộ SQL, token hoặc stack trace trong response.
 
-## 10. Holiday lookup và tích hợp Attendance/Leave — chưa triển khai
+## 10. Holiday lookup và tích hợp Attendance/Leave
 
-API CRUD/list ở trên đủ để xem Holiday trong MVP. Chưa mở endpoint `/internal` khi chưa có consumer và cơ chế xác thực service-to-service.
+Attendance hiện đọc `GET /api/v1/calendar?year=...` bằng access JWT của request để lấy ngày nghỉ và lưu coverage. Leave chưa dùng Calendar để trừ số dư phép theo ngày làm việc. Chưa có sự kiện tự đồng bộ lại snapshot công. Endpoint `/internal` bên dưới là đề xuất, chưa triển khai.
 
 Contract dự kiến sau này:
 
@@ -415,7 +482,7 @@ Sau MVP có thể bổ sung `DEPARTMENT`, `TEAM`, `ROLE`, `SPECIFIC_EMPLOYEES`, 
 - Khi Employee không truy cập được, không mặc định mở quyền xem sự kiện giới hạn.
 - HTTP contract nội bộ của Employee và cơ chế xác thực giữa các service phải được xây trước; các endpoint `/internal/employees` và `/internal/departments` chưa tồn tại trong contract hiện tại.
 
-## 13. Stack và cấu trúc triển khai dự kiến
+## 13. Stack và cấu trúc triển khai
 
 Nền tảng hiện có trong POM: Java 21, Spring Boot 4.1.1, Maven, Spring MVC, JPA, Validation, Security, Actuator, PostgreSQL, Lombok và Kafka. Dependency có trong POM không đồng nghĩa tính năng đã được cấu hình.
 
@@ -449,7 +516,7 @@ docs/sql/
 
 Chưa cần interface/implementation tách đôi cho mỗi service nếu chỉ có một implementation và chưa có nhu cầu thay thế. Không tạo repository/entity dùng chung xuyên microservice.
 
-## 14. Cấu hình và chạy local sau khi triển khai
+## 14. Cấu hình, API và kiểm thử local
 
 Cấu hình hiện tại: Calendar HTTP mặc định `8083`, PostgreSQL `localhost:5432`, database `calendar_db`. Đặt `CALENDAR_DB_URL`, `CALENDAR_DB_USER`, `CALENDAR_DB_PASSWORD` để kết nối DB thực tế (ví dụ đổi port URL thành `5434` nếu DB local dùng cổng đó). `CALENDAR_PORT` đổi cổng HTTP.
 
@@ -476,14 +543,14 @@ CALENDAR_DB_USER=calendar_test CALENDAR_DB_PASSWORD=your-local-test-password ./m
 
 Bộ test validate entity theo schema đã tạo, đọc qua API và kiểm tra DTO, ẩn draft/actor, lịch rỗng, khoảng giao năm và biên thời gian. `CalendarManagementIntegrationTests` kiểm tra CRUD, vòng đời, version, ghi đồng thời, validation và rollback khi audit lỗi. Không chạy bộ test trên DB nghiệp vụ.
 
-Cấu hình JWT hiện tại:
+Cấu hình mặc định liên quan đến database và JWT (environment có thể ghi đè):
 
 ```properties
 spring.application.name=calendar-service
-server.port=8083
-spring.datasource.url=${CALENDAR_DB_URL:jdbc:postgresql://localhost:5434/calendar_db}
+server.port=${CALENDAR_PORT:8083}
+spring.datasource.url=${CALENDAR_DB_URL:jdbc:postgresql://localhost:5432/calendar_db}
 spring.datasource.username=${CALENDAR_DB_USER:calendar_user}
-spring.datasource.password=${CALENDAR_DB_PASSWORD}
+spring.datasource.password=${CALENDAR_DB_PASSWORD:calendar_password}
 spring.jpa.hibernate.ddl-auto=validate
 spring.jpa.open-in-view=false
 management.endpoints.web.exposure.include=health
@@ -507,7 +574,10 @@ docker run --name calendar-postgres \
   -d postgres:16
 ```
 
-Không chạy tạo container mới nếu đã có instance/database cần giữ. Mẫu này dùng cho local. Từ thư mục `back-end/modules/calendar-service`, sau khi hoàn thiện dependency, schema SQL, security và business code:
+Không chạy tạo container mới nếu đã có instance/database cần giữ. Nếu dùng ví dụ
+Docker cổng `5434`, đặt `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/calendar_db`
+và dùng cùng cổng trong `psql`/SQL editor. Từ thư mục service, nạp `.env` theo
+[cấu hình độc lập](#cấu-hình-và-chạy-độc-lập) trước khi chạy:
 
 ```bash
 ./mvnw test
@@ -521,7 +591,7 @@ JAR theo artifactId/version hiện tại, nếu không đổi `finalName`:
 java -jar target/calendar-service-0.0.1-SNAPSHOT.jar
 ```
 
-Service cần access public key đúng, database sẵn sàng và biến môi trường trong chính tiến trình khởi động; Spring Boot không tự đọc `.env`. Nếu đóng gói Docker sau này, `localhost` bên trong container không trỏ đến PostgreSQL trên host; đặt `CALENDAR_DB_URL` tới địa chỉ database truy cập được và mount public key. Hiện chưa có Dockerfile/Compose cho Calendar.
+Service cần access public key đúng, database sẵn sàng và biến môi trường trong chính tiến trình khởi động; Spring Boot không tự đọc `.env`. Calendar đã dùng Dockerfile backend chung và có trong Compose gốc cùng Compose HTTPS tại `infra/gateway` (tên `workforce`). Trong container, `localhost` không trỏ đến PostgreSQL trên host; dùng đích database/mount public key do Compose cấu hình. Xem [Docker](../../../README.md#docker).
 
 ## 15. Thứ tự triển khai và nghiệm thu
 
@@ -545,3 +615,179 @@ Các kiểm thử bắt buộc:
 - Script tạo bảng chạy trên PostgreSQL sạch, Hibernate validate được schema; constraint, JSONB và concurrency được kiểm chứng trên PostgreSQL, không chỉ H2.
 
 Các bước sau MVP là audience mở rộng, consumer Holiday/Attendance/Leave, rồi Kafka/outbox khi có nghiệp vụ sử dụng. Hệ thống Auth–Employee vẫn tiếp tục dùng Kafka hiện có trong suốt quá trình này.
+
+<a id="database"></a>
+
+## Khởi tạo database và chạy Calendar Service
+
+Hướng dẫn này dùng PostgreSQL local, chạy schema và seed trong query editor, sau đó khởi động service từ terminal.
+
+Thông số dưới đây là ví dụ theo mặc định ứng dụng. Nếu dùng `.env` được tạo theo
+[hướng dẫn chạy độc lập](../../../README.md#local), kết nối PostgreSQL tại `55432`, dùng mật khẩu
+đã cấu hình và access public key trong `.cache/local/keys`. Nạp `.env` vào terminal
+trước khi chạy Maven; `SPRING_DATASOURCE_*` trong file ưu tiên hơn giá trị từ
+`CALENDAR_DB_*` bên dưới, nên không trộn hai bộ cấu hình khác nhau.
+
+<a id="database-bước-1-chuẩn-bị"></a>
+
+### Bước 1: Chuẩn bị
+
+Cần có:
+
+- PostgreSQL đang chạy và công cụ mở query editor, ví dụ công cụ database trong IDE hoặc pgAdmin.
+- Tài khoản PostgreSQL có quyền tạo user và database để thực hiện bước 2.
+- JDK 21. Kiểm tra trong terminal bằng `java -version`.
+
+Thông số dùng xuyên suốt hướng dẫn:
+
+| Thông số         | Giá trị             |
+| ---------------- | ------------------- |
+| PostgreSQL host  | `localhost`         |
+| PostgreSQL port  | `5432`              |
+| Database         | `calendar_db`       |
+| User của service | `calendar_user`     |
+| Mật khẩu local   | `calendar_password` |
+| Cổng HTTP        | `8083`              |
+
+Nếu PostgreSQL của bạn dùng cổng hoặc tài khoản khác, dùng đúng thông số đó ở cả kết nối query editor và biến môi trường tại bước 5.
+
+<a id="database-bước-2-tạo-user-và-database"></a>
+
+### Bước 2: Tạo user và database
+
+Nếu đã có `calendar_db` và đăng nhập được bằng `calendar_user`, chuyển sang bước 3.
+
+Mở kết nối quản trị PostgreSQL tới database `postgres`, bằng tài khoản quản trị của bạn. Chạy **riêng từng câu** sau trong query editor, bật autocommit:
+
+```sql
+CREATE USER calendar_user WITH PASSWORD 'calendar_password';
+```
+
+```sql
+CREATE DATABASE calendar_db OWNER calendar_user;
+```
+
+Không bọc hai câu trên trong `BEGIN`/`COMMIT`: PostgreSQL không cho chạy `CREATE DATABASE` trong transaction. Nếu user đã tồn tại, chỉ chạy câu tạo database và dùng mật khẩu hiện tại của user đó.
+
+<a id="database-bước-3-tạo-bảng"></a>
+
+### Bước 3: Tạo bảng
+
+Tạo hoặc mở kết nối query editor với:
+
+- Database: `calendar_db`.
+- User: `calendar_user`.
+- Password: mật khẩu của `calendar_user`.
+
+Kiểm tra bạn đang ở đúng kết nối:
+
+```sql
+SELECT current_database(), current_user;
+```
+
+Kết quả cần là `calendar_db` và `calendar_user`.
+
+Mở [001_calendar_schema.sql](docs/sql/001_calendar_schema.sql), chọn **toàn bộ nội dung file** rồi chạy như một script, bao gồm `BEGIN` và `COMMIT`.
+
+Kiểm tra các bảng:
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('calendar_events', 'calendar_event_audit')
+ORDER BY table_name;
+```
+
+Kết quả có hai bảng: `calendar_event_audit` và `calendar_events`. Chỉ chạy script tạo bảng một lần. Nếu hai bảng đã tồn tại đúng schema, chuyển sang bước 4.
+
+<a id="database-bước-4-nạp-dữ-liệu-lịch"></a>
+
+### Bước 4: Nạp dữ liệu lịch
+
+Trên cùng kết nối `calendar_db` bằng `calendar_user`, mở [002_calendar_seed.sql](docs/sql/002_calendar_seed.sql), chọn **toàn bộ nội dung file** rồi chạy như một script.
+
+Kiểm tra dữ liệu:
+
+```sql
+SELECT type, status, COUNT(*) AS total
+FROM calendar_events
+WHERE created_by = 'seed:everrise-vn'
+GROUP BY type, status
+ORDER BY type;
+```
+
+Với DB vừa khởi tạo, kết quả là:
+
+| type          | status    | total |
+| ------------- | --------- | ----- |
+| COMPANY_EVENT | PUBLISHED | 1     |
+| HOLIDAY       | PUBLISHED | 20    |
+| OTHER         | PUBLISHED | 5     |
+
+Xem chi tiết:
+
+```sql
+SELECT id, title, description, type, holiday_kind, start_date, end_date, status
+FROM calendar_events
+ORDER BY start_date, id;
+```
+
+Seed tạo 26 sự kiện `PUBLISHED` và ghi lịch sử vào `calendar_event_audit`. Chạy lại không thêm sự kiện trùng tiêu đề, loại, loại nghỉ và khoảng ngày. Các bản ghi do seed tạo còn `DRAFT`, version 0, nội dung chưa chỉnh sửa được chuyển sang `PUBLISHED` và ghi audit; bản nháp do người dùng tạo hoặc đã chỉnh sửa không bị công bố.
+
+<a id="database-bước-5-khởi-động-service"></a>
+
+### Bước 5: Khởi động service
+
+Mở terminal Bash và chạy:
+
+```bash
+# Từ thư mục gốc repository
+cd back-end/modules/calendar-service
+
+export CALENDAR_DB_URL='jdbc:postgresql://localhost:5432/calendar_db'
+export CALENDAR_DB_USER='calendar_user'
+export CALENDAR_DB_PASSWORD='calendar_password'
+export CALENDAR_PORT=8083
+
+./mvnw spring-boot:run
+```
+
+Dùng mật khẩu thực tế nếu khác ví dụ. Service sử dụng các bảng đã tạo ở bước 3. Hibernate kiểm tra schema khi khởi động, không tự tạo hoặc sửa bảng.
+
+Các biến `export` chỉ áp dụng cho terminal này và các tiến trình được chạy từ nó. Nếu bấm Run trong IDE, đặt bốn biến tương ứng trong **Run Configuration → Environment variables**.
+
+Lần chạy Maven Wrapper đầu tiên cần kết nối mạng để tải Maven và dependency. Giữ terminal chạy service mở; đợi log `Started CalendarServiceApplication` trước khi làm bước 6.
+
+Service cần access public key của Auth. Đặt `JWT_ACCESS_PUBLIC_KEY` nếu key không nằm tại `file:../auth-service-main/keys/access-public.pem`; chỉ sử dụng public key cho access token.
+
+<a id="database-bước-6-kiểm-tra-service-và-swagger-ui"></a>
+
+### Bước 6: Kiểm tra service và Swagger UI
+
+Mở trong trình duyệt:
+
+- Health: [http://localhost:8083/actuator/health](http://localhost:8083/actuator/health) — cần trả `{"status":"UP"}`.
+- Swagger UI: [http://localhost:8083/swagger-ui.html](http://localhost:8083/swagger-ui.html).
+- API lịch: [http://localhost:8083/api/v1/calendar?year=2026](http://localhost:8083/api/v1/calendar?year=2026).
+
+Trong Swagger, mở **Calendar → GET /api/v1/calendar → Try it out**, nhập `2026` vào `year` rồi chọn **Execute**. Trước khi thử, chọn **Authorize** và nhập access token lấy sau khi đăng nhập Auth. API yêu cầu header `Authorization: Bearer <access-token>`; mở link API trực tiếp mà không có token sẽ trả `401`.
+
+Sau khi seed trên DB mới, API trả **13 sự kiện cho năm 2026** và **13 sự kiện cho năm 2027**. API dành cho nhân viên đã đăng nhập chỉ trả `PUBLISHED` hoặc `CANCELLED`; bản nháp `DRAFT` không hiển thị. Nếu danh sách rỗng, kiểm tra truy vấn tại bước 4 và kết nối DB của service.
+
+<a id="database-khi-gặp-lỗi"></a>
+
+### Khi gặp lỗi
+
+| Lỗi                                                     | Cách xử lý                                                                                                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Connection refused` khi kết nối PostgreSQL             | Kiểm tra PostgreSQL đã chạy và đúng host/port. Cổng DB là `5432` theo hướng dẫn, cổng HTTP là `8083`.                                             |
+| `password authentication failed`                        | Kiểm tra đăng nhập query editor bằng `calendar_user`; dùng cùng mật khẩu trong `CALENDAR_DB_PASSWORD`.                                            |
+| `database "calendar_db" does not exist`                 | Tạo database ở bước 2 trên đúng PostgreSQL host/port đang dùng.                                                                                   |
+| `CREATE DATABASE cannot run inside a transaction block` | Bật autocommit và chạy riêng câu `CREATE DATABASE`, ngoài transaction.                                                                            |
+| `relation ... already exists`                           | Không chạy lại schema trên bảng đã có. Nếu phiên SQL đang lỗi, chạy `ROLLBACK;` trước; kiểm tra bảng rồi chuyển sang bước 4 nếu schema đã đầy đủ. |
+| `current transaction is aborted`                        | Chạy `ROLLBACK;`, tìm lỗi đầu tiên trong output, sửa lỗi đó rồi chạy lại toàn bộ script.                                                          |
+| `permission denied for table`                           | Kiểm tra bảng được tạo bằng `calendar_user` ở bước 3. Nếu bảng thuộc tài khoản khác, chủ bảng cần cấp quyền phù hợp cho `calendar_user`.          |
+| `Schema-validation: missing table`                      | Kiểm tra `CALENDAR_DB_URL` trỏ tới đúng DB đã chạy schema và script đã hoàn tất `COMMIT`.                                                         |
+| Cổng `8083` đang được dùng                              | Dừng service đang chiếm cổng hoặc đổi `CALENDAR_PORT`, rồi mở URL theo cổng mới.                                                                  |
+| API trả `200` nhưng `events` rỗng                       | Kiểm tra năm truy vấn và trạng thái sự kiện; `DRAFT` không được trả qua API dành cho nhân viên đã đăng nhập.                                                            |

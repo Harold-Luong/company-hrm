@@ -1,16 +1,95 @@
 # Employee Service
 
+**Mục lục**
+
+- [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
+- [1. Công nghệ sử dụng](#1-công-nghệ-sử-dụng)
+- [2. Cấu trúc project](#2-cấu-trúc-project)
+- [3. Database](#3-database)
+- [4. Cấu hình application.yaml](#4-cấu-hình-applicationyaml)
+- [5. Script SQL](#5-script-sql)
+- [6. Các Entity](#6-các-entity)
+- [7. Quan hệ Entity](#7-quan-hệ-entity)
+- [8. UUID](#8-uuid)
+- [9. Chạy project](#9-chạy-project)
+- [10. Kiểm tra schema database](#10-kiểm-tra-schema-database)
+- [11. Kiểm tra seed data](#11-kiểm-tra-seed-data)
+- [12. API](#12-api)
+- [13. Thứ tự phát triển đề xuất](#13-thứ-tự-phát-triển-đề-xuất)
+- [14. Sử dụng Employee API](#14-sử-dụng-employee-api)
+- [15. Health check và kết nối database](#15-health-check-và-kết-nối-database)
+- [16. Sử dụng Department API](#16-sử-dụng-department-api)
+- [17. Sử dụng Position API](#17-sử-dụng-position-api)
+- [18. Xác minh access token từ Auth](#18-xác-minh-access-token-từ-auth)
+- [Chạy luồng yêu cầu cấp tài khoản](#chạy-luồng-yêu-cầu-cấp-tài-khoản)
+
 `employee-service` là service quản lý thông tin nhân viên trong hệ thống HRM.
 
 Employee là nguồn dữ liệu chính về hồ sơ nhân viên. Service đã xác minh JWT của
-Auth và đã có luồng Kafka cấp tài khoản (mặc định tắt, bật sau khi tạo schema và Kafka topics). Theo
-[thiết kế event-driven](../EVENT-DRIVEN-GUIDE.md), người dùng yêu cầu cấp tài khoản
+Auth và đã có luồng Kafka cấp tài khoản (Employee mặc định bật `HRM_EVENTS_ENABLED`; Auth mặc định tắt, cần cấu hình cả hai và chuẩn bị schema/topics). Theo
+[thiết kế event-driven](../../../README.md#events), người dùng yêu cầu cấp tài khoản
 tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequested`
 để Auth tạo Account và trả kết quả. Tạo hồ sơ vẫn là thao tác độc lập.
 
 ---
 
+Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và khóa trong `.cache/local/keys`. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+
+## Cấu hình và chạy độc lập
+
+Project Maven riêng, Java 21, cổng mặc định 8082. Build/chạy từ thư mục
+employee-service; không cần chạy Maven ở gốc repository hoặc build service khác.
+
+Điều kiện: PostgreSQL/schema và access public key. Đặt `HRM_EVENTS_ENABLED=false` để chạy `CRUD` không có Kafka; bật lại cùng broker/topics để cấp tài khoản bất đồng bộ.
+
+1. Chuẩn bị database/user riêng và SQL theo phần database trong `README` này.
+2. Tạo `.env` từ [.env.example](.env.example) nếu chưa có, rồi sửa host/port,
+   mật khẩu, đường dẫn khóa và các cờ tính năng theo môi trường thực tế.
+3. Nạp biến vào đúng terminal hoặc Run Configuration của IDE trước khi chạy.
+
+Các lệnh sau dùng Git Bash/Bash, bắt đầu từ gốc repository:
+
+```bash
+cd back-end/modules/employee-service
+test -f .env || cp .env.example .env
+# Sửa và lưu .env trước khi chạy các lệnh tiếp theo.
+set -a
+source ./.env
+set +a
+mvn spring-boot:run
+```
+
+Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
+trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+
+| Biến môi trường | Cấu hình cho project này |
+| --- | --- |
+| `SERVER_PORT` | 8082 |
+| `SPRING_DATASOURCE_URL` | jdbc:postgresql://localhost:5432/employee_db; sửa port nếu DB dùng 55432 hoặc port khác |
+| `SPRING_DATASOURCE_USERNAME` | employee_user |
+| `SPRING_DATASOURCE_PASSWORD` | Mật khẩu của user database này |
+| `JWT_ACCESS_PUBLIC_KEY` | file:/duong-dan-tuyet-doi/access-public.pem |
+| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE` | auth-service / hrm-api-access, khớp Auth |
+
+Chỉ cần access public key của Auth; không cấp private key cho project này.
+
+`SPRING_DATASOURCE_*` ưu tiên hơn biến `<SERVICE>_DB_*`; `SERVER_PORT` ưu tiên hơn
+biến cổng riêng nếu có. Không giữ hai bộ giá trị mâu thuẫn trong environment.
+Dừng bằng `Ctrl+C` trong terminal này. Build riêng bằng `mvn package`; kiểm thử theo
+phần kiểm thử bên dưới. Với backend có wrapper có thể dùng `./mvnw` hoặc `mvnw.cmd`
+thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy project.
+
 ## 1. Công nghệ sử dụng
+
+Quyền truy cập nhân sự được kiểm tra ở cả UI và API:
+
+- `HR`/`ADMIN`: xem danh sách, xem hồ sơ, tạo/sửa nhân viên và quản lý phòng ban/chức danh.
+- `EMPLOYEE`/`MANAGER`: chỉ đọc hồ sơ có ID khớp claim `employee_id` trong JWT qua
+  `GET /api/v1/employees/{id}`; không được liệt kê nhân viên hoặc sửa hồ sơ, kể cả hồ sơ của mình.
+  Trên UI dùng **Hồ sơ của tôi**; các trang quản lý nhân sự bị chặn cả khi nhập URL trực tiếp.
+- Endpoint health-check công khai khi gọi trực tiếp; qua Gateway cần access token. Chấm công/nghỉ phép cá nhân tiếp tục đọc hồ sơ
+  của chính người gọi bằng JWT hiện tại.
 
 - Java 21
 - Spring Boot
@@ -212,7 +291,7 @@ khi service khởi động.
 API hồ sơ nhận/trả `personalEmail` và bắt buộc `gender`; client cũ cần cập nhật
 payload. Endpoint yêu cầu cấp tài khoản vẫn nhận `email` đăng nhập.
 
-Seed tạo **4 phòng ban, 5 chức danh, 6 nhân viên**, với UUID giữ nguyên để khớp
+Seed tạo **4 phòng ban, 5 chức danh, 7 nhân viên**, với các UUID cũ giữ nguyên để khớp
 [seed Auth](../auth-service-main/docs/sql/002_auth_seed.sql):
 
 | Mã | Email hồ sơ Employee | Email đăng nhập trong seed Auth | Role Auth |
@@ -223,9 +302,19 @@ Seed tạo **4 phòng ban, 5 chức danh, 6 nhân viên**, với UUID giữ nguy
 | EMP004 | dung.pham@company.com | Chưa tạo | — |
 | EMP005 | ha.vo@company.com | admin@company.com | EMPLOYEE, ADMIN |
 | EMP006 | khanh.do@company.com | disabled@company.com (inactive) | EMPLOYEE |
+| EMP007 | minhanh.nguyen@example.com | Chưa tạo | — |
 
-EMP003 và EMP004 có quản lý trực tiếp là EMP002. EMP004 đang thử việc; các hồ sơ
+EMP003, EMP004 và EMP007 có quản lý trực tiếp là EMP002. EMP004 đang thử việc; các hồ sơ
 còn lại có trạng thái lao động `ACTIVE`. Trạng thái lao động độc lập với tài khoản.
+
+Tất cả **EMP001–EMP007** có họ tên, email, số điện thoại, ngày sinh, giới tính,
+địa chỉ, người/số điện thoại liên hệ khẩn cấp, ngày vào làm, trạng thái lao động,
+phòng ban và chức danh. Đây là dữ liệu giả lập. Quan hệ quản lý giữ nguyên như
+trên; `manager_id` có thể trống khi nhân viên chưa có quản lý trực tiếp trong bộ mẫu.
+EMP007 — **Nguyễn Minh Anh** thuộc phòng IT, chức danh Software Engineer.
+Seed này tạo hồ sơ Employee, không tạo tài khoản đăng nhập, ca làm,
+chấm công hoặc đơn nghỉ phép. Các trường thời gian tạo/cập nhật dùng mặc định
+của database; không giả lập người thực hiện thay đổi.
 
 Email hồ sơ và email đăng nhập là hai trường riêng, liên kết hai service bằng UUID
 `employeeId`. Role và mật khẩu thuộc Auth; chạy Employee seed không tạo tài khoản.
@@ -233,8 +322,13 @@ Mọi hồ sơ mới trong seed đều có `employee_account_status=NOT_CREATED`
 phát sự kiện, nên dù đã chạy seed Auth, trạng thái tại Employee vẫn chưa đồng bộ.
 EMP004 được chừa để thử luồng cấp tài khoản → email kích hoạt → `ACTIVE` thực tế.
 
-Seed chạy trong một transaction. Chạy lại chỉ thêm bản ghi thiếu, giữ nguyên hồ sơ,
-trạng thái và version hiện có. Nếu ID/mã/email xung đột với bản ghi khác, toàn bộ
+Seed chạy trong một transaction. Chạy lại thêm bản ghi thiếu và bổ sung địa chỉ,
+người/số điện thoại liên hệ khẩn cấp đang `NULL`, rỗng hoặc chỉ có khoảng trắng
+cho các hồ sơ mẫu cũ. Giới tính mặc định `OTHER` chỉ được thay khi hồ sơ chưa từng
+được sửa (`updated_at = created_at`); giá trị `OTHER` trên hồ sơ đã sửa được giữ lại.
+Các giá trị đã nhập, trạng thái lao động/tài khoản và version hiện có được giữ nguyên.
+Chạy lại sau khi bổ sung không thay đổi dữ liệu hoặc thời gian cập nhật.
+Nếu ID/mã/email xung đột với bản ghi khác, toàn bộ
 seed thất bại; không tự gán lại liên kết. Các bảng tạm `employee_demo_*` tự xóa khi
 commit. Không seed yêu cầu cấp tài khoản, version sự kiện hoặc Outbox.
 
@@ -397,7 +491,7 @@ psql -X -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f docs/
 psql -X -h localhost -U employee_user -d employee_db -v ON_ERROR_STOP=1 -f docs/sql/002_employee_seed.sql
 ```
 
-Tạo RSA keys của Auth theo [hướng dẫn Auth](../auth-service-main/docs/hrm-auth.md)
+Tạo RSA keys của Auth theo [hướng dẫn Auth](../auth-service-main/README.md)
 trước khi chạy Employee. Employee chỉ cần access **public** key tương ứng với Auth
 đang ký JWT. Từ thư mục `employee-service`, chạy trên Linux/macOS:
 
@@ -421,8 +515,8 @@ kể cả khi Kafka đang tắt.
 
 Để thử cấp tài khoản/gửi email, chuẩn bị schema Auth, Kafka topics và cấu hình
 activation/Resend của Auth, rồi bật `HRM_EVENTS_ENABLED=true` cho **cả hai service**.
-Xem [hướng dẫn Kafka](../infra/kafka/ACCOUNT-PROVISIONING.md) và
-[hướng dẫn kích hoạt](../auth-service-main/docs/ACCOUNT-ACTIVATION.md).
+Xem [hướng dẫn Kafka](#provisioning) và
+[hướng dẫn kích hoạt](../auth-service-main/README.md#activation).
 Dùng EMP004 với email nhận thư thực tế cho yêu cầu thử nghiệm; email demo không
 phải hộp thư được cấu hình để nhận email kích hoạt.
 
@@ -670,7 +764,7 @@ chính về tài khoản. Trạng thái tại Employee chỉ là bản sao để
 
 Đã nhận `AccountCreated` / `AccountCreationFailed` để hoàn tất yêu cầu cấp tài khoản.
 Consumer `AccountStatusChanged` đã nhận trạng thái sau kích hoạt, chỉ áp dụng version mới hơn. Thiết kế nằm trong
-[hướng dẫn event-driven](../EVENT-DRIVEN-GUIDE.md). Không thêm `PENDING`/`FAILED` của
+[hướng dẫn event-driven](../../../README.md#events). Không thêm `PENDING`/`FAILED` của
 quá trình cấp tài khoản vào enum này.
 
 Schema [001_employee_schema.sql](docs/sql/001_employee_schema.sql) dùng
@@ -711,8 +805,8 @@ version Auth; thành công có thể vẫn đang `PENDING_ACTIVATION`.
 
 Không cập nhật trạng thái lao động `EmployeeStatus` bằng kết quả từ Auth. Schema
 đã gồm hạ tầng Outbox và yêu cầu cấp tài khoản; Auth đã có API đặt mật khẩu/kích hoạt
-và phát sự kiện để Employee cập nhật `ACTIVE`. Xem [hướng dẫn chạy và ví dụ API](../infra/kafka/ACCOUNT-PROVISIONING.md)
-và [lộ trình còn lại](../EVENT-DRIVEN-GUIDE.md#10-lộ-trình-triển-khai-theo-phase).
+và phát sự kiện để Employee cập nhật `ACTIVE`. Xem [hướng dẫn chạy và ví dụ API](#provisioning)
+và [lộ trình còn lại](../../../README.md#events-10-lộ-trình-triển-khai-theo-phase).
 
 ### Danh sách và chi tiết
 
@@ -926,7 +1020,7 @@ truy cập Employee được.
 Employee chỉ cần **access public key** của Auth, định dạng PEM X.509
 (`BEGIN PUBLIC KEY`), RSA từ 2048 bit. Không sao chép private key hoặc dùng refresh
 public key. Cách tạo khóa tại Auth nằm trong
-[hướng dẫn asymmetric JWT](../auth-service-main/docs/asymmetric-jwt.md).
+[hướng dẫn asymmetric JWT](../auth-service-main/README.md#jwt).
 
 Chạy từ thư mục `employee-service` để dùng trực tiếp public key của Auth khi phát triển:
 
@@ -975,13 +1069,12 @@ CSRF bị tắt vì xác thực qua Bearer header, không dùng cookie tự gử
 
 Các role trong token được ánh xạ thành `ROLE_EMPLOYEE`, `ROLE_HR`, ... trong
 SecurityContext; principal là `sub` của token. API yêu cầu cấp tài khoản cần role
-HR hoặc ADMIN. Các API CRUD hồ sơ/phòng ban/chức danh hiện cho phép mọi access
-token hợp lệ; chưa giới hạn người dùng chỉ được đọc/sửa hồ sơ của mình.
+HR hoặc ADMIN. Các API quản lý hồ sơ/phòng ban/chức danh cũng yêu cầu HR/ADMIN.
+Người dùng khác chỉ đọc hồ sơ có ID khớp claim `employee_id`; không có quyền liệt kê hoặc sửa.
 
 `accountStatus` được đồng bộ qua Kafka nhưng chỉ dùng để hiển thị, không kiểm tra
 trong bộ lọc. JWT còn hạn có thể tiếp tục dùng sau khi tài khoản bị khóa ở Auth.
-Lớp phân quyền dữ liệu và cơ chế thu hồi quyền cần được triển khai trước khi
-cho người dùng thực tế truy cập dữ liệu nhân sự.
+Phân quyền dữ liệu hiện kiểm tra tại controller; cơ chế thu hồi tức thời access JWT ở các resource service chưa có.
 
 ### Kiểm thử
 
@@ -992,3 +1085,219 @@ chữ ký giả, payload bị sửa, thuật toán khác RS256, issuer/audience 
 stateless. Các test CRUD dùng người dùng giả lập riêng để kiểm tra nghiệp vụ.
 
 Tham khảo: [Spring Security Resource Server JWT](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html).
+
+<a id="provisioning"></a>
+
+## Chạy luồng yêu cầu cấp tài khoản
+
+Đã có hai chiều: Employee nhận yêu cầu → Outbox → Kafka → Auth tạo Account hoặc
+trả lỗi → Outbox → Kafka → Employee cập nhật kết quả. Tạo hồ sơ không tự cấp Account.
+
+Account tạo qua luồng này có `activation_pending=true`, `is_active=false`, role
+`EMPLOYEE`, hash từ bí mật ngẫu nhiên riêng từng tài khoản không được giữ lại hoặc
+phát ra ngoài. Đã có [email Resend, token hết hạn và API đặt mật khẩu/kích hoạt](../auth-service-main/README.md#activation).
+Tài khoản mới chỉ đăng nhập được sau khi hoàn tất kích hoạt. Không bật thủ công `is_active` hoặc dùng mật khẩu chung để
+thay thế luồng kích hoạt; database không cho Account chờ kích hoạt trở thành active.
+
+<a id="provisioning-1-database-và-kafka"></a>
+
+### 1. Database và Kafka
+
+Chạy từ `back-end/modules`, sau khi tạo user/database development riêng cho Employee và Auth:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -h localhost -U employee_user -d employee_db \
+  -f employee-service/docs/sql/001_employee_schema.sql
+psql -X -v ON_ERROR_STOP=1 -h localhost -U auth_user -d auth_db \
+  -f auth-service-main/docs/sql/001_auth_schema.sql
+
+docker compose -f infra/kafka/compose.yaml up -d
+docker compose -f infra/kafka/compose.yaml run --rm kafka-init
+```
+
+Hai service dùng schema đầy đủ trong `docs/sql/001_employee_schema.sql` và
+`docs/sql/001_auth_schema.sql`; SQL không tự chạy khi ứng dụng start.
+Các script tạo bảng/index còn thiếu, không reset database và không tự ALTER
+bảng cũ. Database Employee còn `has_account`/`UNKNOWN` hoặc thiếu cột/constraint
+cần migration riêng sau khi đối chiếu schema; Auth cũ cũng cần kiểm tra tương tự.
+
+Dữ liệu mẫu local là tùy chọn: chạy `employee-service/docs/sql/002_employee_seed.sql`
+và `auth-service-main/docs/sql/002_auth_seed.sql` sau schema tương ứng.
+UUID nhân viên khớp giữa hai seed. Seed không phát sự kiện nên `accountStatus`
+tại Employee chưa phản ánh các tài khoản seed Auth; dùng EMP004 chưa có Account
+để thử toàn bộ luồng này. Xem [hướng dẫn Employee](#5-script-sql).
+
+Topic yêu cầu: `hrm.employee.account-requests.v1`; topic kết quả:
+`hrm.auth.account-results.v1`. Sau kích hoạt, Auth phát `AccountStatusChanged` qua
+`hrm.auth.account-lifecycle.v1`, Employee consumer cập nhật theo version.
+
+<a id="provisioning-2-chạy-hai-service"></a>
+
+### 2. Chạy hai service
+
+Từ thư mục từng service, dùng cấu hình database và JWT như trước:
+
+```bash
+HRM_EVENTS_ENABLED=true ./mvnw spring-boot:run
+```
+
+`KAFKA_BOOTSTRAP_SERVERS` mặc định `localhost:9092`. `HRM_EVENTS_ENABLED` mặc định `false` ở Auth, `true` ở Employee; đặt rõ ở cả hai tiến trình:
+worker/listener không chạy và API yêu cầu trả `503`. Khi bật cờ ở Auth, API
+`POST /api/v1/auth/register` cũ trả `409`; các thao tác login/refresh hiện có vẫn
+hoạt động cho Account đã active. Việc này ngăn đường tạo Account bỏ qua Outbox.
+
+Dùng tài khoản HR/ADMIN đã có để đăng nhập; Auth seed local vẫn dùng được. JWT
+Employee phải xác minh được bằng access public key của Auth. Hai API mới cho
+HR/ADMIN toàn hệ thống; chưa có phạm vi theo phòng ban hoặc tenant.
+
+<a id="provisioning-3-gửi-yêu-cầu"></a>
+
+### 3. Gửi yêu cầu
+
+Tạo nhân viên qua API Employee như trước rồi dùng ID vừa nhận. Thay các biến dưới
+bằng dữ liệu local của bạn; key phải là UUID mới cho thao tác cấp tài khoản mới.
+
+```bash
+curl -i -X POST "http://localhost:8082/api/v1/employees/$EMPLOYEE_ID/account-requests" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"employee@example.com"}'
+```
+
+Phản hồi `202 Accepted`, header `Location` và body:
+
+```json
+{
+  "requestId": "ad96c1d8-d0d9-477c-a47b-7aed14d46db1",
+  "employeeId": "d38e31b7-0bba-420c-8eaf-50edbe5a61ae",
+  "provisioningStatus": "PENDING",
+  "errorCode": null,
+  "accountStatus": "NOT_CREATED",
+  "createdAt": "2026-09-28T03:00:00Z"
+}
+```
+
+Gửi lại cùng key/người gọi và email/nhân viên sẽ nhận cùng `requestId`; đổi dữ liệu
+với key cũ hoặc gửi yêu cầu mới khi còn `PENDING` trả `409`. Backend chuẩn hóa email
+bằng strip và lowercase. Không truyền mật khẩu, role hoặc `requestedBy`; server
+lấy người yêu cầu từ principal JWT và Auth tự gán role `EMPLOYEE`.
+
+Đọc tiến độ qua `Location` hoặc:
+
+```bash
+curl "http://localhost:8082/api/v1/employees/$EMPLOYEE_ID/account-requests/$REQUEST_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+- Thành công: `SUCCEEDED`, `accountStatus=PENDING_ACTIVATION`.
+- Email đã dùng: `FAILED`, `errorCode=EMAIL_ALREADY_USED`.
+- Nhân viên đã có Account: `FAILED`, `errorCode=ACCOUNT_ALREADY_EXISTS`.
+- Auth/Kafka gián đoạn: vẫn `PENDING`; Outbox/consumer retry. Không tạo lại yêu cầu
+  hoặc kết luận Account chưa tồn tại chỉ vì chưa thấy kết quả.
+
+Thất bại nghiệp vụ không xóa Employee hoặc đổi `accountStatus`. Sau khi sửa dữ liệu,
+gửi yêu cầu mới với key mới. Kết quả khớp request/employee/correlation ID; version
+cũ không ghi đè bản sao Account mới hơn. API sửa hồ sơ dùng dynamic update để không
+ghi đè trạng thái tài khoản vừa cập nhật bởi consumer.
+
+<a id="provisioning-4-kiểm-thử-và-giới-hạn"></a>
+
+### 4. Kiểm thử và giới hạn
+
+Các test mới tập trung vào service và worker: idempotency, phân quyền, rollback,
+unique conflict, gửi trùng, version cũ, claim hết hạn và Kafka gửi lỗi. Giữ bộ test
+hiện có; không thêm test controller cho luồng này. `KafkaConnectionTests` opt-in
+kiểm tra topic yêu cầu/kết quả mới bằng cấu hình thật của từng service.
+
+Outbox claim từng bản ghi trong transaction ngắn, lease 2 phút; gửi ngoài transaction,
+chỉ đánh dấu đã gửi sau ack. Retry có backoff, tối đa 5 phút giữa hai lần; delivery
+có thể trùng. Consumer hiện retry vô hạn với khoảng chờ 5 giây, không bỏ qua message
+lỗi. **Chưa có DLT**, nên payload lỗi có thể chặn partition: cần kiểm tra log/Outbox
+và triển khai DLT/đối soát trước production. Không xóa/reset offset tùy tiện.
+
+Đã có kích hoạt/đặt mật khẩu và consumer `AccountStatusChanged` sau kích hoạt.
+Còn thiếu: API khóa/mở tài khoản và phát sự kiện tương ứng,
+đối soát dữ liệu cũ/yêu cầu treo, metric/cảnh báo, DLT và TLS/SASL/ACL production.
+`producer` trong JSON và key Kafka không thay thế xác thực broker. Kafka local
+PLAINTEXT chỉ dành cho phát triển; không coi đây là bản production hoàn chỉnh.
+
+<a id="provisioning-5-sơ-đồ-từ-thao-tác-ui-đến-kết-quả"></a>
+
+### 5. Sơ đồ từ thao tác UI đến kết quả
+
+UI gửi **HTTP request** tới Employee; `EmployeeAccountRequested` được backend tạo
+sau khi kiểm tra quyền và nhân viên. Sơ đồ giả định đã bật cờ sự kiện, cấu hình
+topic và chạy schema đầy đủ. Đây là luồng cho một yêu cầu mới hợp lệ.
+
+```mermaid
+flowchart TB
+    UI["HR bấm Cấp tài khoản"]
+
+    subgraph EMP_REQ["Employee Service — tiếp nhận HTTP"]
+        SEC["SecurityConfig: xác minh JWT"]
+        CTRL["AccountRequestController.request()"]
+        SVC["AccountRequestService.request()<br/>Kiểm tra HR/ADMIN, employeeId và Idempotency-Key"]
+        EVENT["EmployeeAccountRequested.create()<br/>Sinh eventId, requestId, correlationId"]
+        EDB1[("Employee DB<br/>account_provisioning_requests: PENDING<br/>event_outbox: JSON yêu cầu")]
+        EPUB["AccountProvisioningProducer.publishBatch()<br/>EventOutbox.claim() → KafkaTemplate.send()"]
+        SEC --> CTRL --> SVC --> EVENT
+        EVENT -->|"Lưu yêu cầu + EventOutbox.append() cùng transaction"| EDB1
+        EDB1 -. "Worker đọc bản ghi đã commit" .-> EPUB
+    end
+
+    KREQ["Kafka topic<br/>hrm.employee.account-requests.v1"]
+
+    subgraph AUTH["Auth Service — xử lý yêu cầu"]
+        ACON["AccountRequestConsumer.receive()<br/>Đọc JSON, kiểm tra message key"]
+        ASVC["AccountProvisioningService.process()<br/>Validate, chống trùng và kiểm tra email/employeeId"]
+        ADB[("Auth DB — một transaction<br/>users + user_roles nếu thành công<br/>account_provisioning_results + event_outbox<br/>account_link_versions nếu tạo Account")]
+        APUB["AccountProvisioningProducer.publishBatch()<br/>EventOutbox.claim() → KafkaTemplate.send()"]
+        ACON --> ASVC --> ADB
+        ADB -. "Worker đọc kết quả đã commit" .-> APUB
+    end
+
+    KRES["Kafka topic<br/>hrm.auth.account-results.v1<br/>AccountCreated hoặc AccountCreationFailed"]
+
+    subgraph EMP_RES["Employee Service — nhận kết quả"]
+        ECON["AccountResultConsumer.receive()<br/>Đọc JSON, kiểm tra message key"]
+        APPLY["AccountRequestService.apply()<br/>Đối chiếu requestId, employeeId, correlationId<br/>Chống trùng và kiểm tra accountVersion"]
+        EDB2[("Employee DB — một transaction<br/>Yêu cầu: SUCCEEDED hoặc FAILED<br/>Thành công: cập nhật accountStatus nếu version mới hơn<br/>Ghi dấu đã xử lý")]
+        GET["AccountRequestController.find()<br/>→ AccountRequestService.find()"]
+        ECON --> APPLY --> EDB2
+        GET -->|"Đọc yêu cầu và accountStatus hiện tại"| EDB2
+    end
+
+    UI -->|"POST /api/v1/employees/{employeeId}/account-requests<br/>Bearer token + Idempotency-Key + email"| SEC
+    CTRL -->|"Sau commit: 202 Accepted + requestId + Location"| UI
+    EPUB -->|"EmployeeAccountRequested; key = employeeId"| KREQ
+    KREQ --> ACON
+    APUB --> KRES
+    KRES --> ECON
+    UI -->|"GET theo Location; vẫn xác thực JWT và quyền HR/ADMIN"| GET
+    GET -->|"Tiến độ hiện tại + mã lỗi nếu có + accountStatus"| UI
+```
+
+Hai hình Employee DB biểu diễn **cùng một database**, tại hai thời điểm xử lý khác
+nhau. `202` được trả sau khi Employee commit yêu cầu, không chờ Kafka hoặc Auth.
+Worker có thể gửi ngay sau commit; không có cam kết về thứ tự giữa việc UI nhận
+HTTP response và việc Auth bắt đầu xử lý.
+
+Chi tiết worker ở cả hai service:
+
+```text
+@Scheduled gọi publishBatch()
+    → EventOutbox.claim(): transaction ngắn, giữ quyền xử lý bằng lease
+    → KafkaTemplate.send(): gửi ngoài transaction database
+        ├─ Broker xác nhận → EventOutbox.sent(): ghi sent_at
+        └─ Lỗi/timeout → EventOutbox.retry(): hẹn lần gửi tiếp theo
+```
+
+Consumer gọi service để hoàn tất transaction trước khi listener trả về; cấu hình
+ack theo record cho phép commit offset sau đó. Lỗi được ném ra để retry, không tự
+chuyển thành thành công. `ProvisioningKafkaConfig` bật scheduling và cấu hình xử lý
+lỗi Kafka; nó không phải một API hoặc nơi tạo Account.
+
+Auth không nhận HTTP request trực tiếp trong flow này. UI theo dõi bằng GET/polling
+tại Employee; chưa có push/WebSocket. Nếu kết quả chưa về, GET vẫn trả `PENDING`.
+Khi thành công, yêu cầu là `SUCCEEDED`, còn Account đang `PENDING_ACTIVATION`.
