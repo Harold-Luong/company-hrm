@@ -27,11 +27,12 @@ Compose; database `calendar_db` đang có trên máy không bị đổi tên ho�
 | `/api/v1/notifications/**` | Notification `:8086`; `/stream` có route SSE riêng, không giới hạn response timeout |
 | `GET /api/v1/leave/health-check` (cần access token) | `/actuator/health` của Leave `:8084` |
 | `GET /api/v1/calendar/health-check` (cần access token) | `/actuator/health` của Calendar `:8083` |
+| `GET /api/v1/notifications/health-check` (cần access token) | `/actuator/health` của Notification `:8086` |
 | `GET /actuator/health` | Health của gateway, không trả chi tiết |
 
 Chỉ các POST login, refresh, logout, activate và các GET chuyển hướng activation,
 `/actuator/health` của gateway cho phép truy cập ẩn danh. Health-check của Auth,
-Employee, Calendar, Leave và Attendance cần access token. Register, logout-all, activation-invitations
+Employee, Calendar, Leave, Attendance và Notification cần access token. Register, logout-all, activation-invitations
 và API nghiệp vụ yêu cầu access token. Refresh được Auth kiểm tra bằng refresh
 token trong body, kể cả khi header còn mang access token hết hạn. Swagger và các
 endpoint quản trị không được mở qua gateway.

@@ -34,6 +34,12 @@ const services = ref([
     status: '',
     error: '',
   },
+  {
+    name: 'Thông báo',
+    request: () => auth.request('/api/v1/notifications/health-check'),
+    status: '',
+    error: '',
+  },
 ])
 async function check() {
   if (busy.value) return
@@ -80,9 +86,9 @@ onMounted(check)
     <p v-if="checkedAt" class="muted small section-block">Kiểm tra lúc {{ checkedAt }}</p>
     <div class="info-strip">
       <p>
-        Kết quả này kiểm tra Auth, Employee, Calendar, Leave và Attendance. Tiến độ cấp tài khoản
-        qua Kafka được theo dõi trong hồ sơ nhân viên. Hệ thống chưa có API kiểm tra riêng kết nối
-        Kafka.
+        Kết quả này kiểm tra Auth, Employee, Calendar, Leave, Attendance và Notification. Tiến độ
+        cấp tài khoản qua Kafka được theo dõi trong hồ sơ nhân viên. Hệ thống chưa có API kiểm tra
+        riêng kết nối Kafka.
       </p>
     </div>
   </div>

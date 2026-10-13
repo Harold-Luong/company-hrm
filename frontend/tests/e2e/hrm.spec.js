@@ -465,7 +465,7 @@ for (const role of ['EMPLOYEE', 'MANAGER']) {
     await page.goto('/account')
     await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
     await page.goto('/services')
-    await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
+    await expect(page.getByText('Hoạt động bình thường')).toHaveCount(6)
   })
 }
 
@@ -488,18 +488,23 @@ test('service health checks send the current access token through the gateway', 
 }) => {
   await setup(page)
   const requests = []
-  for (const service of ['auth', 'employees', 'calendar', 'leave', 'attendance']) {
+  for (const service of ['auth', 'employees', 'calendar', 'leave', 'attendance', 'notifications']) {
     await page.route(`**/api/v1/${service}/health-check`, (route) => {
       const authorization = route.request().headers().authorization
       requests.push({ service, authorization })
       return route.fulfill({
         status: authorization === 'Bearer access' ? 200 : 401,
-        json: authorization === 'Bearer access' ? { status: 'UP', database: 'UP' } : {},
+        json:
+          authorization === 'Bearer access'
+            ? service === 'notifications'
+              ? { status: 'UP' }
+              : { status: 'UP', database: 'UP' }
+            : {},
       })
     })
   }
   await page.goto('/services')
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(6)
   expect(requests).toEqual(
     expect.arrayContaining([
       { service: 'auth', authorization: 'Bearer access' },
@@ -507,12 +512,13 @@ test('service health checks send the current access token through the gateway', 
       { service: 'calendar', authorization: 'Bearer access' },
       { service: 'leave', authorization: 'Bearer access' },
       { service: 'attendance', authorization: 'Bearer access' },
+      { service: 'notifications', authorization: 'Bearer access' },
     ]),
   )
   await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
-  await expect.poll(() => requests.length).toBe(10)
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
+  await expect.poll(() => requests.length).toBe(12)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(6)
 })
 test('calendar health failure is isolated and can be retried', async ({ page }) => {
   await setup(page)
@@ -525,12 +531,33 @@ test('calendar health failure is isolated and can be retried', async ({ page }) 
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Lịch nghỉ & sự kiện', exact: true }) })
   await expect(calendar.getByRole('alert')).toBeVisible()
-  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(4)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
   available = true
   await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
   await expect(calendar.getByRole('status')).toHaveText('Hoạt động bình thường')
   await expect(calendar.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(6)
+})
+test('notification health failure is isolated and can be retried', async ({ page }) => {
+  await setup(page)
+  let status = 503
+  let health = 'DOWN'
+  await page.route('**/api/v1/notifications/health-check', (route) =>
+    route.fulfill({ status, json: { status: health } }),
+  )
+  await page.goto('/services')
+  const notification = page.locator('section').filter({
+    has: page.getByRole('heading', { name: 'Thông báo', exact: true }),
+  })
+  await expect(notification.getByRole('alert')).toBeVisible()
   await expect(page.getByText('Hoạt động bình thường')).toHaveCount(5)
+  status = 200
+  await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
+  await expect(notification.getByRole('status')).toHaveText('Dịch vụ chưa sẵn sàng')
+  health = 'UP'
+  await page.getByRole('button', { name: 'Kiểm tra lại' }).click()
+  await expect(notification.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByText('Hoạt động bình thường')).toHaveCount(6)
 })
 test('manual request lookup shows loading and the returned result without submitting an account', async ({
   page,

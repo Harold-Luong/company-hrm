@@ -43,6 +43,7 @@ class GatewayApplicationTests {
     private static final HttpServer WORKFORCE = backend("workforce");
     private static final HttpServer LEAVE = backend("leave");
     private static final HttpServer ATTENDANCE = backend("attendance");
+    private static final HttpServer NOTIFICATION = backend("notification");
     private static final Path PUBLIC_KEY = publicKey();
 
     @LocalServerPort
@@ -57,6 +58,7 @@ class GatewayApplicationTests {
         registry.add("WORKFORCE_SERVICE_URL", () -> url(WORKFORCE));
         registry.add("LEAVE_SERVICE_URL", () -> url(LEAVE));
         registry.add("ATTENDANCE_SERVICE_URL", () -> url(ATTENDANCE));
+        registry.add("NOTIFICATION_SERVICE_URL", () -> url(NOTIFICATION));
         registry.add("gateway.cors.allowed-origins", () -> "https://hrm.example.com");
     }
 
@@ -67,7 +69,7 @@ class GatewayApplicationTests {
 
     @AfterAll
     static void stopBackends() throws Exception {
-        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE, LEAVE, ATTENDANCE)) {
+        for (var backend : List.of(AUTH, EMPLOYEE, WORKFORCE, LEAVE, ATTENDANCE, NOTIFICATION)) {
             backend.stop(0);
         }
         Files.deleteIfExists(PUBLIC_KEY);
@@ -86,7 +88,9 @@ class GatewayApplicationTests {
             "/api/v1/leave/requests/inbox,leave",
             "/api/v1/attendance/shifts,attendance",
             "/api/v1/attendance/mine,attendance",
-            "/api/v1/attendance/health-check,attendance"
+            "/api/v1/attendance/health-check,attendance",
+            "/api/v1/notifications,notification",
+            "/api/v1/notifications/stream,notification"
     })
     void routesOriginalPathQueryAndBearerToken(String path, String backend) throws Exception {
         String token = sign(claims(), KEYS, JWSAlgorithm.RS256);
@@ -220,7 +224,7 @@ class GatewayApplicationTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"calendar,workforce", "leave,leave"})
+    @CsvSource({"calendar,workforce", "leave,leave", "notifications,notification"})
     void serviceHealthRequiresTokenAndRoutesToActuator(String service, String backend) {
         int calls = UPSTREAM_CALLS.get();
         client.get().uri("/api/v1/" + service + "/health-check")
@@ -234,13 +238,14 @@ class GatewayApplicationTests {
                 .expectBody(String.class).isEqualTo("/actuator/health|");
     }
 
-    @Test
-    void calendarHealthRewriteOnlyAppliesToGet() {
-        client.post().uri("/api/v1/calendar/health-check")
+    @ParameterizedTest
+    @CsvSource({"calendar,workforce", "notifications,notification"})
+    void serviceHealthRewriteOnlyAppliesToGet(String service, String backend) {
+        client.post().uri("/api/v1/" + service + "/health-check")
                 .headers(headers -> headers.setBearerAuth(signUnchecked()))
                 .exchange().expectStatus().isOk()
-                .expectHeader().valueEquals("X-Test-Backend", "workforce")
-                .expectBody(String.class).isEqualTo("/api/v1/calendar/health-check|");
+                .expectHeader().valueEquals("X-Test-Backend", backend)
+                .expectBody(String.class).isEqualTo("/api/v1/" + service + "/health-check|");
     }
 
     private static JWTClaimsSet.Builder claims() {

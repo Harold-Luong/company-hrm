@@ -99,6 +99,22 @@ trang và chống toast trùng. Các test này không thay thế kiểm thử Ka
 Sau khi khởi động với cấu hình thực tế,
 kiểm tra `GET http://localhost:8086/actuator/health` và các API có Bearer token.
 
+Trang **Kết nối dịch vụ** trên frontend kiểm tra Notification bằng
+`GET /api/v1/notifications/health-check` qua Gateway, có Bearer access token.
+Gateway chuyển GET này tới `/actuator/health` của Notification. Trạng thái bao gồm
+kết nối database; không xác nhận luồng Kafka/SSE từ đầu đến cuối. Có thể kiểm tra
+lại trên UI khi service phục hồi; lỗi Notification không chặn kết quả service khác.
+
+Nếu UI báo “Không thể kết nối dịch vụ”, kiểm tra trực tiếp
+`http://localhost:8086/actuator/health`. HTTP `503` với `status: DOWN` nghĩa là
+service đã phản hồi nhưng có thành phần chưa sẵn sàng; xem log để xác định lỗi.
+Với lỗi `password authentication failed`, kiểm tra `SPRING_DATASOURCE_URL`,
+`SPRING_DATASOURCE_USERNAME` và `SPRING_DATASOURCE_PASSWORD` trong môi trường chạy.
+`.env.example` chỉ là mẫu; ngay cả khi đã có `.env`, Maven/IDE cũng không tự nạp.
+Nạp file bằng `set -a; source ./.env; set +a` trước khi chạy Maven, hoặc cấu hình
+các biến trong Run Configuration của IDE. Dùng đúng cổng PostgreSQL của máy
+(`5432` hoặc `55432`), restart Notification, rồi bấm **Kiểm tra lại** trên UI.
+
 ## Bật luồng thông báo
 
 1. Áp [outbox Leave](../leave-service/docs/sql/004_notification_outbox.sql) vào

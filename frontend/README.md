@@ -195,8 +195,10 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
   Vue tại `/activate`, tắt access log và cache cho trang này; proxy `/api` tới Gateway.
   Khi dùng proxy khác, không ghi query token hoặc body API kích hoạt vào log.
   Xem [Auth](../back-end/modules/auth-service-main/README.md#activation).
-- Trang `/services` kiểm tra health của Auth, Employee, Calendar, Leave và Attendance
-  qua Gateway. Kết quả không khẳng định Kafka hoặc Notification healthy.
+- Trang `/services` kiểm tra health của Auth, Employee, Calendar, Leave, Attendance
+  và Notification qua Gateway. Notification gọi `/api/v1/notifications/health-check`,
+  Gateway chuyển tới `/actuator/health` của Notification để kiểm tra service/database.
+  Kết quả không xác nhận việc truyền sự kiện Kafka hoặc SSE từ đầu đến cuối.
 - Cần chạy Kafka, migration và bật `HRM_EVENTS_ENABLED=true` ở cả hai service theo
   [hướng dẫn provisioning](../back-end/modules/employee-service/README.md#provisioning).
   Không đặt địa chỉ broker trong frontend; browser chỉ gọi API Employee.
