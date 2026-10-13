@@ -19,7 +19,7 @@ Compose; database `calendar_db` đang có trên máy không bị đổi tên ho�
 | URL qua gateway | Service nội bộ |
 | --- | --- |
 | `/api/v1/auth/**` | Auth `:8081` |
-| `/activate`, `/activation/index.html`, `/activation/activate.js`, `/activation/style.css` | Auth `:8081` |
+| `/activate`, `/activation/index.html` (link cũ, chuyển hướng đến Vue) | Auth `:8081` |
 | `/api/v1/employees/**`, `/api/v1/departments/**`, `/api/v1/positions/**` | Employee `:8082` |
 | `/api/v1/calendar/**`, `/api/v1/calendar-events/**` | Workforce / Calendar `:8083` |
 | `/api/v1/leave/**` | Leave `:8084` |
@@ -29,7 +29,7 @@ Compose; database `calendar_db` đang có trên máy không bị đổi tên ho�
 | `GET /api/v1/calendar/health-check` (cần access token) | `/actuator/health` của Calendar `:8083` |
 | `GET /actuator/health` | Health của gateway, không trả chi tiết |
 
-Chỉ các POST login, refresh, logout, activate và các GET trang activation,
+Chỉ các POST login, refresh, logout, activate và các GET chuyển hướng activation,
 `/actuator/health` của gateway cho phép truy cập ẩn danh. Health-check của Auth,
 Employee, Calendar, Leave và Attendance cần access token. Register, logout-all, activation-invitations
 và API nghiệp vụ yêu cầu access token. Refresh được Auth kiểm tra bằng refresh

@@ -72,7 +72,7 @@ public class SecurityConfig {
         return stateless(http, cors)
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.GET, "/actuator/health", "/activate",
-                                "/activation/index.html", "/activation/activate.js", "/activation/style.css")
+                                "/activation/index.html")
                         .permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/logout",
                                 "/api/v1/auth/activate")

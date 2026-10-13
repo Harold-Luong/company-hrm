@@ -46,7 +46,7 @@ public class SecurityConfig {
                     response.getWriter().write("{\"code\":\"403\",\"message\":\"Access is denied\"}");
                 }))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/activate", "/activation/index.html", "/activation/activate.js", "/activation/style.css").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/activate", "/activation/index.html").permitAll()
                         .requestMatchers("/openapi.yaml", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs",
                                 "/v3/api-docs/**", "/v3/api-docs.yaml")
                         .permitAll()

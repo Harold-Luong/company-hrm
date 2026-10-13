@@ -459,7 +459,7 @@ Auth tự tạo lời mời khi xử lý thành công `EmployeeAccountRequested`
 commit trong cùng transaction. Gửi HTTP tới Resend diễn ra ở worker sau commit;
 lỗi Resend không xóa Account hoặc làm thất bại yêu cầu cấp Account đã commit.
 
-Các ví dụ health/Swagger gọi trực tiếp Auth `8081`; link kích hoạt `8080/activate` đi qua Gateway. Cấu hình `.env`/database/khóa theo [hướng dẫn chạy độc lập](../../../README.md#local); đường dẫn khóa trong mẫu `.env` có thể khác `keys/` của hướng dẫn tạo khóa thủ công.
+Các ví dụ health/Swagger gọi trực tiếp Auth `8081`; link kích hoạt `5173/activate` mở frontend Vue. Cấu hình `.env`/database/khóa theo [hướng dẫn chạy độc lập](../../../README.md#local); đường dẫn khóa trong mẫu `.env` có thể khác `keys/` của hướng dẫn tạo khóa thủ công.
 
 <a id="activation-1-cấu-hình-và-chạy"></a>
 
@@ -499,7 +499,7 @@ Chuẩn bị RSA keys theo [hướng dẫn JWT](#jwt-tạo-khóa-cho-local) nế
 | `AUTH_ACTIVATION_TOKEN_SECRET` | Chuỗi base64 từ `openssl rand -base64 32`; giữ ổn định, không dùng API key/JWT key làm secret này |
 | `AUTH_ACTIVATION_ENABLED` | Đặt `true` sau khi có schema và cấu hình; mặc định `false` |
 | `AUTH_ACTIVATION_TOKEN_TTL` | Mặc định `24h`, lớn hơn 0 và tối đa `7d` |
-| `AUTH_ACTIVATION_FRONTEND_URL` | Local `http://localhost:8080/activate`; production `https://hrm.example.com/activate` |
+| `AUTH_ACTIVATION_FRONTEND_URL` | Local `http://localhost:5173/activate`; production `https://hrm.example.com/activate` |
 | `HRM_EVENTS_ENABLED` | Đặt `true` ở Auth và Employee; Kafka phải chạy, các topic đã tạo |
 
 Spring Boot không tự đọc `.env`. Nếu chạy bằng shell:
@@ -581,8 +581,8 @@ Tham khảo [Send Email](https://resend.com/docs/api-reference/emails/send-email
    domain và giới hạn người nhận trong dashboard Resend. Sau khi sửa cấu hình,
    restart Auth rồi tạo lời mời mới; email đã `FAILED` không tự retry.
 
-`http://localhost:8080/activate` trong email chỉ dùng được trên chính máy chạy
-Auth. Khi người nhận mở bằng điện thoại/máy khác, cấu hình URL HTTPS truy cập được.
+`http://localhost:5173/activate` trong email chỉ dùng được trên chính máy chạy
+frontend. Khi người nhận mở bằng điện thoại/máy khác, cấu hình URL HTTPS truy cập được.
 Không khởi động Auth để “chỉ kiểm tra cấu hình” nếu đã bật activation và có mail
 pending mà bạn chưa muốn gửi: worker có thể gửi ngay khi ứng dụng chạy.
 
@@ -594,10 +594,15 @@ pending mà bạn chưa muốn gửi: worker có thể gửi ngay khi ứng dụ
 https://hrm.example.com/activate?token=<opaque-token>
 ```
 
-Nhánh backend có sẵn `GET /activate` và assets `/activation/activate.js`,
-`/activation/style.css`, không cần đăng nhập. Khi dùng reverse proxy, chuyển ba
-đường dẫn này và `/api/v1/auth/*` đến Auth. Nếu frontend Vue cung cấp `/activate`,
-frontend gọi API POST bên dưới và có thể thay trang độc lập này.
+Trang `/activate` do frontend Vue phục vụ, không cần đăng nhập. Cấu hình
+`AUTH_ACTIVATION_FRONTEND_URL` trỏ tới URL frontend, local mặc định là
+`http://localhost:5173/activate`. Reverse proxy phục vụ Vue tại `/activate` và chuyển
+`/api/v1/auth/*` qua Gateway đến Auth. Backend chỉ xử lý API kích hoạt;
+`GET /activate` và `/activation/index.html` trên Auth/Gateway chuyển hướng đến URL
+frontend đã cấu hình để các link email cũ vẫn dùng được. Không cấu hình URL này
+trỏ ngược về đường dẫn chuyển hướng của Auth/Gateway vì sẽ tạo vòng lặp.
+Khi cập nhật từ cấu hình cũ, sửa cả `.env` và khởi động lại Auth; thư đã gửi hoặc
+đang chờ gửi với URL cũ vẫn đi qua chuyển hướng này.
 
 Trang không dùng dịch vụ bên ngoài, có `Referrer-Policy: no-referrer`, không lưu
 token ở local/sessionStorage và xóa query khỏi address bar sau khi đọc vào bộ nhớ.
@@ -606,7 +611,8 @@ không ghi query của `/activate` hoặc body của API kích hoạt. **GET kh�
 token**; trình quét email có thể mở link mà không kích hoạt account.
 
 Mật khẩu: ít nhất 12 ký tự, tối đa 72 byte UTF-8 để tránh cắt ngầm với BCrypt.
-Form yêu cầu nhập lại mật khẩu. Sau thành công, người dùng đăng nhập qua giao diện HRM.
+Form yêu cầu nhập lại mật khẩu. Sau thành công, trang xóa mật khẩu khỏi form và
+hiện nút **Đi đến đăng nhập** tới `/login`, dùng email và mật khẩu vừa đặt.
 Tính năng này chỉ đặt mật khẩu lần đầu; chưa bổ sung quên mật khẩu hoặc đổi mật khẩu
 cho account đã hoạt động.
 

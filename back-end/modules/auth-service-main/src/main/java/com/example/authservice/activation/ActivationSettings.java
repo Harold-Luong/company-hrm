@@ -13,7 +13,7 @@ public class ActivationSettings {
     @Value("${auth.activation.token-secret:}") private String secret;
     @Value("${auth.activation.token-ttl:24h}") public Duration ttl;
     @Value("${auth.activation.resend-cooldown:60s}") public Duration cooldown;
-    @Value("${auth.activation.frontend-url:http://localhost:8080/activate}") public String frontendUrl;
+    @Value("${auth.activation.frontend-url:http://localhost:5173/activate}") public String frontendUrl;
     @Value("${auth.activation.mail-from:}") public String sender;
     @Value("${auth.activation.resend-api-key:}") public String apiKey;
 

@@ -197,11 +197,20 @@ class GatewayApplicationTests {
     }
 
     @Test
-    void healthAndActivationPageArePublic() {
+    void healthIsPublic() {
         client.get().uri("/actuator/health").exchange().expectStatus().isOk()
                 .expectBody().json("{\"status\":\"UP\"}");
-        client.get().uri("/activate").exchange().expectStatus().isOk()
-                .expectHeader().valueEquals("X-Test-Backend", "auth");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/activate", "/activation/index.html"})
+    void legacyActivationRedirectsArePublicAndPreserveTheToken(String path) {
+        String query = "token=" + "a".repeat(43);
+        client.get().uri(path + "?" + query).exchange().expectStatus().isFound()
+                .expectHeader().valueEquals("X-Test-Backend", "auth")
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, "https://hrm.example.com/activate?" + query)
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store")
+                .expectHeader().valueEquals("Referrer-Policy", "no-referrer");
     }
 
     @Test
@@ -287,6 +296,14 @@ class GatewayApplicationTests {
                 var incoming = exchange.getRequestHeaders();
                 var outgoing = exchange.getResponseHeaders();
                 outgoing.set("X-Test-Backend", name);
+                if (name.equals("auth") && List.of("/activate", "/activation/index.html").contains(exchange.getRequestURI().getPath())) {
+                    outgoing.set("Location", "https://hrm.example.com/activate?" + exchange.getRequestURI().getRawQuery());
+                    outgoing.set("Cache-Control", "no-store");
+                    outgoing.set("Referrer-Policy", "no-referrer");
+                    exchange.sendResponseHeaders(302, -1);
+                    exchange.close();
+                    return;
+                }
                 for (String header : List.of("Authorization", "X-Forwarded-For", "X-Forwarded-Proto")) {
                     if (incoming.getFirst(header) != null) {
                         outgoing.set("X-Test-" + header.replace("X-", ""), incoming.getFirst(header));

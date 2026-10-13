@@ -63,7 +63,7 @@ auth:
         token-secret: ${AUTH_ACTIVATION_TOKEN_SECRET:}
         token-ttl: ${AUTH_ACTIVATION_TOKEN_TTL:24h}
         resend-cooldown: 60s
-        frontend-url: ${AUTH_ACTIVATION_FRONTEND_URL:http://localhost:8080/activate}
+        frontend-url: ${AUTH_ACTIVATION_FRONTEND_URL:http://localhost:5173/activate}
         mail-from: ${RESEND_FROM:}
         resend-api-key: ${RESEND_API_KEY:}
     login-throttle:

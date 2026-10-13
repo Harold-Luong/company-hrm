@@ -180,7 +180,14 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
 - Hiển thị PENDING/SUCCEEDED/FAILED, lỗi trùng email/tài khoản, trạng thái tài khoản
   NOT_CREATED/PENDING_ACTIVATION/ACTIVE/DISABLED. Backend chưa có API liệt kê lịch sử
   yêu cầu hoặc quản trị Kafka Connect riêng. Auth đã có API đặt mật khẩu/kích hoạt
-  và trang `/activate` riêng; xem [Auth](../back-end/modules/auth-service-main/README.md#activation).
+  qua `POST /api/v1/auth/activate`. Trang Vue công khai `/activate?token=...` cho phép
+  đặt/xác nhận mật khẩu và hiện nút **Đi đến đăng nhập** sau khi kích hoạt thành công.
+  Trang không khởi tạo phiên đăng nhập; token chỉ giữ trong bộ nhớ và được xóa khỏi URL,
+  vì vậy tải lại trang cần mở lại link email. Đặt `AUTH_ACTIVATION_FRONTEND_URL` ở Auth
+  thành URL frontend (`http://localhost:5173/activate` khi chạy local). Nginx phục vụ
+  Vue tại `/activate`, tắt access log và cache cho trang này; proxy `/api` tới Gateway.
+  Khi dùng proxy khác, không ghi query token hoặc body API kích hoạt vào log.
+  Xem [Auth](../back-end/modules/auth-service-main/README.md#activation).
 - Trang `/services` kiểm tra health của Auth, Employee, Calendar, Leave và Attendance
   qua Gateway. Kết quả không khẳng định Kafka hoặc Notification healthy.
 - Cần chạy Kafka, migration và bật `HRM_EVENTS_ENABLED=true` ở cả hai service theo

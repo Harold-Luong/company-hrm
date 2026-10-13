@@ -32,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {"hrm.events.enabled=true", "hrm.events.publisher-enabled=false", "hrm.events.listeners-enabled=false",
         "auth.activation.enabled=true", "auth.activation.worker-enabled=false", "auth.activation.token-secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "auth.activation.resend-api-key=test-only-not-a-real-key", "auth.activation.mail-from=HRM <hrm@example.com>",
+        "auth.activation.frontend-url=https://hrm.example.com/activate",
         "spring.datasource.url=jdbc:h2:mem:activation;MODE=PostgreSQL;DB_CLOSE_DELAY=-1"})
 @AutoConfigureMockMvc
 class AccountActivationTests {
@@ -83,9 +84,12 @@ class AccountActivationTests {
     }
 
     @Test
-    void publicPageDoesNotConsumeTokenAndActivationAllowsLoginAndPublishesActiveVersion() throws Exception {
+    void legacyRedirectDoesNotConsumeTokenAndActivationAllowsLoginAndPublishesActiveVersion() throws Exception {
         String token = tokens.derive(invitationId);
-        mvc.perform(get("/activate").param("token", token)).andExpect(status().isOk())
+        mvc.perform(get("/activate").param("token", token)).andExpect(status().isFound())
+                .andExpect(redirectedUrl("https://hrm.example.com/activate?token=" + token))
+                .andExpect(content().string(""))
+                .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(header().string("Referrer-Policy", "no-referrer"));
         assertThat(jdbc.queryForObject("SELECT used_at FROM account_activation_tokens", OffsetDateTime.class)).isNull();
         mvc.perform(post("/api/v1/auth/activate").contentType("application/json")
@@ -100,6 +104,19 @@ class AccountActivationTests {
         assertThat(event.path("data").path("accountStatus").asText()).isEqualTo("ACTIVE");
         assertThat(event.path("data").path("accountVersion").asLong()).isEqualTo(2);
         assertThatThrownBy(() -> activation.activate(token, password)).isInstanceOf(GlobalException.class);
+    }
+
+    @Test
+    void legacyRedirectOnlyForwardsValidTokenToConfiguredFrontend() throws Exception {
+        mvc.perform(get("/activation/index.html").param("token", tokens.derive(invitationId)))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("https://hrm.example.com/activate?token=" + tokens.derive(invitationId)));
+        mvc.perform(get("/activate").param("token", "invalid&redirect=https://other.example")
+                        .param("redirect", "https://other.example"))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("https://hrm.example.com/activate"));
+        mvc.perform(get("/activate")).andExpect(status().isFound())
+                .andExpect(redirectedUrl("https://hrm.example.com/activate"));
+        assertThat(jdbc.queryForObject("SELECT used_at FROM account_activation_tokens", OffsetDateTime.class)).isNull();
     }
 
     @Test
