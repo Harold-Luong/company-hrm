@@ -356,9 +356,9 @@ test('HR previews a selected assignment and editing invalidates the preview', as
 test('HR exports CSV and employee cannot open reports', async ({ page }) => {
   await setup(page, 'HR')
   await page.goto('/attendance/reports')
-  await expect(page.getByRole('heading', { name: 'Bảng công tạm tính' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Bảng công tạm tính', exact: true })).toBeVisible()
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Xuất CSV' }).click()
+  await page.getByRole('button', { name: 'Xuất CSV theo ngày' }).click()
   expect((await download).suggestedFilename()).toContain('bang-cong-')
 })
 test('employee management routes are guarded', async ({ page }) => {
@@ -369,7 +369,7 @@ test('employee management routes are guarded', async ({ page }) => {
   }
 })
 
-test('report table filters employees and statuses, resets pagination, and clears empty results', async ({
+test('report summary filters employees, resets pagination, and clears empty results', async ({
   page,
 }) => {
   const state = await setup(page, 'HR')
@@ -389,11 +389,11 @@ test('report table filters employees and statuses, resets pagination, and clears
   await expect(page.getByLabel('Tổng hợp kỳ đang xem')).toContainText('96h 0p')
   await page.getByRole('button', { name: 'Trang sau' }).click()
   await expect(table.locator('tbody tr')).toHaveCount(4)
-  await page.getByLabel('Trạng thái công').selectOption('MISSING_CHECK_OUT')
+  await page.getByLabel('Lọc nhân viên').selectOption('review')
   await expect(table.locator('tbody tr')).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Trang trước' })).toBeDisabled()
   await page.getByLabel('Tìm nhân viên trong bảng').fill('Nguyễn Mai')
-  await expect(table).toContainText('Không có bản ghi phù hợp')
+  await expect(table).toContainText('Không có nhân viên phù hợp')
   await page.getByRole('button', { name: 'Xóa bộ lọc bảng' }).click()
   await page.getByLabel('Tìm nhân viên trong bảng').fill('nv000')
   await expect(table.locator('tbody tr')).toHaveCount(1)
@@ -725,4 +725,131 @@ test('quick attendance disables punches without a schedule and recovers from a l
   await expect(quick.getByRole('alert')).toHaveCount(0)
   await expect(quick.getByRole('button', { name: 'Ghi nhận giờ vào' })).toBeEnabled()
   expect(state.writes).toHaveLength(0)
+})
+
+for (const role of ['HR', 'ADMIN']) {
+  test(`${role} sees one summary per employee and reconciles daily detail without losing filters`, async ({
+    page,
+  }, testInfo) => {
+    const state = await setup(page, role)
+    await page.clock.setFixedTime(new Date('2030-01-13T10:00:00Z'))
+    const names = ['Nguyễn An', 'Trần Bình', 'Lê Chi', 'Phạm Dũng', 'Hoàng Hà', 'Đỗ Linh']
+    const rows = names.flatMap((name, person) =>
+      Array.from({ length: 13 }, (_, day) => ({
+        ...state.row,
+        employeeId: `employee-${person}`,
+        employeeCode: `NV00${person + 1}`,
+        employeeName: name,
+        workDate: `2030-01-${String(day + 1).padStart(2, '0')}`,
+        status: person === 0 && day === 0 ? 'MISSING_CHECK_OUT' : 'CLOSED',
+        workMinutesCounted: person === 0 && day === 0 ? null : 480,
+        workedActualSeconds: person === 0 && day === 0 ? null : 28800,
+        annualLeaveMinutes: 0,
+        unpaidLeaveMinutes: 0,
+        roundedLateMinutes: 0,
+        roundedEarlyMinutes: 0,
+        recordVersion: 1,
+        overtime: { countedMinutes: 60, approvedMinutes: 90, pendingIds: [] },
+      })),
+    )
+    await page.route('**/api/v1/attendance/reports?*', (route) => route.fulfill({ json: rows }))
+    let refreshed = false
+    await page.route('**/refresh-coverage', (route) => {
+      expect(route.request().headers()['if-match']).toBe('"1"')
+      rows[0] = {
+        ...rows[0],
+        status: 'CLOSED',
+        workMinutesCounted: 480,
+        workedActualSeconds: 28800,
+        recordVersion: 2,
+      }
+      refreshed = true
+      return route.fulfill({ json: rows[0] })
+    })
+    await page.goto('/attendance/reports')
+    const summary = page.getByRole('region', { name: 'Bảng công tạm tính' })
+    await expect(summary.locator('tbody tr')).toHaveCount(6)
+    await expect(page.getByLabel('Tổng hợp kỳ đang xem')).toContainText('616h 0p')
+    await expect(summary.getByRole('row').filter({ hasText: 'Nguyễn An' })).toContainText(
+      'Chưa đủ · 1 ngày',
+    )
+    if (role === 'HR') {
+      await page.setViewportSize({ width: 1440, height: 1100 })
+      await page.screenshot({
+        path: testInfo.outputPath('report-summary-desktop.png'),
+        fullPage: true,
+      })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+        .toBe(true)
+      await page.screenshot({
+        path: testInfo.outputPath('report-summary-mobile.png'),
+        fullPage: true,
+      })
+      await page.setViewportSize({ width: 1440, height: 1100 })
+    }
+    await page.getByRole('button', { name: 'Xem người cần kiểm tra' }).click()
+    await expect(summary.locator('tbody tr')).toHaveCount(1)
+    await page.getByLabel('Tìm nhân viên trong bảng').fill('NV001')
+    await page.getByRole('button', { name: 'Xem chi tiết Nguyễn An' }).click()
+    await expect(page.getByRole('heading', { name: 'Nguyễn An', exact: true })).toBeFocused()
+    await expect(summary).toBeHidden()
+    await page.getByLabel('Chỉ xem ngày cần kiểm tra').check()
+    const detail = page.getByRole('region', { name: 'Nguyễn An', exact: true })
+    await expect(detail.locator('tbody tr')).toHaveCount(1)
+    await expect(detail).toContainText('01/01/2030')
+    if (role === 'HR') {
+      await page.screenshot({
+        path: testInfo.outputPath('report-detail-desktop.png'),
+        fullPage: true,
+      })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+        .toBe(true)
+      await page.screenshot({
+        path: testInfo.outputPath('report-detail-mobile.png'),
+        fullPage: true,
+      })
+      await page.setViewportSize({ width: 1440, height: 1100 })
+    }
+    await detail.getByRole('button', { name: 'Cập nhật phép/lịch' }).click()
+    await expect(page.getByRole('status')).toContainText('Đã cập nhật phép/lịch ngày 01/01/2030')
+    expect(refreshed).toBe(true)
+    await expect(page.getByLabel('Tổng hợp kỳ đang xem')).toContainText('624h 0p')
+    await expect(detail).toContainText('Không có bản ghi phù hợp')
+    await page.getByRole('button', { name: 'Quay lại tổng hợp nhân viên' }).click()
+    await expect(page.getByLabel('Tìm nhân viên trong bảng')).toHaveValue('NV001')
+    await expect(page.getByLabel('Lọc nhân viên')).toHaveValue('review')
+    await expect(summary).toContainText('Không có nhân viên phù hợp')
+    await page.getByRole('button', { name: 'Xóa bộ lọc bảng' }).click()
+    await expect(summary.locator('tbody tr')).toHaveCount(6)
+  })
+}
+
+test('report errors can be retried and CSV keeps the loaded scope when filters are edited', async ({
+  page,
+}) => {
+  const state = await setup(page, 'HR')
+  let unavailable = true
+  await page.route('**/api/v1/attendance/reports?*', (route) =>
+    route.fulfill(unavailable ? { status: 503, json: {} } : { json: [state.row] }),
+  )
+  await page.goto('/attendance/reports')
+  await expect(page.getByRole('button', { name: 'Xuất CSV theo ngày' })).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Bảng công tạm tính' })).toContainText(
+    'Chưa tải được bảng công',
+  )
+  unavailable = false
+  await page.getByRole('button', { name: 'Tải lại bảng công' }).click()
+  await expect(page.getByRole('button', { name: 'Xuất CSV theo ngày' })).toBeEnabled()
+  await page.getByLabel('Từ ngày', { exact: true }).fill('2030-01-02')
+  await expect(page.getByText('Bộ lọc đã đổi.', { exact: false })).toBeVisible()
+  const exported = page.waitForRequest((request) => request.url().includes('/export.csv'))
+  await page.getByRole('button', { name: 'Xuất CSV theo ngày' }).click()
+  const url = new URL((await exported).url())
+  expect(url.searchParams.get('from')).toBe('2030-01-01')
+  await page.getByRole('button', { name: 'Xem bảng công', exact: true }).click()
+  await expect(page.getByText('Bộ lọc đã đổi.', { exact: false })).toHaveCount(0)
 })

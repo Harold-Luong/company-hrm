@@ -128,6 +128,21 @@ về nhân viên/ngày, giờ vào/ra GMT+7, công, phép, trễ/sớm, OT, cả
 trạng thái tạm tính; không chứa UUID, phiên bản và thời điểm đồng bộ. Ô công chưa
 xác định để trống. Bản CSV đầy đủ chỉ lấy qua API với `detail=true`.
 
+Trang Bảng công HR/ADMIN tổng hợp **mỗi nhân viên một dòng** theo kỳ đã tải:
+giờ tính công, giờ phép năm/nghỉ không lương, phút trễ/sớm và OT ghi nhận/được duyệt.
+Bốn chỉ số đầu trang luôn tính trên toàn phạm vi đã tải; bộ lọc tìm tên/mã,
+cần kiểm tra, công chưa đầy đủ, trễ/sớm chỉ lọc danh sách nhân viên. Mặc định ưu tiên
+người có nhiều ngày cần kiểm tra; bấm tên để xem từng ngày và cập nhật phép/lịch.
+Quay lại giữ bộ lọc/phân trang; cập nhật ngày công tính lại tổng hợp ngay.
+
+Tổng giờ chỉ cộng giá trị đã xác định từ API, không quy đổi một ngày thành 8 giờ.
+Ngày thiếu/sai giờ, xung đột và đơn chờ duyệt được đánh dấu để kiểm tra; ca đang mở
+hoặc chưa bắt đầu được ghi riêng, không tự coi là thiếu chấm công. Ngày không có ca
+không tính là vắng mặt hoặc công chưa đầy đủ. Đơn chờ duyệt được đếm duy nhất theo
+loại/ID dù trải nhiều ngày. Dữ liệu null hiện chưa xác định, không thay thành 0.
+Nút **Xuất CSV theo ngày** vẫn xuất toàn bộ phạm vi đã tải; nếu sửa bộ lọc kỳ mà chưa
+bấm **Xem bảng công**, UI nhắc áp dụng và CSV tiếp tục dùng kỳ đang hiển thị.
+
 Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. Backend
 tạo lịch mặc định thứ Hai–thứ Sáu nếu chưa có lịch công ty; HR kiểm tra lịch có
 hiệu lực và cấu hình allowlist/trusted proxy để chấm công local/triển khai.
