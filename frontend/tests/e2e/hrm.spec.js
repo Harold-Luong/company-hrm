@@ -115,6 +115,147 @@ async function setup(page, roles = ['HR']) {
   })
   return state
 }
+async function mockAccountStream(page) {
+  await page.addInitScript(() => {
+    const original = window.fetch
+    window.accountStreamUrls = []
+    window.fetch = (url, init) => {
+      if (!String(url).startsWith('/api/v1/notifications/stream')) return original(url, init)
+      window.accountStreamUrls.push(url)
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              window.accountStream = controller
+              init.signal.addEventListener(
+                'abort',
+                () => controller.error(new DOMException('Aborted', 'AbortError')),
+                { once: true },
+              )
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      )
+    }
+  })
+}
+async function emitAccountResult(page) {
+  await page.evaluate(
+    ({ requestId, employeeId }) => {
+      const event = `event: account-results\r\ndata: ${JSON.stringify({ cursor: 7, items: [{ requestId, employeeId }] })}\r\n\r\n`
+      const bytes = new TextEncoder().encode(event)
+      window.accountStream.enqueue(bytes.slice(0, 19))
+      window.accountStream.enqueue(bytes.slice(19))
+    },
+    { requestId, employeeId: id },
+  )
+}
+
+test('account SSE updates the profile and shows one toast without overwriting unsaved edits', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  await mockAccountStream(page)
+  await page.clock.install()
+  await page.goto(`/employees/${id}`)
+  await expect.poll(() => page.evaluate(() => window.accountStreamUrls.length)).toBe(1)
+  await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
+  await expect(page.locator('.request-result')).toContainText('Đang xử lý')
+  await page.locator('#first-name').fill('Bình')
+  state.status = 'SUCCEEDED'
+  await emitAccountResult(page)
+  await expect(page.locator('.request-result')).toContainText('Đã cấp tài khoản')
+  await expect(page.locator('.page-heading .status-chip')).toHaveText('Chờ kích hoạt')
+  await expect(page.locator('.account-toast')).toContainText('Cấp tài khoản thành công')
+  await expect(page.locator('#first-name')).toHaveValue('Bình')
+  await emitAccountResult(page)
+  await page.clock.fastForward(6000)
+  await expect(page.locator('.account-toast')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Đóng thông báo cấp tài khoản' }).click()
+  await emitAccountResult(page)
+  await expect(page.locator('.account-toast')).toHaveCount(0)
+})
+
+test('account results survive navigation, consumer lag and SSE reconnect without duplicate toasts', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  await mockAccountStream(page)
+  await page.clock.install()
+  await page.goto(`/employees/${id}`)
+  await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
+  await expect(page.locator('.request-result')).toContainText('Đang xử lý')
+  await page.locator('a[href="/departments"]').first().click()
+  await expect(page).toHaveURL(/\/departments$/)
+  await emitAccountResult(page)
+  await expect(page.locator('.account-toast')).toHaveCount(0)
+  state.status = 'FAILED'
+  state.provisioningError = 'EMAIL_ALREADY_USED'
+  await page.clock.fastForward(6000)
+  await expect(page.locator('.account-toast')).toContainText(
+    'Email này đã được dùng cho tài khoản khác.',
+  )
+  await page.evaluate(() => window.accountStream.close())
+  await page.clock.fastForward(3000)
+  await expect
+    .poll(() => page.evaluate(() => window.accountStreamUrls.at(-1)))
+    .toContain('accountAfter=7')
+  await emitAccountResult(page)
+  await expect(page.locator('.account-toast')).toHaveCount(1)
+  await expect(page).toHaveURL(/\/departments$/)
+})
+
+test('account polling still notifies after leaving the form when SSE is unavailable', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  await page.route('**/api/v1/notifications/stream*', (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  )
+  await page.clock.install()
+  await page.goto(`/employees/${id}`)
+  await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
+  await expect(page.locator('.request-result')).toContainText('Đang xử lý')
+  await page.locator('a[href="/employees"]').first().click()
+  await expect(page.locator('tbody')).toContainText('Chưa có tài khoản')
+  state.status = 'SUCCEEDED'
+  await page.clock.fastForward(3000)
+  await expect(page.locator('.account-toast')).toContainText('Cấp tài khoản thành công')
+  await expect(page.locator('tbody')).toContainText('Chờ kích hoạt')
+  await expect(page).toHaveURL(/\/employees$/)
+})
+
+test('a submission response arriving after navigation is still tracked without SSE', async ({
+  page,
+}) => {
+  const state = await setup(page)
+  await page.route('**/api/v1/notifications/stream*', (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  )
+  let release
+  const ready = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/v1/employees/${id}/account-requests`, async (route) => {
+    await ready
+    await route.fallback()
+  })
+  await page.clock.install()
+  await page.goto(`/employees/${id}`)
+  await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
+  await page.locator('a[href="/departments"]').first().click()
+  await expect(page).toHaveURL(/\/departments$/)
+  const received = page.waitForResponse((response) => response.url().endsWith('/account-requests'))
+  release()
+  await received
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('company-hrm.account-tracking.1')))
+    .toContain(requestId)
+  state.status = 'SUCCEEDED'
+  await page.clock.fastForward(3000)
+  await expect(page.locator('.account-toast')).toContainText('Cấp tài khoản thành công')
+})
 async function mockInvitations(page) {
   const state = { requests: [], postStatus: 202, getStatus: 200, deliveryStatus: 'PENDING' }
   await page.route(`**/api/v1/auth/activation-invitations/${id}`, async (route) => {
@@ -284,11 +425,15 @@ test('Kafka failure explains conflict and permits a new request', async ({ page 
   state.provisioningError = 'EMAIL_ALREADY_USED'
   await page.goto(`/employees/${id}`)
   await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
-  await expect(page.getByText('Email này đã được dùng cho tài khoản khác.')).toBeVisible()
+  await expect(
+    page.locator('.provisioning-panel').getByText('Email này đã được dùng cho tài khoản khác.'),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Chuẩn bị yêu cầu mới' }).click()
   await page.getByLabel('Email cấp tài khoản').fill('different@company.com')
   await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
-  await expect(page.getByText('Cấp tài khoản thất bại', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.provisioning-panel').getByText('Cấp tài khoản thất bại', { exact: true }),
+  ).toBeVisible()
   expect(state.requests[0].key).not.toBe(state.requests[1].key)
 })
 for (const role of ['EMPLOYEE', 'MANAGER']) {

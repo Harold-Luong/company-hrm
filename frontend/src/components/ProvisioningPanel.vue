@@ -4,9 +4,15 @@ import { hrm, uuidPattern, requestStatuses, accountStatuses } from '@/hrm/api.js
 import { auth } from '@/auth/session.js'
 import { serviceError } from '@/auth/api.js'
 import ActivationInvitationPanel from '@/components/ActivationInvitationPanel.vue'
+import {
+  trackAccountRequest,
+  subscribeAccountResults,
+  provisioningFailures as failures,
+} from '@/notifications/accountResults.js'
 const props = defineProps({ employee: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
-const storageKey = `company-hrm.provisioning.${auth.state.user.id}.${props.employee.id}`
+const requesterId = String(auth.state.user.id)
+const storageKey = `company-hrm.provisioning.${requesterId}.${props.employee.id}`
 const email = ref(props.employee.personalEmail ?? '')
 const lookupId = ref('')
 const attempt = ref(null)
@@ -19,10 +25,7 @@ const note = ref('')
 let timer
 let disposed = false
 let polls = 0
-const failures = {
-  ACCOUNT_ALREADY_EXISTS: 'Nhân viên đã có tài khoản.',
-  EMAIL_ALREADY_USED: 'Email này đã được dùng cho tài khoản khác.',
-}
+let stopAccountResults
 function persist() {
   try {
     sessionStorage.setItem(storageKey, JSON.stringify(attempt.value))
@@ -31,7 +34,22 @@ function persist() {
   }
 }
 function accept(data, submitted = false) {
-  if (disposed) return
+  if (disposed) {
+    // The POST can finish after navigation. Keep its fallback tracking alive in the layout.
+    if (submitted && attempt.value && String(auth.state.user?.id ?? '') === requesterId) {
+      attempt.value.requestId = data.requestId
+      persist()
+      trackAccountRequest(props.employee.id, data)
+    }
+    return
+  }
+  if (
+    result.value?.requestId === data.requestId &&
+    result.value.provisioningStatus !== 'PENDING' &&
+    data.provisioningStatus === 'PENDING'
+  )
+    return
+  clearTimeout(timer)
   result.value = data
   lookupId.value = data.requestId
   if (submitted && attempt.value) {
@@ -39,12 +57,14 @@ function accept(data, submitted = false) {
     persist()
   }
   emit('updated', data.accountStatus)
-  if (data.provisioningStatus === 'PENDING' && polls < 30) {
+  const owned = submitted || attempt.value?.requestId === data.requestId
+  if (owned) trackAccountRequest(props.employee.id, data)
+  if (!owned && data.provisioningStatus === 'PENDING' && polls < 30) {
     timer = setTimeout(() => {
       polls++
       check(true)
     }, 3000)
-  } else if (data.provisioningStatus === 'PENDING') {
+  } else if (!owned && data.provisioningStatus === 'PENDING') {
     note.value = 'Yêu cầu vẫn đang xử lý. Bạn có thể kiểm tra lại sau; không cần gửi yêu cầu mới.'
   }
 }
@@ -119,6 +139,12 @@ function newRequest() {
   sessionStorage.removeItem(storageKey)
 }
 onMounted(() => {
+  stopAccountResults = subscribeAccountResults((data) => {
+    if (data.employeeId !== props.employee.id) return
+    emit('updated', data.accountStatus)
+    if (data.requestId === lookupId.value || data.requestId === attempt.value?.requestId)
+      accept(data)
+  })
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey))
     if (saved && uuidPattern.test(saved.key) && typeof saved.email === 'string') {
@@ -138,6 +164,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true
   clearTimeout(timer)
+  stopAccountResults?.()
 })
 </script>
 <template>
@@ -195,7 +222,14 @@ onBeforeUnmount(() => {
       <p v-if="checkedAt" class="small muted">Đã nhận kết quả lúc {{ checkedAt }}.</p>
       <strong>{{ requestStatuses[result.provisioningStatus] || result.provisioningStatus }}</strong>
       <p class="small muted">{{ accountStatuses[result.accountStatus] || result.accountStatus }}</p>
-      <p v-if="result.provisioningStatus === 'PENDING'" class="small">
+      <p
+        v-if="result.provisioningStatus === 'PENDING' && attempt?.requestId === result.requestId"
+        class="small"
+      >
+        Yêu cầu đã được ghi nhận và đang chờ xử lý. Kết quả sẽ tự cập nhật; bạn có thể chuyển trang
+        trong khi chờ.
+      </p>
+      <p v-else-if="result.provisioningStatus === 'PENDING'" class="small">
         Yêu cầu đã được ghi nhận và đang chờ xử lý. Kết quả tự cập nhật mỗi 3 giây, tối đa 30 lần.
       </p>
       <p

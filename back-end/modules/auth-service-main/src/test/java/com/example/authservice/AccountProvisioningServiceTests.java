@@ -58,6 +58,7 @@ class AccountProvisioningServiceTests {
         assertThat(result.data().accountStatus()).isEqualTo("PENDING_ACTIVATION");
         assertThat(result.data().accountVersion()).isEqualTo(1);
         assertThat(result.data().errorCode()).isNull();
+        assertThat(result.data().requestedBy()).isEqualTo(event.data().requestedBy());
     }
 
     @Test
@@ -80,6 +81,7 @@ class AccountProvisioningServiceTests {
         var emailConflict = request("LOGIN@example.com");
         service.process(emailConflict);
         assertThat(result(emailConflict.requestId()).data().errorCode()).isEqualTo("EMAIL_ALREADY_USED");
+        assertThat(result(emailConflict.requestId()).data().requestedBy()).isEqualTo(emailConflict.data().requestedBy());
         var employeeConflict = EmployeeAccountRequested.create(UUID.randomUUID(), original.data().employeeId(), "other@example.com", "42");
         service.process(employeeConflict);
         assertThat(result(employeeConflict.requestId()).data().errorCode()).isEqualTo("ACCOUNT_ALREADY_EXISTS");

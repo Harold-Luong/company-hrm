@@ -171,9 +171,16 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
   EMPLOYEE/MANAGER chỉ đọc hồ sơ bản thân qua trang tài khoản; backend kiểm tra `employee_id`.
   Yêu cầu cấp tài khoản cũng giới hạn HR/ADMIN.
 - Trong hồ sơ nhân viên, `POST /api/v1/employees/:id/account-requests` gửi email và
-  UUID `Idempotency-Key`. Yêu cầu nhận `202` được theo dõi bằng
-  `GET /api/v1/employees/:id/account-requests/:requestId` mỗi 3 giây, tối đa 30 lần.
-  Dừng theo dõi khi có kết quả, gặp lỗi hoặc rời trang; có nút kiểm tra thủ công.
+  UUID `Idempotency-Key`. Yêu cầu nhận `202` được theo dõi trong layout chung qua
+  SSE `account-results`, sau đó gọi `GET /api/v1/employees/:id/account-requests/:requestId`
+  để xác nhận trạng thái Employee trước khi hiện toast. Trạng thái trong hồ sơ và
+  danh sách nhân viên tự cập nhật mà không ghi đè nội dung form đang sửa.
+  Polling dự phòng mỗi 3 giây, sau 30 lần giảm còn mỗi 30 giây; vẫn theo dõi khi
+  chuyển trang, kể cả phản hồi POST đến sau khi rời form. Dừng khi hoàn tất/đăng xuất.
+  Toast chỉ dành cho người yêu cầu và chống lặp theo requestId trong tab hiện tại.
+  Tra cứu thủ công yêu cầu khác vẫn poll mỗi 3 giây, tối đa 30 lần và không tạo toast.
+  Cần Auth phát `data.requestedBy`, bật Kafka và áp schema `002` theo
+  [Notification](../back-end/modules/notification-service/README.md#bật-luồng-thông-báo).
 - Khi mất phản hồi POST, nút thử lại giữ nguyên email và mã gửi. Metadata yêu cầu
   lưu trong sessionStorage theo tài khoản và nhân viên để tiếp tục khi reload cùng tab;
   không tự gửi lại POST khi reload. Có thể tra cứu UUID yêu cầu đã biết từ bên ngoài.

@@ -11,13 +11,14 @@ public record AccountProvisioningResult(
         @NotNull Instant occurredAt, @NotBlank String producer,
         @NotNull UUID correlationId, @NotNull UUID requestId, @NotNull @Valid Data data) {
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Data(@NotNull UUID employeeId, String accountStatus, Long accountVersion, String errorCode) {}
+    public record Data(@NotNull UUID employeeId, String accountStatus, Long accountVersion, String errorCode,
+                       String requestedBy) {}
 
     public static AccountProvisioningResult of(EmployeeAccountRequested request, String errorCode, Long version) {
         return new AccountProvisioningResult(UUID.randomUUID(),
                 errorCode == null ? "AccountCreated" : "AccountCreationFailed", 1,
                 Instant.now(), "auth-service", request.correlationId(), request.requestId(),
                 new Data(request.data().employeeId(), errorCode == null ? "PENDING_ACTIVATION" : null,
-                        version, errorCode));
+                        version, errorCode, request.data().requestedBy()));
     }
 }

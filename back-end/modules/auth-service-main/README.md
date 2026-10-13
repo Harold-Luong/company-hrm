@@ -166,7 +166,10 @@ Phần đã triển khai (cần schema Auth đầy đủ và bật `HRM_EVENTS_E
 - Transaction Account + kết quả + Outbox `AccountCreated`; từ chối nghiệp vụ ghi
   `AccountCreationFailed` với mã như `EMAIL_ALREADY_USED`. Lỗi hạ tầng rollback/retry.
 - Kết quả gửi qua `hrm.auth.account-results.v1`: `eventId` mới, cùng `requestId`,
-  `employeeId`, `correlationId`. Thành công có `accountStatus` và `accountVersion`,
+  `employeeId`, `correlationId`; `data.requestedBy` giữ người gửi yêu cầu gốc cho
+  cả kết quả thành công/thất bại để Notification gửi SSE đúng người. Đây là trường
+  bổ sung tùy chọn trong schema v1; kết quả cũ đã lưu không được sửa/phát lại.
+  Thành công có `accountStatus` và `accountVersion`,
   không cần trả `accountId` cho Employee.
 - Account ban đầu chờ kích hoạt, chưa được đăng nhập; Auth quản lý lời mời và
   thiết lập mật khẩu. Không gửi mật khẩu/hash/token kích hoạt trong message.

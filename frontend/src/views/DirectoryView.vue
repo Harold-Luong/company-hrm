@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { hrm, fullName, employeeStatuses, accountStatuses } from '@/hrm/api.js'
 import { serviceError } from '@/auth/api.js'
 import PageControls from '@/components/PageControls.vue'
+import { subscribeAccountResults } from '@/notifications/accountResults.js'
 const props = defineProps({ resource: { type: String, required: true } })
 const title = computed(
     () =>
@@ -14,6 +15,17 @@ const pages = ref(0)
 const total = ref(0)
 const busy = ref(false)
 const error = ref('')
+const pendingAccountUpdates = new Map()
+function updateAccount(employeeId, accountStatus) {
+    const row = rows.value.find((item) => item.id === employeeId)
+    if (row) row.accountStatus = accountStatus
+}
+const stopAccountResults = subscribeAccountResults((result) => {
+    if (props.resource !== 'employees') return
+    updateAccount(result.employeeId, result.accountStatus)
+    if (busy.value) pendingAccountUpdates.set(result.employeeId, result.accountStatus)
+})
+onBeforeUnmount(stopAccountResults)
 async function load(next = page.value) {
     if (busy.value) return
     busy.value = true
@@ -27,6 +39,8 @@ async function load(next = page.value) {
     } catch (cause) {
         error.value = serviceError(cause)
     } finally {
+        for (const [employeeId, status] of pendingAccountUpdates) updateAccount(employeeId, status)
+        pendingAccountUpdates.clear()
         busy.value = false
     }
 }

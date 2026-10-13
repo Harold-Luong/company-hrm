@@ -12,16 +12,19 @@ import jakarta.annotation.PreDestroy;
 @Component
 public class NotificationStreams {
  private final Notifications notifications;
+ private final AccountResults accountResults;
  private final java.util.Set<Client> clients = ConcurrentHashMap.newKeySet();
  private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
  private static class Client {
    final Notifications.Actor actor; final Instant expires; final SseEmitter emitter;
    final AtomicBoolean busy = new AtomicBoolean();
    Notifications.Snapshot last;
+   long accountCursor;
+   boolean accountStarted;
    Client(Notifications.Actor actor, Instant expires) { this.actor=actor; this.expires=expires; this.emitter=new SseEmitter(65000L); }
  }
- public NotificationStreams(Notifications notifications) { this.notifications=notifications; }
- public synchronized SseEmitter open(JwtAuthenticationToken token) {
+ public NotificationStreams(Notifications notifications, AccountResults accountResults) { this.notifications=notifications; this.accountResults=accountResults; }
+ public synchronized SseEmitter open(JwtAuthenticationToken token, Long accountAfter) {
    var actor=Notifications.actor(token);
    if (clients.size() >= 500 || clients.stream().filter(c->c.actor.userId().equals(actor.userId())).count() >= 8)
       throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS);
@@ -30,6 +33,7 @@ public class NotificationStreams {
    // Periodically reauthenticate roles; never keep streaming beyond JWT expiry.
    if (expires.isAfter(Instant.now().plusSeconds(60))) expires=Instant.now().plusSeconds(60);
    var client=new Client(actor, expires);
+   if (actor.reviewer()) client.accountCursor=accountAfter == null ? accountResults.latest(actor) : accountAfter;
    clients.add(client);
    client.emitter.onCompletion(()->clients.remove(client));
    client.emitter.onTimeout(()->{clients.remove(client); client.emitter.complete();});
@@ -48,6 +52,14 @@ public class NotificationStreams {
            client.emitter.send(SseEmitter.event().name("notifications").data(snapshot));
            client.last=snapshot;
          } else client.emitter.send(SseEmitter.event().comment("heartbeat"));
+         if (client.actor.reviewer()) {
+           var batch=accountResults.after(client.actor, client.accountCursor);
+           if (!client.accountStarted || !batch.items().isEmpty()) {
+             client.emitter.send(SseEmitter.event().name("account-results").data(batch));
+             client.accountCursor=batch.cursor();
+             client.accountStarted=true;
+           }
+         }
        } catch (Exception error) { clients.remove(client); client.emitter.completeWithError(error); }
        finally { client.busy.set(false); }
      });

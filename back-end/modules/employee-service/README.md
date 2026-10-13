@@ -1301,6 +1301,9 @@ ack theo record cho phép commit offset sau đó. Lỗi được ném ra để r
 chuyển thành thành công. `ProvisioningKafkaConfig` bật scheduling và cấu hình xử lý
 lỗi Kafka; nó không phải một API hoặc nơi tạo Account.
 
-Auth không nhận HTTP request trực tiếp trong flow này. UI theo dõi bằng GET/polling
-tại Employee; chưa có push/WebSocket. Nếu kết quả chưa về, GET vẫn trả `PENDING`.
+Auth không nhận HTTP request trực tiếp trong flow này. Notification nhận kết quả
+Auth bằng consumer group riêng, dùng `data.requestedBy` để phát SSE đúng HR/Admin
+đã yêu cầu. UI nhận SSE rồi xác nhận bằng GET tại Employee; nếu kết quả chưa về,
+GET vẫn trả `PENDING` và UI tiếp tục polling dự phòng, kể cả khi đã chuyển trang.
+Xem [cấu hình Notification và schema bổ sung](../notification-service/README.md).
 Khi thành công, yêu cầu là `SUCCEEDED`, còn Account đang `PENDING_ACTIVATION`.

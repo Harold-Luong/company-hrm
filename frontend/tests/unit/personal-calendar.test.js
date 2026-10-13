@@ -33,7 +33,9 @@ describe('personal calendar mapping', () => {
 })
 
 const request = vi.hoisted(() => vi.fn())
-vi.mock('../../src/auth/session.js', () => ({ auth: { request } }))
+vi.mock('../../src/auth/session.js', () => ({
+  auth: { request, state: { user: { id: '1' } } },
+}))
 afterEach(() => {
   vi.clearAllMocks()
 })

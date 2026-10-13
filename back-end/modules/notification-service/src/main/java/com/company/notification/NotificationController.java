@@ -21,7 +21,8 @@ public class NotificationController {
    notifications.readAll(Notifications.actor(actor), body.through()); return ResponseEntity.noContent().build();
  }
  @GetMapping(value="/stream", produces=MediaType.TEXT_EVENT_STREAM_VALUE)
- public ResponseEntity<SseEmitter> stream(JwtAuthenticationToken actor) {
-   return ResponseEntity.ok().cacheControl(CacheControl.noStore()).header("X-Accel-Buffering","no").body(streams.open(actor));
+ public ResponseEntity<SseEmitter> stream(JwtAuthenticationToken actor, @RequestParam(required=false) Long accountAfter) {
+   if (accountAfter != null && accountAfter < 0) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST);
+   return ResponseEntity.ok().cacheControl(CacheControl.noStore()).header("X-Accel-Buffering","no").body(streams.open(actor, accountAfter));
  }
 }

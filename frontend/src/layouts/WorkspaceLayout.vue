@@ -12,6 +12,8 @@ import { attendance } from '@/attendance/api.js'
 import { subscribeNotifications } from '@/notifications/stream.js'
 import { requestChangedEvent } from '@/notifications/changes.js'
 import AppIcon from '@/components/AppIcon.vue'
+import AccountResultToasts from '@/components/AccountResultToasts.vue'
+import { startAccountNotifications } from '@/notifications/accountResults.js'
 const route = useRoute()
 const router = useRouter()
 const mobileOpen = ref(false)
@@ -39,6 +41,7 @@ let countQueued = false
 let countTimer
 let countStopped = false
 let stopNotifications
+let stopAccountNotifications
 const initials = computed(() => auth.state.user?.email.slice(0, 2).toUpperCase() || 'CH')
 const isRequestPage = computed(
   () =>
@@ -91,6 +94,7 @@ onMounted(() => {
   schedulePendingCounts()
   if (auth.hasRole(leaveReviewRoles))
     stopNotifications = subscribeNotifications(refreshPendingCounts)
+  if (auth.hasRole(accountCreationRoles)) stopAccountNotifications = startAccountNotifications()
 })
 onBeforeUnmount(() => {
   countStopped = true
@@ -98,6 +102,7 @@ onBeforeUnmount(() => {
   window.removeEventListener(requestChangedEvent, refreshPendingCounts)
   window.clearTimeout(countTimer)
   stopNotifications?.()
+  stopAccountNotifications?.()
 })
 async function signOut() {
   busy.value = true
@@ -117,6 +122,7 @@ async function signOut() {
 
 <template>
   <div v-if="auth.state.user" class="workspace" @keydown.esc="closeMenus">
+    <AccountResultToasts />
     <a class="skip-link" href="#main-content">Đến nội dung chính</a>
     <button
       v-if="mobileOpen"
