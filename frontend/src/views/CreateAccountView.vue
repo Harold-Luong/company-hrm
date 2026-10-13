@@ -18,7 +18,7 @@ const success = ref('')
 const roleDescriptions = {
   EMPLOYEE: 'Truy cập không gian cá nhân.',
   MANAGER: 'Vai trò quản lý của doanh nghiệp.',
-  HR: 'Cấp tài khoản nội bộ theo quyền nhân sự.',
+  HR: 'Quản lý nghiệp vụ nhân sự.',
   ADMIN: 'Cấp tài khoản nội bộ theo quyền quản trị.',
 }
 async function submit() {
@@ -72,7 +72,7 @@ async function submit() {
         <h1>Tạo tài khoản</h1>
         <p class="muted">Cấp quyền truy cập workspace cho một tài khoản nội bộ mới.</p>
       </div>
-      <span class="permission-label"> <AppIcon name="shield" :size="16" />HR / Admin </span>
+      <span class="permission-label"> <AppIcon name="shield" :size="16" />Admin </span>
     </div>
     <div class="create-account-grid">
       <form class="panel create-form" :aria-busy="busy" @submit.prevent="submit">

@@ -56,13 +56,13 @@ public class ResendMailSender {
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             int status = response.statusCode();
             if (status >= 200 && status < 300) {
-                String id = mapper.readTree(response.body()).path("id").asText();
+                String id = mapper.readTree(response.body()).path("id").asString();
                 if (id.isBlank() || id.length() > 255)
                     return new Delivery(null, "INVALID_PROVIDER_RESPONSE", true, 0);
                 return new Delivery(id, null, false, 0);
             }
             if (status == 409
-                    && "invalid_idempotent_request".equals(mapper.readTree(response.body()).path("name").asText()))
+                    && "invalid_idempotent_request".equals(mapper.readTree(response.body()).path("name").asString()))
                 return new Delivery(null, "RESEND_IDEMPOTENCY_CONFLICT", false, 0);
             // Persist only an HTTP code; provider response bodies can contain
             // credentials/recipient data.

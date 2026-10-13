@@ -783,9 +783,9 @@ Employee → yêu cầu PENDING + Outbox → EmployeeAccountRequested → Kafka 
 Auth → AccountCreated / AccountCreationFailed → Kafka → Employee → UI đọc kết quả
 ```
 
-API đã có, chỉ HR/ADMIN toàn hệ thống; cần `HRM_EVENTS_ENABLED=true`:
+API đã có: ADMIN gửi yêu cầu, HR/ADMIN tra cứu kết quả trên toàn hệ thống; cần `HRM_EVENTS_ENABLED=true`:
 
-- `POST /api/v1/employees/{employeeId}/account-requests`: kiểm tra quyền HR/ADMIN,
+- `POST /api/v1/employees/{employeeId}/account-requests`: kiểm tra quyền ADMIN,
   phạm vi và nhân viên tồn tại; nhận email đăng nhập, không nhận mật khẩu. Lưu yêu
   cầu + Outbox cùng transaction, trả `202 Accepted`, `requestId` và `PENDING`.
 - `GET /api/v1/employees/{employeeId}/account-requests/{requestId}`: truy vấn tiến độ
@@ -1072,7 +1072,7 @@ CSRF bị tắt vì xác thực qua Bearer header, không dùng cookie tự gử
 
 Các role trong token được ánh xạ thành `ROLE_EMPLOYEE`, `ROLE_HR`, ... trong
 SecurityContext; principal là `sub` của token. API yêu cầu cấp tài khoản cần role
-HR hoặc ADMIN. Các API quản lý hồ sơ/phòng ban/chức danh cũng yêu cầu HR/ADMIN.
+ADMIN; tra cứu kết quả cho phép HR/ADMIN. Các API quản lý hồ sơ/phòng ban/chức danh cũng yêu cầu HR/ADMIN.
 Người dùng khác chỉ đọc hồ sơ có ID khớp claim `employee_id`; không có quyền liệt kê hoặc sửa.
 
 `accountStatus` được đồng bộ qua Kafka nhưng chỉ dùng để hiển thị, không kiểm tra
@@ -1149,9 +1149,9 @@ worker/listener không chạy và API yêu cầu trả `503`. Khi bật cờ ở
 `POST /api/v1/auth/register` cũ trả `409`; các thao tác login/refresh hiện có vẫn
 hoạt động cho Account đã active. Việc này ngăn đường tạo Account bỏ qua Outbox.
 
-Dùng tài khoản HR/ADMIN đã có để đăng nhập; Auth seed local vẫn dùng được. JWT
-Employee phải xác minh được bằng access public key của Auth. Hai API mới cho
-HR/ADMIN toàn hệ thống; chưa có phạm vi theo phòng ban hoặc tenant.
+Dùng tài khoản ADMIN đã có để gửi yêu cầu cấp tài khoản; Auth seed local vẫn dùng được. JWT
+Employee phải xác minh được bằng access public key của Auth. ADMIN gửi yêu cầu,
+HR/ADMIN tra cứu kết quả toàn hệ thống; chưa có phạm vi theo phòng ban hoặc tenant.
 
 <a id="provisioning-3-gửi-yêu-cầu"></a>
 
@@ -1240,7 +1240,7 @@ flowchart TB
     subgraph EMP_REQ["Employee Service — tiếp nhận HTTP"]
         SEC["SecurityConfig: xác minh JWT"]
         CTRL["AccountRequestController.request()"]
-        SVC["AccountRequestService.request()<br/>Kiểm tra HR/ADMIN, employeeId và Idempotency-Key"]
+        SVC["AccountRequestService.request()<br/>Kiểm tra ADMIN, employeeId và Idempotency-Key"]
         EVENT["EmployeeAccountRequested.create()<br/>Sinh eventId, requestId, correlationId"]
         EDB1[("Employee DB<br/>account_provisioning_requests: PENDING<br/>event_outbox: JSON yêu cầu")]
         EPUB["AccountProvisioningProducer.publishBatch()<br/>EventOutbox.claim() → KafkaTemplate.send()"]

@@ -283,6 +283,15 @@ async function signOut() {
             <AppIcon name="add" />Tạo tài khoản
           </RouterLink>
         </section>
+        <section class="nav-group" aria-labelledby="nav-help">
+          <h2 id="nav-help" class="nav-section">TRỢ GIÚP</h2>
+          <RouterLink to="/help/guide" class="nav-item" active-class="is-active">
+            <AppIcon name="book" />Hướng dẫn sử dụng
+          </RouterLink>
+          <RouterLink to="/help/features" class="nav-item" active-class="is-active">
+            <AppIcon name="info" />Chức năng & công thức
+          </RouterLink>
+        </section>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-note">

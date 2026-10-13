@@ -1,0 +1,27 @@
+<script setup>
+import AppIcon from '@/components/AppIcon.vue'
+import '@/assets/styles/help.css'
+
+defineProps({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+})
+</script>
+
+<template>
+  <div class="help-page">
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">TRUNG TÂM TRỢ GIÚP</p>
+        <h1>{{ title }}</h1>
+        <p class="muted">{{ description }}</p>
+      </div>
+      <span class="help-heading-icon"><AppIcon name="book" :size="28" /></span>
+    </div>
+    <nav class="help-tabs" aria-label="Tài liệu sử dụng">
+      <RouterLink to="/help/guide" active-class="is-active">Hướng dẫn sử dụng</RouterLink>
+      <RouterLink to="/help/features" active-class="is-active">Chức năng & công thức</RouterLink>
+    </nav>
+    <slot />
+  </div>
+</template>

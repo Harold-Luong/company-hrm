@@ -222,9 +222,10 @@ async function navigateTabs(event) {
 }
 
 .employee-profile-tab.selected {
-    background: #e7f2ed;
-    color: var(--primary-dark);
+    background: var(--primary);
+    color: white;
     font-weight: 600;
+    box-shadow: inset 0 -3px var(--primary-dark);
 }
 
 .employee-profile :focus-visible {

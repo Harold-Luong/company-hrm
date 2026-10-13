@@ -69,16 +69,23 @@ Không đặt secret trong biến `VITE_*` vì chúng được đưa vào mã ph
 
 ## Trang và quyền truy cập
 
+Hai trang trợ giúp dùng chung cho mọi tài khoản đã đăng nhập, mở từ nhóm **Trợ giúp** trên menu:
+
+- `/help/guide`: hướng dẫn theo tác vụ, quyền HR/ADMIN, câu hỏi thường gặp và liên kết mở chức năng.
+- `/help/features`: danh mục chức năng có tìm kiếm không dấu, lọc theo nhóm; công thức công thường, làm tròn, thời gian thực tế, đi trễ/về sớm có phép, OT, số ngày phép, số dư và chỉ số báo cáo, kèm ví dụ.
+
+Nội dung nằm trong `src/help/content.js`; cập nhật cùng các thay đổi quy tắc ở Attendance/Leave và `src/attendance/report.js`. Các trang chỉ giải thích quy tắc hiện có, không tính lại hay ghi dữ liệu nghiệp vụ. Liên kết tới trang quản lý chỉ hiện cho HR/ADMIN; nội dung tài liệu vẫn đọc được với mọi vai trò. Bảng công và phần chấm công trong hồ sơ có liên kết tra cứu công thức.
+
 | Trang                   | Đường dẫn                                              | Quyền                     |
 | ----------------------- | ------------------------------------------------------ | ------------------------- |
 | Đăng nhập               | `/login`                                               | Chưa đăng nhập            |
 | Tổng quan               | `/`                                                    | Mọi tài khoản đã xác thực |
 | Tài khoản của tôi       | `/account`                                             | Mọi tài khoản đã xác thực |
-| Tạo tài khoản           | `/accounts/new`                                        | HR **hoặc** ADMIN         |
+| Tạo tài khoản           | `/accounts/new`                                        | ADMIN         |
 | Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`       | HR hoặc ADMIN |
 | Phòng ban               | `/departments`, `/departments/new`, `/departments/:id` | HR hoặc ADMIN |
 | Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | HR hoặc ADMIN |
-| Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | HR **hoặc** ADMIN         |
+| Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | ADMIN         |
 | Kết nối dịch vụ         | `/services`                                            | Mọi tài khoản đã xác thực |
 | Nghỉ phép của tôi       | `/leave`                                               | Mọi tài khoản đã xác thực |
 | Duyệt nghỉ phép         | `/leave/inbox`                                         | HR hoặc ADMIN |
@@ -184,7 +191,7 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
   từng trang 100 bản ghi, có nút tải thêm. Trường tùy chọn gửi `null` khi để trống.
 - Các route quản lý nhân viên/phòng ban/chức danh và API tương ứng giới hạn HR/ADMIN.
   EMPLOYEE/MANAGER chỉ đọc hồ sơ bản thân qua trang tài khoản; backend kiểm tra `employee_id`.
-  Yêu cầu cấp tài khoản cũng giới hạn HR/ADMIN.
+  Chỉ ADMIN được gửi yêu cầu cấp tài khoản; HR/ADMIN vẫn được tra cứu kết quả và hỗ trợ kích hoạt.
 - Trong hồ sơ nhân viên, `POST /api/v1/employees/:id/account-requests` gửi email và
   UUID `Idempotency-Key`. Yêu cầu nhận `202` được theo dõi trong layout chung qua
   SSE `account-results`, sau đó gọi `GET /api/v1/employees/:id/account-requests/:requestId`

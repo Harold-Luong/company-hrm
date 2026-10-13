@@ -101,7 +101,7 @@ class AccountActivationTests {
                 .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", password))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.accessToken").isNotEmpty());
         var event = mapper.readTree(jdbc.queryForObject("SELECT payload FROM event_outbox WHERE topic = 'hrm.auth.account-lifecycle.v1'", String.class));
-        assertThat(event.path("data").path("accountStatus").asText()).isEqualTo("ACTIVE");
+        assertThat(event.path("data").path("accountStatus").asString()).isEqualTo("ACTIVE");
         assertThat(event.path("data").path("accountVersion").asLong()).isEqualTo(2);
         assertThatThrownBy(() -> activation.activate(token, password)).isInstanceOf(GlobalException.class);
     }

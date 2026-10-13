@@ -35,7 +35,7 @@ public class PositionService {
     }
 
     public PageResponse<PositionResponse> findAll(int page, int size) {
-        var pageable = PageRequest.of(page, size, Sort.by("code").ascending());
+        var pageable = PageRequest.of(page, size, Sort.sort(Position.class).by(Position::getCode).ascending());
         return PageResponse.from(positionRepository.findAll(pageable).map(PositionResponse::from));
     }
 

@@ -73,9 +73,9 @@ class EmployeeApiTests extends JwtTestSupport {
         Map<String, Object> request = request("EMP001");
         request.put("accountStatus", "ACTIVE");
         JsonNode created = create(request);
-        assertThat(created.get("accountStatus").asText()).isEqualTo("NOT_CREATED");
+        assertThat(created.get("accountStatus").asString()).isEqualTo("NOT_CREATED");
         assertThat(created.has("hasAccount")).isFalse();
-        String id = created.get("id").asText();
+        String id = created.get("id").asString();
 
         jdbc.update("UPDATE employees SET employee_account_status = ? WHERE id = ?", accountStatus.name(), UUID.fromString(id));
         request.put("accountStatus", "NOT_CREATED");
@@ -102,18 +102,18 @@ class EmployeeApiTests extends JwtTestSupport {
         Position position = positions.saveAndFlush(Position.builder()
                 .code("ENGINEER").name("Software Engineer").active(true)
                 .createdAt(now).updatedAt(now).build());
-        String managerId = create(request("MANAGER")).get("id").asText();
+        String managerId = create(request("MANAGER")).get("id").asString();
         Map<String, Object> request = request("EMP001");
         request.put("departmentId", department.getId());
         request.put("positionId", position.getId());
         request.put("managerId", managerId);
         JsonNode employee = create(request);
 
-        assertThat(employee.get("createdAt").asText()).isNotBlank();
-        assertThat(employee.get("updatedAt").asText()).isEqualTo(employee.get("createdAt").asText());
-        mvc.perform(get(API + "/" + employee.get("id").asText()))
+        assertThat(employee.get("createdAt").asString()).isNotBlank();
+        assertThat(employee.get("updatedAt").asString()).isEqualTo(employee.get("createdAt").asString());
+        mvc.perform(get(API + "/" + employee.get("id").asString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.employeeCode").value(employee.get("employeeCode").asText()))
+                .andExpect(jsonPath("$.employeeCode").value(employee.get("employeeCode").asString()))
                 .andExpect(jsonPath("$.department.id").value(department.getId().toString()))
                 .andExpect(jsonPath("$.position.code").value("ENGINEER"))
                 .andExpect(jsonPath("$.manager.id").value(managerId))
@@ -128,7 +128,7 @@ class EmployeeApiTests extends JwtTestSupport {
         request.put("contactRelative", "  Nguyen Van An  ");
         request.put("contactRelativePhone", "  0901234567  ");
         JsonNode created = create(request);
-        String id = created.get("id").asText();
+        String id = created.get("id").asString();
         mvc.perform(get(API + "/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.personalEmail").value("EMP001@company.com"))
@@ -173,7 +173,7 @@ class EmployeeApiTests extends JwtTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request("EMP001"))))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        UUID id = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+        UUID id = UUID.fromString(objectMapper.readTree(body).get("id").asString());
         assertThat(jdbc.queryForObject("SELECT created_by FROM employees WHERE id = ?", UUID.class, id)).isEqualTo(creator);
         assertThat(jdbc.queryForObject("SELECT updated_by FROM employees WHERE id = ?", UUID.class, id)).isEqualTo(creator);
         mvc.perform(patch(API + "/" + id + "/status")
@@ -187,8 +187,8 @@ class EmployeeApiTests extends JwtTestSupport {
 
     @Test
     void listsEmployeesWithStablePagination() throws Exception {
-        String firstCode = create(request("EMP002")).get("employeeCode").asText();
-        String secondCode = create(request("EMP001")).get("employeeCode").asText();
+        String firstCode = create(request("EMP002")).get("employeeCode").asString();
+        String secondCode = create(request("EMP001")).get("employeeCode").asString();
         mvc.perform(get(API).param("page", "0").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -217,12 +217,12 @@ class EmployeeApiTests extends JwtTestSupport {
 
     @Test
     void replacesEmployeeAndClearsOptionalFields() throws Exception {
-        String managerId = create(request("MANAGER")).get("id").asText();
+        String managerId = create(request("MANAGER")).get("id").asString();
         Map<String, Object> original = request("EMP001");
         original.put("managerId", managerId);
         original.put("phone", "0901000001");
         JsonNode created = create(original);
-        String id = created.get("id").asText();
+        String id = created.get("id").asString();
         Map<String, Object> updated = request("EMP001");
         updated.put("firstName", "Updated");
         updated.put("status", "ACTIVE");
@@ -233,25 +233,25 @@ class EmployeeApiTests extends JwtTestSupport {
                 .andExpect(jsonPath("$.firstName").value("Updated"))
                 .andExpect(jsonPath("$.manager").isEmpty())
                 .andExpect(jsonPath("$.phone").isEmpty())
-                .andExpect(jsonPath("$.createdAt").value(created.get("createdAt").asText()));
+                .andExpect(jsonPath("$.createdAt").value(created.get("createdAt").asString()));
         JsonNode persisted = objectMapper.readTree(mvc.perform(get(API + "/" + id))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(persisted.get("firstName").asText()).isEqualTo("Updated");
-        assertThat(OffsetDateTime.parse(persisted.get("updatedAt").asText()))
-                .isAfter(OffsetDateTime.parse(created.get("updatedAt").asText()));
+        assertThat(persisted.get("firstName").asString()).isEqualTo("Updated");
+        assertThat(OffsetDateTime.parse(persisted.get("updatedAt").asString()))
+                .isAfter(OffsetDateTime.parse(created.get("updatedAt").asString()));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"ACTIVE", "INACTIVE", "PROBATION", "SUSPENDED", "TERMINATED"})
     void changesOnlyStatus(String newStatus) throws Exception {
         JsonNode created = create(request("EMP001"));
-        String id = created.get("id").asText();
+        String id = created.get("id").asString();
         mvc.perform(patch(API + "/" + id + "/status").contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("status", newStatus))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(newStatus))
                 .andExpect(jsonPath("$.personalEmail").value("EMP001@company.com"))
-                .andExpect(jsonPath("$.createdAt").value(created.get("createdAt").asText()));
+                .andExpect(jsonPath("$.createdAt").value(created.get("createdAt").asString()));
         mvc.perform(get(API + "/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(newStatus));
@@ -262,9 +262,9 @@ class EmployeeApiTests extends JwtTestSupport {
         Map<String, Object> request = request("EMP001");
         request.put("employeeCode", "CLIENT-CODE");
         JsonNode created = create(request);
-        String code = created.get("employeeCode").asText();
+        String code = created.get("employeeCode").asString();
         assertThat(code).isEqualTo("EMP000001");
-        String id = created.get("id").asText();
+        String id = created.get("id").asString();
         request.put("employeeCode", "CHANGED-CODE");
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -274,15 +274,15 @@ class EmployeeApiTests extends JwtTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.employeeCode").value(code));
         JsonNode second = create(request("EMP002"));
-        assertThat(second.get("employeeCode").asText()).isEqualTo("EMP000002");
+        assertThat(second.get("employeeCode").asString()).isEqualTo("EMP000002");
     }
 
     @Test
     void preservesLegacyCodesAndSkipsCodesAlreadyInUse() throws Exception {
         JsonNode legacy = create(request("LEGACY"));
-        UUID id = UUID.fromString(legacy.get("id").asText());
+        UUID id = UUID.fromString(legacy.get("id").asString());
         jdbc.update("UPDATE employees SET employee_code = 'EMP000002' WHERE id = ?", id);
-        assertThat(create(request("NEW")).get("employeeCode").asText()).isEqualTo("EMP000003");
+        assertThat(create(request("NEW")).get("employeeCode").asString()).isEqualTo("EMP000003");
         jdbc.update("UPDATE employees SET employee_code = 'NV001' WHERE id = ?", id);
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request("LEGACY"))))
@@ -290,7 +290,7 @@ class EmployeeApiTests extends JwtTestSupport {
                 .andExpect(jsonPath("$.employeeCode").value("NV001"));
         // Removing records must not recycle previously allocated numbers.
         jdbc.update("DELETE FROM employees");
-        assertThat(create(request("NEXT")).get("employeeCode").asText()).isEqualTo("EMP000004");
+        assertThat(create(request("NEXT")).get("employeeCode").asString()).isEqualTo("EMP000004");
     }
 
     @Test
@@ -312,7 +312,7 @@ class EmployeeApiTests extends JwtTestSupport {
                                             .user("hr").roles("HR"))
                                     .contentType(MediaType.APPLICATION_JSON).content(payload))
                             .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-                    return objectMapper.readTree(body).get("employeeCode").asText();
+                    return objectMapper.readTree(body).get("employeeCode").asString();
                 }));
             }
             assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
@@ -369,8 +369,8 @@ class EmployeeApiTests extends JwtTestSupport {
         Map<String, Object> request = request(" EMP001 ");
         request.put("personalEmail", " employee@company.com ");
         JsonNode created = create(request);
-        assertThat(created.get("employeeCode").asText()).isEqualTo("EMP000001");
-        assertThat(created.get("personalEmail").asText()).isEqualTo("employee@company.com");
+        assertThat(created.get("employeeCode").asString()).isEqualTo("EMP000001");
+        assertThat(created.get("personalEmail").asString()).isEqualTo("employee@company.com");
     }
 
     @ParameterizedTest
@@ -398,13 +398,13 @@ class EmployeeApiTests extends JwtTestSupport {
 
     @Test
     void rejectsSelfManagerAndIndirectManagerCycle() throws Exception {
-        String firstId = create(request("EMP001")).get("id").asText();
+        String firstId = create(request("EMP001")).get("id").asString();
         Map<String, Object> second = request("EMP002");
         second.put("managerId", firstId);
-        String secondId = create(second).get("id").asText();
+        String secondId = create(second).get("id").asString();
         Map<String, Object> third = request("EMP003");
         third.put("managerId", secondId);
-        String thirdId = create(third).get("id").asText();
+        String thirdId = create(third).get("id").asString();
         for (String managerId : new String[]{firstId, thirdId}) {
             Map<String, Object> invalid = request("EMP001");
             invalid.put("managerId", managerId);
@@ -432,7 +432,7 @@ class EmployeeApiTests extends JwtTestSupport {
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"status\":null}", "{\"status\":\"UNKNOWN\"}", "{", "{\"status\":0}"})
     void rejectsInvalidStatusBodies(String body) throws Exception {
-        String id = create(request("EMP001")).get("id").asText();
+        String id = create(request("EMP001")).get("id").asString();
         mvc.perform(patch(API + "/" + id + "/status").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
     }

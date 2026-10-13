@@ -47,6 +47,17 @@ class JwtSecurityTests extends JwtTestSupport {
     @Autowired private tools.jackson.databind.ObjectMapper mapper;
 
     @ParameterizedTest
+    @ValueSource(strings = {"EMPLOYEE", "MANAGER", "HR"})
+    void onlyAdminCanRequestAccountCreation(String role) throws Exception {
+        mvc.perform(post("/api/v1/employees/" + EMPLOYEE_ID + "/account-requests")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + sign(claims().claim("roles", List.of(role))))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"EMPLOYEE", "MANAGER"})
     void personnelAccessIsRestrictedToOwnReadOnlyProfile(String role) throws Exception {
         String ownId = createEmployee();
@@ -113,7 +124,7 @@ class JwtSecurityTests extends JwtTestSupport {
                                  "gender":"MALE","hireDate":"2025-01-01","status":"ACTIVE"}
                                 """))
                 .andExpect(status().isCreated()).andReturn();
-        return mapper.readTree(response.getResponse().getContentAsString()).get("id").asText();
+        return mapper.readTree(response.getResponse().getContentAsString()).get("id").asString();
     }
 
     @ParameterizedTest

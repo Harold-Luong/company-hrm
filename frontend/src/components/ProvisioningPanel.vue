@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { hrm, uuidPattern, requestStatuses, accountStatuses } from '@/hrm/api.js'
 import { auth } from '@/auth/session.js'
+import { accountCreationRoles } from '@/auth/navigation.js'
 import { serviceError } from '@/auth/api.js'
 import ActivationInvitationPanel from '@/components/ActivationInvitationPanel.vue'
 import {
@@ -69,7 +70,12 @@ function accept(data, submitted = false) {
   }
 }
 async function send() {
-  if (busy.value || result.value?.provisioningStatus === 'PENDING') return
+  if (
+    !auth.hasRole(accountCreationRoles) ||
+    busy.value ||
+    result.value?.provisioningStatus === 'PENDING'
+  )
+    return
   clearTimeout(timer)
   error.value = ''
   note.value = ''
@@ -175,7 +181,10 @@ onBeforeUnmount(() => {
       Yêu cầu được xử lý bất đồng bộ. Tài khoản mới có vai trò Nhân viên và chờ kích hoạt.
     </p>
     <p v-if="note" class="info-strip" role="status">{{ note }}</p>
-    <form v-if="!result" @submit.prevent="send">
+    <p v-if="!auth.hasRole(accountCreationRoles)" class="muted small">
+      Chỉ Admin được tạo tài khoản. Bạn có thể tra cứu kết quả và hỗ trợ kích hoạt tài khoản.
+    </p>
+    <form v-if="auth.hasRole(accountCreationRoles) && !result" @submit.prevent="send">
       <fieldset class="form-fields" :disabled="busy">
         <label for="provision-email">Email cấp tài khoản *</label
         ><input
@@ -247,7 +256,7 @@ onBeforeUnmount(() => {
         Mã yêu cầu: <code>{{ result.requestId }}</code>
       </p>
       <button
-        v-if="result.provisioningStatus === 'FAILED'"
+        v-if="auth.hasRole(accountCreationRoles) && result.provisioningStatus === 'FAILED'"
         class="button button-secondary"
         :disabled="busy"
         @click="newRequest"

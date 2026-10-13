@@ -226,6 +226,7 @@ onMounted(load)
                 Công chưa chốt kỳ. Tổng giờ chỉ cộng các ngày đã xác định; ngày thiếu dữ liệu không được coi
                 là 0 giờ. Ngày không có ca được ghi riêng. CSV xuất chi tiết theo ngày của toàn bộ phạm vi
                 đã tải.
+                <RouterLink class="text-button" to="/help/features#work-time">Xem công thức tính công →</RouterLink>
             </p>
         </div>
         <p v-if="actionError" class="alert alert-error" role="alert">{{ actionError }}</p>

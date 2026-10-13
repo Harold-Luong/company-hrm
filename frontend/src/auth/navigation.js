@@ -1,10 +1,21 @@
-export const accountCreationRoles = ['HR', 'ADMIN']
+export const accountCreationRoles = ['ADMIN']
 // Only known internal destinations are accepted after login or a connection retry.
 export function safeDestination(value) {
   return typeof value === 'string' &&
-    (['/', '/account', '/accounts/new', '/forbidden', '/services', '/calendar'].includes(value) ||
+    ([
+      '/',
+      '/account',
+      '/accounts/new',
+      '/forbidden',
+      '/services',
+      '/calendar',
+      '/help/guide',
+      '/help/features',
+    ].includes(value) ||
       /^\/calendar-events(\/(new|\d+))?$/.test(value) ||
-      /^\/attendance(\/(shifts|schedules|reports|requests(\/inbox)?|corrections|overtime))?$/.test(value) ||
+      /^\/attendance(\/(shifts|schedules|reports|requests(\/inbox)?|corrections|overtime))?$/.test(
+        value,
+      ) ||
       /^\/leave(\/inbox|\/requests\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i.test(
         value,
       ) ||

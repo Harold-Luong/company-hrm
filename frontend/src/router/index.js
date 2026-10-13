@@ -31,6 +31,18 @@ export const routes = [
         meta: { title: 'Không gian làm việc', requiresAuth: true },
         children: [
             {
+                path: 'help/guide',
+                name: 'help-guide',
+                component: () => import('@/views/UserGuideView.vue'),
+                meta: { title: 'Hướng dẫn sử dụng' },
+            },
+            {
+                path: 'help/features',
+                name: 'help-features',
+                component: () => import('@/views/FeatureReferenceView.vue'),
+                meta: { title: 'Chức năng & công thức' },
+            },
+            {
                 path: 'attendance',
                 name: 'attendance-mine',
                 component: () => import('@/views/AttendanceView.vue'),
@@ -200,7 +212,8 @@ export const routes = [
 export const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
     routes,
-    scrollBehavior: () => ({ top: 0 }),
+    scrollBehavior: (to) =>
+        to.path.startsWith('/help/') && to.hash ? { el: to.hash, top: 24 } : { top: 0 },
 })
 router.beforeEach(async (to) => {
     if (to.name === 'connection-error' || to.name === 'activate') return true

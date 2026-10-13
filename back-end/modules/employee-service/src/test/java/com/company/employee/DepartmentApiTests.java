@@ -60,8 +60,8 @@ class DepartmentApiTests extends JwtTestSupport {
     void createsAndReadsDepartmentWithNormalizedFieldsAndDatabaseDefaults() throws Exception {
         JsonNode created = create(Map.of("code", " IT ", "name", " Information Technology ",
                 "description", " Internal systems "));
-        String id = created.get("id").asText();
-        assertThat(created.get("code").asText()).isEqualTo("IT");
+        String id = created.get("id").asString();
+        assertThat(created.get("code").asString()).isEqualTo("IT");
         mvc.perform(get(API + "/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
@@ -78,7 +78,7 @@ class DepartmentApiTests extends JwtTestSupport {
     void acceptsOptionalDescriptionAndMaximumFieldLengths() throws Exception {
         JsonNode created = create(Map.of("code", "C".repeat(50), "name", "N".repeat(150)));
         assertThat(created.get("description").isNull()).isTrue();
-        mvc.perform(get(API + "/" + created.get("id").asText()))
+        mvc.perform(get(API + "/" + created.get("id").asString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").isEmpty());
     }
@@ -171,7 +171,7 @@ class DepartmentApiTests extends JwtTestSupport {
     @Test
     void updatesDepartmentAndPreservesIdentityCreationTimeAndActiveState() throws Exception {
         String id = create(Map.of("code", "IT", "name", "Technology", "description", "Old description"))
-                .get("id").asText();
+                .get("id").asString();
         jdbc.update("UPDATE departments SET active = FALSE WHERE id = ?", UUID.fromString(id));
         Department original = departments.findById(UUID.fromString(id)).orElseThrow();
 
@@ -200,7 +200,7 @@ class DepartmentApiTests extends JwtTestSupport {
             "{\"code\":\" IT \",\"name\":\"Updated\",\"description\":null}"})
     void allowsSameCodeAndClearsOmittedOrNullDescription(String body) throws Exception {
         String id = create(Map.of("code", "IT", "name", "Technology", "description", "Old description"))
-                .get("id").asText();
+                .get("id").asString();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("IT"))
@@ -215,7 +215,7 @@ class DepartmentApiTests extends JwtTestSupport {
     void rejectsDuplicateCodeOnUpdateWithoutChangingDepartment() throws Exception {
         create(Map.of("code", "HR", "name", "Human Resources"));
         String id = create(Map.of("code", "IT", "name", "Technology", "description", "Original"))
-                .get("id").asText();
+                .get("id").asString();
         Department original = departments.findById(UUID.fromString(id)).orElseThrow();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\" HR \",\"name\":\"Changed\"}"))
@@ -243,7 +243,7 @@ class DepartmentApiTests extends JwtTestSupport {
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"code\":\" \",\"name\":\" \"}", "{", ""})
     void rejectsInvalidUpdateBodies(String body) throws Exception {
-        String id = create(Map.of("code", "IT", "name", "Technology")).get("id").asText();
+        String id = create(Map.of("code", "IT", "name", "Technology")).get("id").asString();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
         mvc.perform(get(API + "/" + id))
@@ -257,7 +257,7 @@ class DepartmentApiTests extends JwtTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated()).andReturn();
         JsonNode created = objectMapper.readTree(result.getResponse().getContentAsString());
-        header().string("Location", API + "/" + created.get("id").asText()).match(result);
+        header().string("Location", API + "/" + created.get("id").asString()).match(result);
         return created;
     }
 }

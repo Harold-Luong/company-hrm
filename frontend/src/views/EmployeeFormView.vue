@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { hrm, employeeStatuses, accountStatuses, fullName } from '@/hrm/api.js'
 import { serviceError } from '@/auth/api.js'
 import { auth } from '@/auth/session.js'
-import { accountCreationRoles } from '@/auth/navigation.js'
+import { personnelManagementRoles } from '@/auth/roles.js'
 import { formatDate } from '@/auth/format.js'
 import ReferencePicker from '@/components/ReferencePicker.vue'
 import ProvisioningPanel from '@/components/ProvisioningPanel.vue'
@@ -293,7 +293,7 @@ onMounted(() => {
           </dl>
         </section>
         <ProvisioningPanel
-          v-if="auth.hasRole(accountCreationRoles)"
+          v-if="auth.hasRole(personnelManagementRoles)"
           :employee="employee"
           @updated="employee.accountStatus = $event"
         />

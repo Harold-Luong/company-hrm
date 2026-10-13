@@ -47,7 +47,7 @@ public class AuthService {
     private final LoginAuditService loginAuditService;
 
     @Transactional
-    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public void register(RegisterRequest request) {
         if (provisioningEnabled) {
             throw new GlobalException("Request account provisioning through Employee", HttpStatus.CONFLICT);

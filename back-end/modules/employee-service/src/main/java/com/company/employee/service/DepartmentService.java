@@ -35,7 +35,7 @@ public class DepartmentService {
     }
 
     public PageResponse<DepartmentResponse> findAll(int page, int size) {
-        var pageable = PageRequest.of(page, size, Sort.by("code").ascending());
+        var pageable = PageRequest.of(page, size, Sort.sort(Department.class).by(Department::getCode).ascending());
         return PageResponse.from(departmentRepository.findAll(pageable).map(DepartmentResponse::from));
     }
 

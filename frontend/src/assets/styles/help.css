@@ -1,0 +1,282 @@
+.help-page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.help-page [id] {
+  scroll-margin-top: 24px;
+}
+.help-heading-icon,
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  background: #e9f5f1;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.help-heading-icon {
+  width: 56px;
+  height: 56px;
+}
+.help-icon {
+  width: 42px;
+  height: 42px;
+}
+.help-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.help-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  font-weight: 600;
+}
+.help-tabs a::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  visibility: hidden;
+}
+.help-tabs a:hover {
+  background: #e9f5f1;
+}
+.help-tabs a.is-active {
+  color: white;
+  background: var(--primary);
+  border-color: var(--primary-dark);
+}
+.help-tabs a.is-active::before {
+  visibility: visible;
+}
+.help-intro {
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: linear-gradient(115deg, #f0faf6, #fff);
+}
+.help-intro p:last-child {
+  margin-bottom: 0;
+}
+.help-intro .button {
+  flex-shrink: 0;
+}
+.help-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 24px 0;
+}
+.help-topics a,
+.help-formula-links a {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 12px;
+  color: #285d54;
+}
+.help-topics a:hover,
+.help-formula-links a:hover {
+  border-color: var(--primary);
+  background: #f0faf6;
+}
+.help-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.help-card {
+  padding: 24px;
+  min-width: 0;
+}
+.help-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.help-card-heading h2 {
+  margin: 0;
+}
+.help-audience {
+  font-size: 11px;
+  font-weight: 600;
+  color: #526477;
+  margin-bottom: 6px;
+}
+.help-steps {
+  padding-left: 24px;
+}
+.help-steps li {
+  padding-left: 5px;
+  margin-bottom: 12px;
+}
+.help-steps li::marker {
+  color: var(--primary);
+  font-weight: 700;
+}
+.help-note {
+  background: #f6f8fb;
+  border-left: 3px solid #91bfb2;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.help-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.help-faq {
+  margin-top: 24px;
+}
+.help-faq details {
+  border-top: 1px solid var(--border);
+  padding: 16px 0;
+}
+.help-faq summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.help-faq details p {
+  margin: 12px 0 0;
+  max-width: 850px;
+}
+.help-reference-layout {
+  display: grid;
+  grid-template-columns: 235px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+.help-index {
+  position: sticky;
+  top: 24px;
+  padding: 20px;
+}
+.help-index a {
+  display: block;
+  padding: 9px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.help-index a:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.help-topics a[aria-current='location'],
+.help-index a[aria-current='location'] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.help-reference-content {
+  min-width: 0;
+}
+.help-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.help-filters input,
+.help-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.help-result-count {
+  margin: 12px 0 0;
+}
+.help-feature-list,
+.help-formulas {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.help-rules {
+  padding-left: 20px;
+  font-size: 13px;
+}
+.help-rules li + li {
+  margin-top: 8px;
+}
+.help-formula-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.help-empty {
+  text-align: center;
+}
+.help-section-heading {
+  margin-top: 24px;
+}
+.help-expression {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #eff7f3;
+  color: #155b4e;
+  border: 1px solid #d8ebe2;
+  border-radius: 10px;
+  padding: 18px;
+  line-height: 1.9;
+}
+.help-example {
+  border-left: 3px solid #8ca8da;
+  background: #f5f8fe;
+  padding: 14px 16px;
+}
+.help-example p {
+  margin: 4px 0 0;
+}
+@media (max-width: 1100px) {
+  .help-reference-layout {
+    grid-template-columns: 1fr;
+  }
+  .help-index {
+    position: static;
+  }
+  .help-index a {
+    display: inline-block;
+    margin-right: 16px;
+  }
+  .help-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (max-width: 700px) {
+  .help-guide-grid,
+  .help-filters {
+    grid-template-columns: 1fr;
+  }
+  .help-card,
+  .help-intro {
+    padding: 18px;
+  }
+  .help-heading-icon {
+    display: none;
+  }
+  .help-tabs a {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+  .help-intro .button {
+    white-space: normal;
+  }
+}

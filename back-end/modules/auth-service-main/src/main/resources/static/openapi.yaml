@@ -159,12 +159,12 @@ paths:
         post:
             tags: [Authentication]
             operationId: register
-            summary: HR hoặc Admin tạo tài khoản
+            summary: Admin tạo tài khoản
             description: |
                 API cũ chỉ tạo tài khoản khi HRM_EVENTS_ENABLED=false (mặc định).
                 Khi bật luồng Kafka, API trả 409; gửi yêu cầu cấp tài khoản qua Employee.
                 Email được loại bỏ khoảng trắng ở hai đầu và chuyển thành chữ thường.
-                Yêu cầu có ít nhất một role HR hoặc ADMIN. Tài khoản mới có roles mặc định [EMPLOYEE] và active = true.
+                Yêu cầu role ADMIN. Tài khoản mới có roles mặc định [EMPLOYEE] và active = true.
                 Role hợp lệ: EMPLOYEE, MANAGER, HR hoặc ADMIN.
                 employeeId bắt buộc là UUID và chưa được liên kết với tài khoản khác; đường API cũ chưa xác minh ID tại Employee.
             security:

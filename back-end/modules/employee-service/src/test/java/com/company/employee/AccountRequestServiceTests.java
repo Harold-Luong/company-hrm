@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.*;
 @SpringBootTest(properties = {"hrm.events.enabled=true", "hrm.events.publisher-enabled=false",
         "hrm.events.listeners-enabled=false", "spring.datasource.url=jdbc:h2:mem:employee-provisioning;MODE=PostgreSQL;DB_CLOSE_DELAY=-1"})
 @ActiveProfiles("test")
-@WithMockUser(username = "42", roles = "HR")
+@WithMockUser(username = "42", roles = "ADMIN")
 class AccountRequestServiceTests extends JwtTestSupport {
     @Autowired AccountRequestService service;
     @Autowired AccountLifecycleService lifecycle;
@@ -78,9 +78,18 @@ class AccountRequestServiceTests extends JwtTestSupport {
 
     @Test
     @WithMockUser(roles = "EMPLOYEE")
-    void deniesNonHrAtServiceBoundary() {
+    void deniesEmployeeAtServiceBoundary() {
         assertThatThrownBy(() -> service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("login@example.com")))
                 .isInstanceOf(AccessDeniedException.class);
+        assertThat(count("event_outbox")).isZero();
+    }
+
+    @Test
+    @WithMockUser(roles = "HR")
+    void deniesHrAtServiceBoundary() {
+        assertThatThrownBy(() -> service.request(employeeId, UUID.randomUUID(), new AccountRequestService.Request("login@example.com")))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(count("account_provisioning_requests")).isZero();
         assertThat(count("event_outbox")).isZero();
     }
 

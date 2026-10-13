@@ -112,7 +112,7 @@ public class LeaveService {
             throw error(HttpStatus.BAD_REQUEST, "Invalid date range");
         var result = repository.attendance(employeeId, from, until);
         if (result.size() > 2000)
-            throw error(HttpStatus.UNPROCESSABLE_ENTITY, "Narrow the employee or date range");
+            throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Narrow the employee or date range");
         return result;
     }
 

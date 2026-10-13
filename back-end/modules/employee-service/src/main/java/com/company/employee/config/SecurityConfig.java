@@ -90,6 +90,7 @@ public class SecurityConfig {
                                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/swagger-config",
                                 "/openapi/employee-api.yml")
                         .permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/employees/*/account-requests").hasRole("ADMIN")
                         // The detail controller also checks ownership against the signed employee_id claim.
                         .requestMatchers(HttpMethod.GET, "/api/v1/employees/*").authenticated()
                         .requestMatchers("/api/v1/employees", "/api/v1/employees/**",

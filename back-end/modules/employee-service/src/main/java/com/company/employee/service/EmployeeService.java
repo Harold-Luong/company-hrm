@@ -40,7 +40,7 @@ public class EmployeeService {
 
     @Transactional(readOnly = true)
     public PageResponse<EmployeeResponse> findAll(int page, int size) {
-        var pageable = PageRequest.of(page, size, Sort.by("employeeCode").ascending());
+        var pageable = PageRequest.of(page, size, Sort.sort(Employee.class).by(Employee::getEmployeeCode).ascending());
         return PageResponse.from(employeeRepository.findAll(pageable).map(EmployeeResponse::from));
     }
 

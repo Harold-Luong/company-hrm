@@ -114,12 +114,12 @@ class RefreshTokenApiTests {
                 .content(mapper.writeValueAsString(Map.of(
                         "email", user.getEmail(), "password", "password123"))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String token = mapper.readTree(login).path("data").path("refreshToken").asText();
+        String token = mapper.readTree(login).path("data").path("refreshToken").asString();
         String response = mvc.perform(post("/api/v1/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON).content(body(token)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andReturn().getResponse().getContentAsString();
-        String accessToken = mapper.readTree(response).path("accessToken").asText();
+        String accessToken = mapper.readTree(response).path("accessToken").asString();
         Claims claims = jwtService.parseToken(accessToken);
         assertEquals(user.getId().toString(), claims.getSubject());
         assertEquals(user.getEmail(), claims.get("email", String.class));
@@ -128,7 +128,7 @@ class RefreshTokenApiTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.email").value(user.getEmail()));
 
         assertUnauthorized(token);
-        String replacement = mapper.readTree(response).path("refreshToken").asText();
+        String replacement = mapper.readTree(response).path("refreshToken").asString();
         assertNotEquals(token, replacement);
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body(replacement)))
                 .andExpect(status().isOk())

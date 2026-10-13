@@ -155,7 +155,7 @@ async function emitAccountResult(page) {
 test('account SSE updates the profile and shows one toast without overwriting unsaved edits', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   await mockAccountStream(page)
   await page.clock.install()
   await page.goto(`/employees/${id}`)
@@ -180,7 +180,7 @@ test('account SSE updates the profile and shows one toast without overwriting un
 test('account results survive navigation, consumer lag and SSE reconnect without duplicate toasts', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   await mockAccountStream(page)
   await page.clock.install()
   await page.goto(`/employees/${id}`)
@@ -209,7 +209,7 @@ test('account results survive navigation, consumer lag and SSE reconnect without
 test('account polling still notifies after leaving the form when SSE is unavailable', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   await page.route('**/api/v1/notifications/stream*', (route) =>
     route.fulfill({ status: 503, json: {} }),
   )
@@ -229,7 +229,7 @@ test('account polling still notifies after leaving the form when SSE is unavaila
 test('a submission response arriving after navigation is still tracked without SSE', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   await page.route('**/api/v1/notifications/stream*', (route) =>
     route.fulfill({ status: 503, json: {} }),
   )
@@ -319,7 +319,7 @@ test('employee create, edit and status update follow backend payloads', async ({
   await expect(page.locator('.page-heading')).not.toContainText('EMP000007')
   await expect(page.getByLabel('Email cá nhân')).toHaveValue('new@company.com')
   await expect(page.getByLabel('Giới tính')).toHaveValue('FEMALE')
-  await expect(page.getByLabel('Email cấp tài khoản')).toHaveValue('new@company.com')
+  await expect(page.getByLabel('Email cấp tài khoản')).toHaveCount(0)
   await page.screenshot({ path: 'test-results/employee-desktop.png', fullPage: true })
   await page.getByLabel('Số điện thoại').fill('0912345678')
   await page.getByRole('button', { name: 'Lưu hồ sơ', exact: true }).click()
@@ -402,7 +402,7 @@ test('catalog forms, empty state, pagination and list recovery work', async ({ p
 test('Kafka retries reuse the idempotency key and pending request resumes after reload', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   state.loseResponse = true
   await page.goto(`/employees/${id}`)
   await page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' }).click()
@@ -420,7 +420,7 @@ test('Kafka retries reuse the idempotency key and pending request resumes after 
   expect(state.requests).toHaveLength(2)
 })
 test('Kafka failure explains conflict and permits a new request', async ({ page }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   state.status = 'FAILED'
   state.provisioningError = 'EMAIL_ALREADY_USED'
   await page.goto(`/employees/${id}`)
@@ -481,6 +481,10 @@ for (const role of ['HR', 'ADMIN']) {
     await expect(page.getByRole('heading', { name: 'Nhân viên', exact: true })).toBeVisible()
     await page.goto(`/employees/${id}`)
     await expect(page.getByRole('heading', { name: 'Nguyễn Văn An' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Gửi yêu cầu cấp tài khoản' })).toHaveCount(
+      role === 'ADMIN' ? 1 : 0,
+    )
+    await expect(page.getByLabel('Tra cứu mã yêu cầu')).toBeVisible()
   })
 }
 test('service health checks send the current access token through the gateway', async ({
@@ -562,7 +566,7 @@ test('notification health failure is isolated and can be retried', async ({ page
 test('manual request lookup shows loading and the returned result without submitting an account', async ({
   page,
 }) => {
-  const state = await setup(page)
+  const state = await setup(page, ['ADMIN'])
   state.status = 'SUCCEEDED'
   let release
   const responseReady = new Promise((resolve) => {

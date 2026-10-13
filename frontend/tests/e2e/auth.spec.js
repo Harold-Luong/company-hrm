@@ -10,6 +10,12 @@ const baseUser = {
   updatedAt: '2026-09-25T01:00:00Z',
 }
 async function mockAuth(page, roles = ['ADMIN']) {
+  await page.route('**/api/v1/attendance/requests/pending-count', (route) =>
+    route.fulfill({ json: { count: 0 } }),
+  )
+  await page.route('**/api/v1/notifications/**', (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  )
   await page.route('**/api/v1/attendance/mine?**', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/v1/attendance/schedules/mine?**', (route) => route.fulfill({ json: [] }))
   await page.route(`**/api/v1/employees/${baseUser.employeeId}`, (route) =>
@@ -115,7 +121,7 @@ test('protected deep link returns to the page after login, restores on reload, t
   await page.goto('/account')
   await expect(page).toHaveURL(/\/login/)
 })
-for (const role of ['EMPLOYEE', 'MANAGER']) {
+for (const role of ['EMPLOYEE', 'MANAGER', 'HR']) {
   test(`${role} cannot access account creation even via direct URL`, async ({ page }) => {
     await mockAuth(page, [role])
     await page.goto('/login')
@@ -127,7 +133,7 @@ for (const role of ['EMPLOYEE', 'MANAGER']) {
     await expect(page.getByRole('button', { name: 'Tạo tài khoản', exact: true })).toHaveCount(0)
   })
 }
-for (const roles of [['HR'], ['ADMIN'], ['EMPLOYEE', 'HR']]) {
+for (const roles of [['ADMIN'], ['EMPLOYEE', 'ADMIN'], ['HR', 'ADMIN']]) {
   test(`${roles.join('+')} can register through Auth with selected roles`, async ({ page }) => {
     const state = await mockAuth(page, roles)
     await page.goto('/accounts/new')
@@ -135,7 +141,7 @@ for (const roles of [['HR'], ['ADMIN'], ['EMPLOYEE', 'HR']]) {
     await page.getByLabel('Email công việc', { exact: false }).fill('new@company.com')
     await page.getByLabel('Mật khẩu ban đầu', { exact: false }).fill('new-password')
     await page.getByLabel('UUID liên kết', { exact: false }).fill(baseUser.employeeId)
-    await page.getByRole('checkbox', { name: /Quản lý/ }).check()
+    await page.getByRole('checkbox', { name: /^Quản lý Vai trò quản lý của doanh nghiệp/ }).check()
     await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click()
     await expect(page.getByRole('status')).toContainText(
       'Đã tạo tài khoản new@company.com thành công.',
@@ -155,7 +161,7 @@ test('role revocation is applied on the next navigation', async ({ page }) => {
   await page.goto('/login')
   await login(page)
   await expect(page.getByRole('heading', { name: 'Tổng quan', exact: true })).toBeVisible()
-  state.roles = ['EMPLOYEE']
+  state.roles = ['HR']
   await page
     .getByRole('navigation')
     .getByRole('link', { name: 'Tạo tài khoản', exact: true })

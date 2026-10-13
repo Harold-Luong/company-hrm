@@ -60,8 +60,8 @@ class PositionApiTests extends JwtTestSupport {
     void createsAndReadsPositionWithNormalizedFieldsAndDatabaseDefaults() throws Exception {
         JsonNode created = create(Map.of("code", " ENGINEER ", "name", " Software Engineer ",
                 "description", " Build internal systems "));
-        String id = created.get("id").asText();
-        assertThat(created.get("code").asText()).isEqualTo("ENGINEER");
+        String id = created.get("id").asString();
+        assertThat(created.get("code").asString()).isEqualTo("ENGINEER");
         mvc.perform(get(API + "/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
@@ -78,7 +78,7 @@ class PositionApiTests extends JwtTestSupport {
     void acceptsOptionalDescriptionAndMaximumFieldLengths() throws Exception {
         JsonNode created = create(Map.of("code", "C".repeat(50), "name", "N".repeat(150)));
         assertThat(created.get("description").isNull()).isTrue();
-        mvc.perform(get(API + "/" + created.get("id").asText()))
+        mvc.perform(get(API + "/" + created.get("id").asString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").isEmpty());
     }
@@ -171,7 +171,7 @@ class PositionApiTests extends JwtTestSupport {
     @Test
     void updatesPositionAndPreservesIdentityCreationTimeAndActiveState() throws Exception {
         String id = create(Map.of("code", "ENGINEER", "name", "Software Engineer", "description", "Old description"))
-                .get("id").asText();
+                .get("id").asString();
         jdbc.update("UPDATE positions SET active = FALSE WHERE id = ?", UUID.fromString(id));
         Position original = positions.findById(UUID.fromString(id)).orElseThrow();
 
@@ -200,7 +200,7 @@ class PositionApiTests extends JwtTestSupport {
             "{\"code\":\" ENGINEER \",\"name\":\"Updated\",\"description\":null}"})
     void allowsSameCodeAndClearsOmittedOrNullDescription(String body) throws Exception {
         String id = create(Map.of("code", "ENGINEER", "name", "Software Engineer", "description", "Old description"))
-                .get("id").asText();
+                .get("id").asString();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("ENGINEER"))
@@ -215,7 +215,7 @@ class PositionApiTests extends JwtTestSupport {
     void rejectsDuplicateCodeOnUpdateWithoutChangingPosition() throws Exception {
         create(Map.of("code", "ACCOUNTANT", "name", "Accountant"));
         String id = create(Map.of("code", "ENGINEER", "name", "Software Engineer", "description", "Original"))
-                .get("id").asText();
+                .get("id").asString();
         Position original = positions.findById(UUID.fromString(id)).orElseThrow();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\" ACCOUNTANT \",\"name\":\"Changed\"}"))
@@ -243,7 +243,7 @@ class PositionApiTests extends JwtTestSupport {
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"code\":\" \",\"name\":\" \"}", "{", ""})
     void rejectsInvalidUpdateBodies(String body) throws Exception {
-        String id = create(Map.of("code", "ENGINEER", "name", "Software Engineer")).get("id").asText();
+        String id = create(Map.of("code", "ENGINEER", "name", "Software Engineer")).get("id").asString();
         mvc.perform(put(API + "/" + id).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
         mvc.perform(get(API + "/" + id))
@@ -255,7 +255,7 @@ class PositionApiTests extends JwtTestSupport {
     @Test
     void createdPositionCanBeAssignedToEmployeeAndUpdatedWithoutBreakingReference() throws Exception {
         String positionId = create(Map.of("code", "ENGINEER", "name", "Software Engineer"))
-                .get("id").asText();
+                .get("id").asString();
         String employeeBody = mvc.perform(post("/api/v1/employees").contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "firstName", "An", "lastName", "Nguyen",
@@ -265,7 +265,7 @@ class PositionApiTests extends JwtTestSupport {
                 .andExpect(jsonPath("$.position.id").value(positionId))
                 .andExpect(jsonPath("$.position.code").value("ENGINEER"))
                 .andReturn().getResponse().getContentAsString();
-        String employeeId = objectMapper.readTree(employeeBody).get("id").asText();
+        String employeeId = objectMapper.readTree(employeeBody).get("id").asString();
 
         mvc.perform(put(API + "/" + positionId).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\"SENIOR_ENGINEER\",\"name\":\"Senior Engineer\"}"))
@@ -282,7 +282,7 @@ class PositionApiTests extends JwtTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated()).andReturn();
         JsonNode created = objectMapper.readTree(result.getResponse().getContentAsString());
-        header().string("Location", API + "/" + created.get("id").asText()).match(result);
+        header().string("Location", API + "/" + created.get("id").asString()).match(result);
         return created;
     }
 }

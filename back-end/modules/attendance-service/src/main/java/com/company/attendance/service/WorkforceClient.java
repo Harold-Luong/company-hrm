@@ -58,7 +58,7 @@ public class WorkforceClient {
             result.addAll(data.content());
             if (page + 1 >= data.totalPages()) return result;
         }
-        throw error(HttpStatus.UNPROCESSABLE_ENTITY, "Select a smaller employee scope");
+        throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Select a smaller employee scope");
     }
     public List<Leave> leaves(UUID employee, LocalDate from, LocalDate until, JwtAuthenticationToken actor) {
         String path = "/api/v1/leave/requests/attendance?from=" + from + "&until=" + until

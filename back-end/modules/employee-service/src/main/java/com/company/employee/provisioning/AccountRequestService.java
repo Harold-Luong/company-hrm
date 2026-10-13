@@ -44,7 +44,7 @@ public class AccountRequestService {
     }
 
     @Transactional
-    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public Response request(UUID employeeId, UUID idempotencyKey, Request body) {
         if (!enabled)
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Account provisioning is disabled");

@@ -87,7 +87,7 @@ bao gồm cả hai. Seed không gửi mail hoặc tạo phiên đăng nhập.
 | --- | --- |
 | EMPLOYEE | Tài khoản nhân viên; vẫn cần Employee liên kết và đang active để chấm công |
 | MANAGER | Quản lý; phạm vi team phải được module nghiệp vụ kiểm tra |
-| HR | Quản trị nghiệp vụ nhân sự; được tạo tài khoản qua /register |
+| HR | Quản trị nghiệp vụ nhân sự; không được tạo tài khoản |
 | ADMIN | Quản trị tài khoản; không mặc định có toàn bộ quyền HR |
 
 Mỗi User có tập `roles` (`Set<UserRole>`), được lưu trong bảng `user_roles`.
@@ -106,7 +106,7 @@ Trạng thái account `active` độc lập với trạng thái lao động củ
 Phần `/register` dưới đây áp dụng khi `HRM_EVENTS_ENABLED=false` (mặc định).
 Khi bật cờ, API này trả `409` và UI gửi yêu cầu qua Employee; xem phần Kafka bên dưới.
 
-`POST /api/v1/auth/register` yêu cầu access token của tài khoản có HR hoặc ADMIN, được kiểm tra ở HTTP và service
+`POST /api/v1/auth/register` yêu cầu access token của tài khoản có ADMIN, được kiểm tra ở HTTP và service
 (`@PreAuthorize`). Tham khảo [Spring method security](https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html).
 Request gồm `email`, `password`, `employeeId` bắt buộc và `roles` tùy chọn dưới dạng mảng. Bỏ qua/null `roles` sẽ dùng `["EMPLOYEE"]`.
 `employeeId` là chuỗi UUID (ví dụ `550e8400-e29b-41d4-a716-000000001001`); thiếu/null/sai định dạng trả 400. Nhân viên đã có tài khoản trả 400.
@@ -114,9 +114,9 @@ Cột `users.employee_id` có kiểu PostgreSQL `uuid`. Database áp dụng NOT 
 Auth không gọi Employee để kiểm tra nhân viên tồn tại hoặc đang active và chưa có foreign key liên dịch vụ.
 Mảng rỗng, phần tử null, role không hợp lệ hoặc truyền chuỗi thay mảng trả 400; role trùng được gộp.
 Chỉ chấp nhận bốn role: EMPLOYEE, MANAGER, HR, ADMIN. Không truyền token trả 401;
-không có HR/ADMIN hoặc account inactive trả 403; role không hợp lệ trả 400.
+không có ADMIN hoặc account inactive trả 403; role không hợp lệ trả 400.
 
-Đăng nhập tài khoản HR hoặc Admin trước khi tạo tài khoản từ UI/Swagger. Không có đăng ký công khai.
+Đăng nhập tài khoản Admin trước khi tạo tài khoản từ UI/Swagger. Không có đăng ký công khai.
 Chưa có API thay đổi role, khóa account hoặc quản trị Employee.
 
 Access JWT có claim `roles` dạng mảng chuỗi, ví dụ `["EMPLOYEE", "HR"]`.
@@ -337,7 +337,7 @@ trò đều được phép gọi các API cấp tài khoản theo chính sách h
 ## Kiểm thử
 
 `./mvnw test` kiểm tra một/nhiều role qua register/login/refresh/me, mặc định EMPLOYEE, role trùng,
-từ chối tập rỗng/null element/role ngoài enum, quyền HR hoặc ADMIN ở HTTP/service,
+từ chối tập rỗng/null element/role ngoài enum, quyền ADMIN ở HTTP/service,
 token cũ sau đổi role, account inactive/deleted và thời điểm
 đăng nhập; kiểm tra employeeId bắt buộc/không trùng và truyền qua register/login/me/refresh.
 Các regression test validation, throttling, logout và refresh rotation vẫn được chạy.

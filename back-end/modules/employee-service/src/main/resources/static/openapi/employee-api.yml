@@ -33,7 +33,7 @@ paths:
             tags: [Employees]
             operationId: requestEmployeeAccount
             summary: Yêu cầu cấp tài khoản qua Kafka
-            description: Cần HR hoặc ADMIN và HRM_EVENTS_ENABLED=true. Trả 202 sau khi lưu yêu cầu và Outbox; chưa đồng nghĩa Account đã tạo. Không gửi mật khẩu hoặc role. Phạm vi hiện tại là HR/ADMIN toàn hệ thống.
+            description: Cần ADMIN và HRM_EVENTS_ENABLED=true. Trả 202 sau khi lưu yêu cầu và Outbox; chưa đồng nghĩa Account đã tạo. Không gửi mật khẩu hoặc role. Phạm vi hiện tại là ADMIN toàn hệ thống.
             parameters:
                 - name: Idempotency-Key
                   in: header
@@ -61,7 +61,7 @@ paths:
                             schema: {$ref: "#/components/schemas/AccountProvisioningResponse"}
                 "400": {description: Email hoặc UUID không hợp lệ}
                 "401": {$ref: "#/components/responses/Unauthorized"}
-                "403": {description: Không có quyền HR hoặc ADMIN}
+                "403": {description: Không có quyền ADMIN}
                 "404": {description: Nhân viên không tồn tại}
                 "409": {description: Đang có yêu cầu PENDING hoặc Idempotency-Key đã dùng với dữ liệu khác}
                 "503": {description: Chưa bật luồng cấp tài khoản}
