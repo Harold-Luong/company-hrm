@@ -134,7 +134,7 @@ class AttendanceApiTests extends JwtTestSupport {
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].workMinutesCounted").value(225));
         String csv = mvc.perform(get(BASE + "/reports/export.csv?employeeId=" + EMPLOYEE + "&from=" + DATE + "&until=" + DATE).with(hr()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(csv).startsWith("\uFEFF").contains("\"225\"").contains("'" + "=EMP001").contains("DRAFT");
+        assertThat(csv).startsWith("\uFEFF").contains("\"225\"").contains("'" + "=EMP001").contains("Tạm tính - chưa chốt").doesNotContain("employee_id", "record_version", "applied_leave_ids");
         mvc.perform(get(BASE + "/reports?from=" + DATE + "&until=" + DATE).with(employee())).andExpect(status().isForbidden());
         mvc.perform(get(BASE + "/employees/" + EMPLOYEE + "/days/" + DATE + "/events").with(other()))
                 .andExpect(status().isForbidden());
@@ -269,7 +269,7 @@ class AttendanceApiTests extends JwtTestSupport {
                 .andExpect(jsonPath("$[0].permissionCoverage.approvedRequestIds[0]").value(id))
                 .andExpect(jsonPath("$[0].permissionCoverage.coveredLateSeconds").value(480))
                 .andExpect(jsonPath("$[0].permissionCoverage.unapprovedRoundedLateMinutes").value(15));
-        String csv=mvc.perform(get(BASE+"/reports/export.csv?employeeId="+EMPLOYEE+"&from="+DATE+"&until="+DATE).with(hr()))
+        String csv=mvc.perform(get(BASE+"/reports/export.csv?detail=true&employeeId="+EMPLOYEE+"&from="+DATE+"&until="+DATE).with(hr()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(csv).contains("approved_request_ids",id,"\"90\"").doesNotContain("Private request reason");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_events",Integer.class)).isEqualTo(2);
@@ -376,7 +376,7 @@ class AttendanceApiTests extends JwtTestSupport {
         assertThat(mvc.perform(post(BASE+"/overtime/"+id+"/check-out").with(employee()).header("Idempotency-Key","ot-out")).andReturn().getResponse().getContentAsString()).isEqualTo(out);
         mvc.perform(get(BASE+"/mine?from="+DATE+"&until="+DATE).with(employee())).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].overtime.countedMinutes").value(110)).andExpect(jsonPath("$[0].workMinutesCounted").doesNotExist());
-        String csv=mvc.perform(get(BASE+"/reports/export.csv?employeeId="+EMPLOYEE+"&from="+DATE+"&until="+DATE).with(hr())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String csv=mvc.perform(get(BASE+"/reports/export.csv?detail=true&employeeId="+EMPLOYEE+"&from="+DATE+"&until="+DATE).with(hr())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(csv).contains("approved_ot_minutes,counted_ot_minutes").contains("\"120\",\"110\"");
     }
     @Test
@@ -698,7 +698,7 @@ class AttendanceApiTests extends JwtTestSupport {
         mvc.perform(post(BASE + "/corrections/" + id + "/cancel").with(employee()).header("If-Match", "\"1\""))
                 .andExpect(status().isConflict());
         punch("check-out", "after-correction").andExpect(status().isConflict());
-        String csv = mvc.perform(get(BASE + "/reports/export.csv?from=" + DATE + "&until=" + DATE + "&employeeId=" + EMPLOYEE).with(hr()))
+        String csv = mvc.perform(get(BASE + "/reports/export.csv?detail=true&from=" + DATE + "&until=" + DATE + "&employeeId=" + EMPLOYEE).with(hr()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(csv).contains("original_check_in,original_check_out,correction_id", id).doesNotContain("Verified");
     }

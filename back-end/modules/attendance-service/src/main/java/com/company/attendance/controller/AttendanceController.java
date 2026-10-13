@@ -53,13 +53,14 @@ public class AttendanceController {
     @PreAuthorize("hasAnyRole('HR','ADMIN')")
     public ResponseEntity<byte[]> export(@RequestParam LocalDate from, @RequestParam LocalDate until,
             @RequestParam(required = false) UUID employeeId, @RequestParam(required = false) UUID departmentId,
+            @RequestParam(defaultValue = "false") boolean detail,
             JwtAuthenticationToken actor) {
         var rows = service.report(employeeId, departmentId, from, until, actor);
         return ResponseEntity.ok().contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"attendance-" + from + "-" + until + ".csv\"")
-                .body(csvExporter.export(rows));
+                .body(detail ? csvExporter.exportDetailed(rows) : csvExporter.export(rows));
     }
 
     @PostMapping("/employees/{employeeId}/days/{date}/refresh-coverage")

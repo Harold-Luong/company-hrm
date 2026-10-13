@@ -75,7 +75,9 @@ onMounted(load)
       <div>
         <p class="eyebrow">QUẢN LÝ CHẤM CÔNG</p>
         <h1>Bảng công</h1>
-        <p class="muted">Đối chiếu giờ thực tế, nghỉ phép và thời lượng tính công.</p>
+        <p class="muted">
+          Xuất bảng công theo ngày với 16 cột: nhân viên, giờ công, nghỉ phép, tăng ca và trạng thái.
+        </p>
       </div>
       <button
         class="button button-primary"

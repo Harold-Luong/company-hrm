@@ -123,7 +123,10 @@ Trong chi tiết đơn đã duyệt, chủ đơn có thể gửi **Điều chỉ
 UI gọi `/api/v1/attendance` qua Gateway với phiên Auth hiện tại. Nhân viên chỉ tự
 chấm công, giờ lấy từ server; HR áp lịch mặc định hoặc lịch riêng có ngày hiệu lực.
 Phiên bản cũ yêu cầu tải lại; sửa nội dung phân công phải preview lại. Retry ghi công
-giữ Idempotency-Key trong sessionStorage. CSV tải qua API có xác thực, hỗ trợ lỗi JSON.
+giữ Idempotency-Key trong sessionStorage. CSV tải qua API có xác thực, hỗ trợ lỗi JSON. Bản xuất mặc định gồm 16 cột tiếng Việt
+về nhân viên/ngày, giờ vào/ra GMT+7, công, phép, trễ/sớm, OT, cảnh báo đối soát và
+trạng thái tạm tính; không chứa UUID, phiên bản và thời điểm đồng bộ. Ô công chưa
+xác định để trống. Bản CSV đầy đủ chỉ lấy qua API với `detail=true`.
 
 Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. Backend
 tạo lịch mặc định thứ Hai–thứ Sáu nếu chưa có lịch công ty; HR kiểm tra lịch có
@@ -375,7 +378,7 @@ không được thay lịch ảnh hưởng đơn đã duyệt. Đơn đã xử l
 
 **Quy tắc đã thống nhất:** đơn được duyệt ghi nhận có phép, vẫn trừ công theo
 bước làm tròn 15 phút. Không cộng thời gian làm, không trừ số dư phép năm.
-Bảng công/CSV bổ sung `permissionCoverage`: ID đơn chờ/duyệt/xung đột, phút đã được
+Bảng công/CSV đối soát (`detail=true`) bổ sung `permissionCoverage`: ID đơn chờ/duyệt/xung đột, phút đã được
 phép, giây thiếu thực tế nằm trong phạm vi được phép, số phút thiếu chưa có phép
 làm tròn riêng để đối soát. Các trường có phép/chưa có phép không dùng để cộng lại
 thay công chuẩn. Lý do/ghi chú riêng tư chỉ ở API đơn, không xuất CSV.

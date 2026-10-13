@@ -89,6 +89,22 @@ thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy pr
 
 Chưa gồm `FLEXIBLE_DURATION`, nhiều lần vào/ra trong một ca,
 khóa kỳ, payroll, tự đồng bộ Kafka hoặc thay đổi sổ số dư Leave.
+**File CSV rút gọn:** nút xuất trên UI mặc định trả 16 cột tiếng Việt, mỗi nhân viên/ngày một dòng:
+Mã nhân viên, Họ tên, Ngày công, Giờ vào (GMT+7), Giờ ra (GMT+7), Công chuẩn (phút),
+Công ghi nhận (phút), Phép năm (phút), Nghỉ không lương (phút), Đi trễ (phút),
+Về sớm (phút), OT được duyệt (phút), OT ghi nhận (phút), Trạng thái chấm công,
+Cần kiểm tra, Trạng thái bảng công. Các mốc vào/ra gồm cả ngày để tránh nhầm ca qua đêm.
+Không xuất UUID nhân viên/phòng ban/ca/đơn, revision, thời điểm đồng bộ, giờ gốc hoặc
+các cột giây trùng với số phút. Cột Cần kiểm tra ghi số đơn phép, trễ/sớm, OT còn chờ
+và đơn trễ/sớm xung đột; không chứa ID hoặc lý do riêng tư.
+
+Số phút giữ đúng kết quả tính hiện hành: công thường tách khỏi OT, trễ/sớm là số phút
+đã làm tròn theo quy tắc hiện tại (kể cả đã xin phép), không suy ra tiền lương hoặc
+quy đổi ngày công theo mức 8 giờ cố định. Công chưa xác định để ô trống, không đổi thành 0.
+Bảng vẫn ghi **Tạm tính - chưa chốt**. CSV mở được bằng Excel, chưa phải định dạng `.xlsx`.
+Nếu cần các cột kỹ thuật để đối soát, dùng cùng endpoint với `detail=true`; bản đầy đủ
+40 cột cũ vẫn được giữ. JSON API không đổi.
+
 Báo cáo luôn `reportState=DRAFT`; không phải bảng công đã chốt. Khóa ghi hiện dùng
 một hàng điều phối chung; cần đánh giá tải trước khi mở rộng quy mô.
 
@@ -135,7 +151,8 @@ một hàng điều phối chung; cần đánh giá tải trước khi mở rộ
   hiệu lực rồi mới đến lịch mặc định. Không cache xuyên request.
 - `AttendanceCalculator` tính công; `AttendancePermissionService` giải thích phần
   đi trễ/về sớm được duyệt; `OvertimeService` tính OT riêng. `AttendanceCsvExporter`
-  xuất cùng dữ liệu báo cáo JSON, giữ BOM và escape công thức CSV.
+  xuất bản rút gọn từ cùng kết quả tính của API; `detail=true` giữ bản đối soát đầy đủ.
+  Cả hai giữ BOM và escape công thức CSV.
 - [WorkTimeSupport](#worktime) cung cấp các hàm nội bộ
   `calculate(input)` và `calculatePeriod(inputs)` để tính công hưởng lương từ
   tham số. Helper và kiểm thử nằm trong module Attendance, không có POM/dependency
@@ -221,7 +238,7 @@ Prefix `/api/v1/attendance`, mọi API nghiệp vụ cần Bearer JWT.
 | `POST /check-in`, `POST /check-out`                   | Bản thân, không gửi thời gian/employeeId              |
 | `GET /mine?from=&until=`                              | Công bản thân                                         |
 | `GET /reports?from=&until=&employeeId=&departmentId=` | HR/ADMIN; báo cáo                                     |
-| `GET /reports/export.csv`                             | HR/ADMIN; cùng bộ lọc báo cáo                         |
+| `GET /reports/export.csv`                             | HR/ADMIN; cùng bộ lọc; mặc định rút gọn, `detail=true` để đối soát đầy đủ |
 | `POST /employees/{id}/days/{date}/refresh-coverage`   | HR/ADMIN; lấy lại phép/ngày nghỉ cho ngày đã ghi công |
 | `GET /employees/{id}/days/{date}/events`              | Bản thân hoặc HR/ADMIN; sự kiện gốc                   |
 
@@ -340,7 +357,7 @@ trước khi duyệt. Ca không được thay đổi nếu ảnh hưởng đơn 
 và xét duyệt chạy dưới cùng khóa DB với phân ca/check-in, audit cùng transaction.
 Trùng slot PENDING/APPROVED còn có unique constraint tại database.
 
-Bảng công và CSV thêm permissionCoverage/nhóm cột request: không lộ reason/reviewNote.
+Bảng công và CSV đối soát (`detail=true`) thêm permissionCoverage/nhóm cột request: không lộ reason/reviewNote.
 Phút công vẫn là phần phải làm trừ trễ/sớm làm tròn 15 phút; đơn không tạo sự kiện
 vào/ra, không cộng công và không thay số dư Leave. Phần được phép chỉ bao phủ phút
 thiếu thực tế nằm trong khoảng xin phép; không bù phần vượt giờ đã xin.
@@ -400,7 +417,7 @@ và khoảng được duyệt, lấy phút tròn xuống; kết thúc muộn kh�
 OT qua đêm thuộc ngày bắt đầu OT. Chưa tính hệ số tiền lương hoặc chốt payroll.
 
 Bảng công có `overtime.approvedMinutes`, `overtime.countedMinutes`, `pendingIds`,
-`approvedIds`. Tổng `countedMinutes` chỉ cộng đơn hoàn tất. CSV thêm
+`approvedIds`. Tổng `countedMinutes` chỉ cộng đơn hoàn tất. CSV đối soát (`detail=true`) có
 `approved_ot_minutes`, `counted_ot_minutes`; OT không nhập vào `workMinutesCounted`.
 Preview phân công thêm `approvedOvertimeConflicts`; chặn sửa lịch ảnh hưởng OT đã duyệt.
 Ngày giờ, người duyệt, IP chấm giờ và kết quả thao tác được lưu trong DB.
@@ -443,7 +460,8 @@ giờ ngoài cửa sổ ghi nhận, giờ đảo thứ tự hoặc cặp giờ k
   lưu cặp giờ hiệu lực và đơn đã duyệt mới nhất. Nếu quên cả hai mốc, duyệt tạo ngày
   công có giờ gốc null và không tạo sự kiện CHECK_IN/CHECK_OUT.
 - Bảng công/API/CSV dùng giờ hiệu lực để tính công và đối soát đi trễ/về sớm;
-  thêm `originalCheckIn`, `originalCheckOut`, `correctionId` (CSV dùng snake_case).
+  API và CSV đối soát (`detail=true`) giữ `originalCheckIn`, `originalCheckOut`,
+  `correctionId` (CSV dùng snake_case). Bản rút gọn chỉ xuất giờ hiệu lực.
   Lý do và ghi chú xét duyệt chỉ có trong đơn/lịch sử được kiểm tra quyền.
   OT vẫn chấm riêng; đơn điều chỉnh này không sửa OT hoặc chốt bảng công.
 - Phép/ngày nghỉ mới nhất được chụp lại khi duyệt; nguồn thay đổi sau đó vẫn dùng
