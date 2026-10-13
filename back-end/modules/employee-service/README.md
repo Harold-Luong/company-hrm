@@ -33,7 +33,7 @@ tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequeste
 
 ---
 
-Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và khóa trong `.cache/local/keys`. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
 
 ## Cấu hình và chạy độc lập
 
@@ -60,8 +60,10 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
 | Biến môi trường | Cấu hình cho project này |
 | --- | --- |
@@ -496,7 +498,7 @@ trước khi chạy Employee. Employee chỉ cần access **public** key tương
 đang ký JWT. Từ thư mục `employee-service`, chạy trên Linux/macOS:
 
 ```bash
-export JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem
+export JWT_ACCESS_PUBLIC_KEY=file:./keys/access-public.pem
 export HRM_EVENTS_ENABLED=false
 ./mvnw spring-boot:run
 ```
@@ -504,7 +506,7 @@ export HRM_EVENTS_ENABLED=false
 Windows PowerShell (cũng từ thư mục service):
 
 ```powershell
-$env:JWT_ACCESS_PUBLIC_KEY = "file:../auth-service-main/keys/access-public.pem"
+$env:JWT_ACCESS_PUBLIC_KEY = "file:./keys/access-public.pem"
 $env:HRM_EVENTS_ENABLED = "false"
 .\mvnw.cmd spring-boot:run
 ```
@@ -1022,15 +1024,16 @@ Employee chỉ cần **access public key** của Auth, định dạng PEM X.509
 public key. Cách tạo khóa tại Auth nằm trong
 [hướng dẫn asymmetric JWT](../auth-service-main/README.md#jwt).
 
-Chạy từ thư mục `employee-service` để dùng trực tiếp public key của Auth khi phát triển:
+Đặt bản sao access public key của môi trường Auth vào `employee-service/keys/access-public.pem`,
+rồi chạy từ thư mục `employee-service`:
 
 ```bash
-export JWT_ACCESS_PUBLIC_KEY=file:../auth-service-main/keys/access-public.pem
+export JWT_ACCESS_PUBLIC_KEY=file:./keys/access-public.pem
 ./mvnw spring-boot:run
 ```
 
-Hoặc sao chép access public key vào `employee-service/keys/access-public.pem` để
-sử dụng đường dẫn mặc định. Thư mục `keys/` được bỏ qua trong Git. Trong production,
+Mặc định Employee đọc bản sao public key tại `./keys/access-public.pem` của chính nó.
+Thư mục `keys/` được bỏ qua trong Git. Trong production,
 mount public key vào Employee và đặt biến môi trường theo đường dẫn thực tế.
 
 | Biến môi trường | Mặc định |

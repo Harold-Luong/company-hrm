@@ -20,7 +20,7 @@
 - [15. Thứ tự triển khai và nghiệm thu](#15-thứ-tự-triển-khai-và-nghiệm-thu)
 - [Khởi tạo database và chạy Calendar Service](#khởi-tạo-database-và-chạy-calendar-service)
 
-Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và khóa trong `.cache/local/keys`. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
 
 ## Cấu hình và chạy độc lập
 
@@ -47,8 +47,10 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
 | Biến môi trường | Cấu hình cho project này |
 | --- | --- |
@@ -555,12 +557,12 @@ spring.jpa.hibernate.ddl-auto=validate
 spring.jpa.open-in-view=false
 management.endpoints.web.exposure.include=health
 management.endpoint.health.show-details=never
-jwt.access-public-key=${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
+jwt.access-public-key=${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
 jwt.access-issuer=${JWT_ACCESS_ISSUER:auth-service}
 jwt.access-audience=${JWT_ACCESS_AUDIENCE:hrm-api-access}
 ```
 
-Nhóm `jwt.*` được bind qua `JwtProperties` và sử dụng trong `SecurityConfig`. `JWT_ACCESS_PUBLIC_KEY` phải trỏ đến access public key của Auth; mặc định là `file:../auth-service-main/keys/access-public.pem` tính từ thư mục service. Không yêu cầu Kafka bootstrap cho luồng CRUD chưa dùng Kafka. Schema được tạo bằng script SQL; Hibernate chỉ validate schema.
+Nhóm `jwt.*` được bind qua `JwtProperties` và sử dụng trong `SecurityConfig`. `JWT_ACCESS_PUBLIC_KEY` phải trỏ đến access public key của Auth; mặc định là `file:./keys/access-public.pem` tính từ thư mục service. Không yêu cầu Kafka bootstrap cho luồng CRUD chưa dùng Kafka. Schema được tạo bằng script SQL; Hibernate chỉ validate schema.
 
 Chuẩn bị PostgreSQL riêng nếu chưa có database local (đặt `CALENDAR_DB_PASSWORD` trong environment trước):
 
@@ -624,7 +626,7 @@ Hướng dẫn này dùng PostgreSQL local, chạy schema và seed trong query e
 
 Thông số dưới đây là ví dụ theo mặc định ứng dụng. Nếu dùng `.env` được tạo theo
 [hướng dẫn chạy độc lập](../../../README.md#local), kết nối PostgreSQL tại `55432`, dùng mật khẩu
-đã cấu hình và access public key trong `.cache/local/keys`. Nạp `.env` vào terminal
+đã cấu hình và access public key trong `keys/` của service. Nạp `.env` vào terminal
 trước khi chạy Maven; `SPRING_DATASOURCE_*` trong file ưu tiên hơn giá trị từ
 `CALENDAR_DB_*` bên dưới, nên không trộn hai bộ cấu hình khác nhau.
 
@@ -759,7 +761,7 @@ Các biến `export` chỉ áp dụng cho terminal này và các tiến trình �
 
 Lần chạy Maven Wrapper đầu tiên cần kết nối mạng để tải Maven và dependency. Giữ terminal chạy service mở; đợi log `Started CalendarServiceApplication` trước khi làm bước 6.
 
-Service cần access public key của Auth. Đặt `JWT_ACCESS_PUBLIC_KEY` nếu key không nằm tại `file:../auth-service-main/keys/access-public.pem`; chỉ sử dụng public key cho access token.
+Service cần access public key của Auth. Đặt `JWT_ACCESS_PUBLIC_KEY` nếu key không nằm tại `file:./keys/access-public.pem`; chỉ sử dụng public key cho access token.
 
 <a id="database-bước-6-kiểm-tra-service-và-swagger-ui"></a>
 

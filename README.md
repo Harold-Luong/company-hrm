@@ -289,15 +289,26 @@ khóa và địa chỉ dịch vụ phù hợp. File `.env` thật được Git b
 `.env` ở thư mục gốc cho Maven: file gốc dành cho [Docker Compose](#docker).
 
 Các mẫu backend hiện trỏ tới PostgreSQL `127.0.0.1:55432`, Kafka `127.0.0.1:9092`
-và khóa trong `.cache/local/keys`. Đây là cấu hình cluster local đã được chuẩn bị
-trước đó; cấu hình datasource mặc định trong mã nguồn thường dùng cổng `5432`.
+và khóa trong `keys/` của chính từng service. Cấu hình datasource mặc
+định trong mã nguồn thường dùng cổng `5432`.
 Nếu tự cài PostgreSQL, sửa `SPRING_DATASOURCE_URL`, username/password tương ứng.
 
 Chuẩn bị `.env` thủ công từ mẫu của từng project; giữ nguyên file đã cấu hình.
-Nếu đã có khóa trong `.cache/local/keys`, tiếp tục sử dụng. Máy mới tạo hai cặp
-khóa theo [hướng dẫn JWT](back-end/modules/auth-service-main/README.md#jwt-tạo-khóa-cho-local)
-và cập nhật đường dẫn trong từng `.env`. Khi đổi mật khẩu database hoặc vị trí
-khóa, cập nhật các biến tương ứng trước khi chạy lại.
+Auth dùng `file:./keys/` cho bốn khóa; các service khác chỉ cần
+`JWT_ACCESS_PUBLIC_KEY=file:./keys/access-public.pem` với bản sao access public key
+của cùng môi trường Auth, được cấp riêng cho từng service.
+Các đường dẫn tương đối này tính từ thư mục từng module, không phải thư mục gốc repo.
+Nếu chạy IDE với working directory khác, đặt đường dẫn `file:/...` tuyệt đối.
+Máy mới tạo hai cặp khóa theo [hướng dẫn JWT](back-end/modules/auth-service-main/README.md#jwt-tạo-khóa-cho-local).
+Khóa runtime không được commit; nếu đã có bộ khóa ở vị trí khác, dùng lại và đặt
+đường dẫn thực tế trong `.env`/IDE. Khi sửa biến môi trường, nạp lại và restart service.
+
+Mỗi service có thể được triển khai độc lập ở máy/container khác. Khi đóng gói hoặc
+triển khai, cấp public key vào `<service>/keys/access-public.pem`, hoặc mount vào
+đường dẫn riêng rồi đặt `JWT_ACCESS_PUBLIC_KEY=file:/duong-dan/access-public.pem`.
+Các bản sao phải cùng nội dung với access public key tương ứng khóa ký của Auth.
+Chỉ Auth nhận private key và bộ khóa refresh. Sau khi thay public key, restart
+các service để nạp lại; clone repo mới cần cấp key vì `keys/` được Git bỏ qua.
 
 | Tính năng | Service | Mặc định ứng dụng |
 | --- | --- | --- |

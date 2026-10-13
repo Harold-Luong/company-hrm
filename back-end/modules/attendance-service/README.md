@@ -54,8 +54,10 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
 | Biến môi trường                             | Cấu hình cho project này                                                                  |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -188,7 +190,7 @@ thực sự nhìn thấy; Vite dev proxy không dùng để xác minh mạng cô
 | `ATTENDANCE_PORT`                               | `8085`                                                       |
 | `ATTENDANCE_DB_URL`                             | `jdbc:postgresql://localhost:5432/attendance_db`             |
 | `ATTENDANCE_DB_USER` / `ATTENDANCE_DB_PASSWORD` | `attendance_user` / `attendance_password` (chỉ local)        |
-| `JWT_ACCESS_PUBLIC_KEY`                         | `file:../auth-service-main/keys/access-public.pem`           |
+| `JWT_ACCESS_PUBLIC_KEY`                         | `file:./keys/access-public.pem`           |
 | `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE`     | `auth-service` / `hrm-api-access`                            |
 | `EMPLOYEE_SERVICE_URL`                          | `http://localhost:8082`                                      |
 | `LEAVE_SERVICE_URL`                             | `http://localhost:8084`                                      |

@@ -17,7 +17,7 @@ Module giữ JWT access token và refresh session hiện có. User chứa thông
 User lưu `employee_id` bắt buộc/unique để liên kết một-một với Employee, kể cả tài khoản HR/ADMIN. Không đưa mã nhân viên,
 phòng ban, trạng thái lao động hoặc ngày vào/nghỉ việc vào User.
 
-Chạy trực tiếp Auth tại `8081`; Gateway là `8080`. Health/Swagger bên dưới dùng cổng trực tiếp; health qua Gateway yêu cầu access token. Xem [hướng dẫn chạy độc lập](../../../README.md#local) cho `.env` từng service. Mẫu `.env` trỏ PostgreSQL `55432` và khóa `.cache/local/keys`; nếu tự tạo database/khóa theo hướng dẫn bên dưới, sửa các biến `SPRING_DATASOURCE_*` và `JWT_*` khớp vị trí thực tế trước khi nạp.
+Chạy trực tiếp Auth tại `8081`; Gateway là `8080`. Health/Swagger bên dưới dùng cổng trực tiếp; health qua Gateway yêu cầu access token. Xem [hướng dẫn chạy độc lập](../../../README.md#local) cho `.env` từng service. Mẫu `.env` trỏ PostgreSQL `55432` và khóa `back-end/modules/auth-service-main/keys`; nếu tự tạo database/khóa theo hướng dẫn bên dưới, sửa các biến `SPRING_DATASOURCE_*` và `JWT_*` khớp vị trí thực tế trước khi nạp.
 
 ## Cấu hình và chạy độc lập
 
@@ -44,8 +44,9 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+khóa tại `back-end/modules/auth-service-main/keys`, tính từ working directory của
+từng module; máy mới tạo khóa một lần theo hướng dẫn JWT của Auth.
 
 | Biến môi trường | Cấu hình cho project này |
 | --- | --- |
@@ -364,7 +365,13 @@ Trước khi chạy Auth, chuẩn bị database bằng [hướng dẫn schema v�
 `001_auth_schema.sql`, sau đó `002_auth_seed.sql` nếu cần tài khoản local.
 Tạo khóa không thay thế bước tạo schema.
 
-Nếu đã có khóa trong `.cache/local/keys`, dùng lại theo [hướng dẫn chạy độc lập](../../../README.md#local). Mẫu `.env` hiện trỏ tới thư mục cache này. Nếu tạo khóa tại `keys/` theo lệnh dưới, đổi cả bốn biến `JWT_*_KEY` trong `.env` của Auth sang `file:./keys/<tên-khóa>.pem`, đồng thời sửa access public key của các service khác.
+Mẫu `.env` của Auth dùng `file:./keys/<tên-khóa>.pem`; các service khác dùng
+`file:./keys/access-public.pem` với bản sao public key được cấp riêng trong thư mục
+`keys/` của chính service. Chỉ phân phối `access-public.pem`; private key và bộ
+khóa refresh do Auth giữ. Các service có thể được triển khai trên các máy khác nhau.
+Nếu đã có đủ hai cặp khóa tại đây, dùng lại và bỏ qua lệnh tạo khóa bên dưới.
+Nếu môi trường đang dùng bộ khóa ở vị trí khác, giữ nguyên bộ khóa đó và đặt
+đường dẫn thực tế trong `.env`/IDE của các service; không tạo lại khóa khi restart.
 
 Từ thư mục gốc repository, vào module rồi tạo khóa một lần:
 
@@ -392,6 +399,13 @@ Private key phải là PEM PKCS#8 (`BEGIN PRIVATE KEY`); public key là PEM X.50
 và báo lỗi nếu thiếu/sai định dạng, hai khóa không khớp, hoặc access/refresh dùng chung cặp khóa.
 Thư mục `keys/` đã được bỏ qua trong Git. Khóa trong `src/test/resources/jwt/` chỉ dành cho test,
 không dùng để chạy ứng dụng thực tế.
+
+Sau khi chuẩn bị khóa Auth, cấp bản sao `access-public.pem` cho thư mục `keys/` của
+Employee, Calendar, Leave, Attendance, Notification và Gateway. Khi triển khai
+tách máy/container, pipeline hoặc người vận hành phân phối cùng public key đến
+từng service; service không đọc file từ thư mục hoặc máy của Auth khi chạy.
+Nếu mount key tại vị trí khác, đặt `JWT_ACCESS_PUBLIC_KEY=file:/duong-dan/access-public.pem`.
+Khi thay khóa, cập nhật các bản sao và restart service để nạp lại.
 
 <a id="jwt-khởi-động-sau-khi-có-schema-và-keys"></a>
 

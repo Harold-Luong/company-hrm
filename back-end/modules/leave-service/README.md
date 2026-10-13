@@ -14,7 +14,7 @@
 gửi đơn nghỉ cả ngày hoặc nửa ngày; đơn xuất hiện trong hàng chờ chung của HR/ADMIN. Nhân viên
 xem kết quả trên hệ thống, chưa có email/push hoặc phân công một HR cụ thể.
 
-Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và khóa trong `.cache/local/keys`. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
 
 ## Cấu hình và chạy độc lập
 
@@ -41,8 +41,10 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
 | Biến môi trường | Cấu hình cho project này |
 | --- | --- |
@@ -181,7 +183,7 @@ Không tự chạy schema/seed hoặc nâng cấp database khi ứng dụng kh�
 | `LEAVE_DB_URL` | `jdbc:postgresql://localhost:5432/leave_db` |
 | `LEAVE_DB_USER` | `leave_user` |
 | `LEAVE_DB_PASSWORD` | `leave_password` |
-| `JWT_ACCESS_PUBLIC_KEY` | `file:../auth-service-main/keys/access-public.pem` |
+| `JWT_ACCESS_PUBLIC_KEY` | `file:./keys/access-public.pem` |
 | `JWT_ACCESS_ISSUER` | `auth-service` |
 | `JWT_ACCESS_AUDIENCE` | `hrm-api-access` |
 

@@ -71,7 +71,7 @@ spring:
                               - Path=/api/v1/calendar/**,/api/v1/calendar-events/**
 
 jwt:
-    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:../auth-service-main/keys/access-public.pem}
+    access-public-key: ${JWT_ACCESS_PUBLIC_KEY:file:./keys/access-public.pem}
     access-issuer: ${JWT_ACCESS_ISSUER:auth-service}
     access-audience: ${JWT_ACCESS_AUDIENCE:hrm-api-access}
 

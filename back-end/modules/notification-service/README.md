@@ -39,17 +39,19 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
-| Biến môi trường | Cấu hình cho project này |
-| --- | --- |
-| `SERVER_PORT` | 8086 |
-| `SPRING_DATASOURCE_URL` | jdbc:postgresql://localhost:5432/notification_db; sửa port nếu DB dùng 55432 hoặc port khác |
-| `SPRING_DATASOURCE_USERNAME` | notification_user |
-| `SPRING_DATASOURCE_PASSWORD` | Mật khẩu của user database này |
-| `JWT_ACCESS_PUBLIC_KEY` | file:/duong-dan-tuyet-doi/access-public.pem |
-| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE` | auth-service / hrm-api-access, khớp Auth |
+| Biến môi trường                             | Cấu hình cho project này                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `SERVER_PORT`                               | 8086                                                                                        |
+| `SPRING_DATASOURCE_URL`                     | jdbc:postgresql://localhost:5432/notification_db; sửa port nếu DB dùng 55432 hoặc port khác |
+| `SPRING_DATASOURCE_USERNAME`                | notification_user                                                                           |
+| `SPRING_DATASOURCE_PASSWORD`                | Mật khẩu của user database này                                                              |
+| `JWT_ACCESS_PUBLIC_KEY`                     | file:/duong-dan-tuyet-doi/access-public.pem                                                 |
+| `JWT_ACCESS_ISSUER` / `JWT_ACCESS_AUDIENCE` | auth-service / hrm-api-access, khớp Auth                                                    |
 
 Chỉ cần access public key của Auth; không cấp private key cho project này.
 
@@ -64,7 +66,7 @@ Tạo user và database mới bằng tài khoản quản trị PostgreSQL, chạ
 transaction. Bỏ qua nếu đã tồn tại và dùng mật khẩu thực tế của môi trường:
 
 ```sql
-CREATE USER notification_user WITH PASSWORD 'notification_password';
+CREATE USER notification_user WITH PASSWORD 'notification_pw';
 CREATE DATABASE notification_db OWNER notification_user;
 ```
 

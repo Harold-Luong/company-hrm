@@ -41,7 +41,7 @@ subject, employee UUID, roles và loại token theo hợp đồng Auth hiện c�
 không cần private key, refresh key hoặc kết nối database.
 
 Chạy native với `.env` riêng như bên dưới; Gateway không có datasource.
-Mẫu public key trỏ vào `.cache/local/keys`; đổi sang đường dẫn thực tế của máy.
+Mẫu public key dùng `file:./keys/access-public.pem` từ thư mục Gateway; đổi sang đường dẫn tuyệt đối nếu IDE dùng working directory khác.
 
 ## Cấu hình và chạy độc lập
 
@@ -68,8 +68,10 @@ mvn spring-boot:run
 ```
 
 Maven/Spring Boot không tự đọc .env. IDE cần working directory là project và
-biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu hiện
-trỏ tới cache local đã có; máy mới phải đổi đường dẫn, không cần tạo cache chung.
+biến môi trường riêng; thay `.env` phải nạp lại và restart project đó. Mẫu dùng
+bản sao access public key tại `keys/access-public.pem` của chính service, tính
+từ working directory của module. Cấp cùng public key của môi trường Auth đang dùng
+cho từng service khi triển khai; service không cần thư mục Auth trên cùng máy.
 
 | Biến môi trường | Cấu hình cho project này |
 | --- | --- |
