@@ -175,6 +175,13 @@ Có thể kiểm tra bằng `SELECT id, employee_id, leave_type, status FROM lea
 WHERE leave_type NOT IN ('ANNUAL', 'UNPAID');`.
 
 Hoặc chạy `./run-all.sh` tại gốc repo sau khi đã chuẩn bị tất cả database.
+
+Nếu UI báo “Chưa tải được đơn nghỉ phép” nhưng health của Leave vẫn `UP`, kiểm tra
+log hoặc database có thiếu bảng `leave_adjustments` không. Truy vấn danh sách đơn
+và `pending-count` luôn dùng bảng này để xác định yêu cầu điều chỉnh đang chờ.
+Áp `docs/sql/005_leave_adjustments.sql` vào đúng database đang chạy rồi tải lại
+trên UI; không cần tạo lại schema `001` hoặc xóa dữ liệu. Health chỉ kiểm tra
+kết nối database, không bảo đảm các migration nghiệp vụ đã được áp dụng đầy đủ.
 Không tự chạy schema/seed hoặc nâng cấp database khi ứng dụng khởi động.
 
 | Biến | Mặc định local |

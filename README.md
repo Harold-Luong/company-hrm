@@ -278,6 +278,9 @@ Owner thông thường là `<service>_user`. Schema nằm trong `docs/sql` của
 module. Dùng schema khởi tạo cho database mới; database đã có dữ liệu cần đối
 chiếu migration của module, không chạy lại hoặc xóa database để sửa lỗi khởi động.
 Leave và Attendance cần thêm `004_notification_outbox.sql` nếu bật thông báo.
+Leave cần `005_leave_adjustments.sql` cho cả database mới và database hiện có;
+thiếu bảng `leave_adjustments` sẽ làm lỗi tải danh sách đơn và số đơn chờ duyệt,
+dù `/actuator/health` vẫn có thể báo `UP`.
 Employee có migration `003_employee_code_sequence.sql` cho database cũ chưa có sequence mã nhân viên.
 
 <a id="local-cấu-hình-env"></a>
