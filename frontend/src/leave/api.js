@@ -3,6 +3,8 @@ import { notifyRequestChange } from '@/notifications/changes.js'
 
 const base = '/api/v1/leave/requests'
 export const leave = {
+  estimate: (from, until, period) =>
+    auth.request(`${base}/estimate?${new URLSearchParams({ from, until, period })}`),
   list: (inbox, status = '', page = 0, size = 20) =>
     auth.request(
       inbox && status === 'ADJUSTMENT_PENDING'

@@ -54,7 +54,7 @@ public final class LeaveModels {
 
     /** Minimal attendance projection; excludes reasons and review notes. */
     public record AttendanceLeave(UUID id, UUID employeeId, LeaveType leaveType, LocalDate startDate,
-            LocalDate endDate, LeavePeriod period, Status status, long version) {}
+            LocalDate endDate, LeavePeriod period, Status status, long version, boolean adjustmentPending) {}
 
     public record History(long id, String action, String actorUserId, String note, Instant occurredAt) {
     }

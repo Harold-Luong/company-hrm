@@ -28,7 +28,7 @@ public class AttendanceDay extends VersionedEntity {
     @JsonIgnore
     private ShiftRevision shiftRevision;
     @Column(nullable = false, columnDefinition = "text") private String employeeSnapshot;
-    /** Bản chụp dữ liệu phép; chỉ cập nhật lại qua thao tác làm mới dữ liệu nguồn có kiểm soát. */
+    /** Bản chụp dữ liệu phép; cập nhật khi đọc báo cáo kỳ mở hoặc làm mới thủ công; kỳ đã chốt dùng bản chụp báo cáo riêng. */
     @Column(nullable = false, columnDefinition = "text") private String leaveSnapshot;
     @Column(nullable = false, columnDefinition = "text") private String holidaySnapshot;
     /** Thời điểm lấy dữ liệu nguồn gần nhất cho bản ghi ngày công. */

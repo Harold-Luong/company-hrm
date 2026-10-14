@@ -70,14 +70,13 @@ thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy pr
 - Loại nghỉ: `ANNUAL` (phép năm), `UNPAID` (không lương). Phép `ANNUAL` được cấp tự động
   12 ngày (24 đơn vị nửa ngày) cho mỗi nhân viên trong mỗi năm dương lịch.
 - Đơn vị nghỉ phép nhỏ nhất là **nửa ngày**: `MORNING`/`AFTERNOON` dùng 1 unit,
-  `FULL_DAY` dùng 2 units/ngày. Không nhận đơn nghỉ phép theo giờ hoặc phút.
+  `FULL_DAY` dùng 2 units/ngày làm việc. Không nhận đơn nghỉ phép theo giờ hoặc phút.
 - Lý do nghỉ là trường `reason` riêng, bắt buộc, tối đa 2.000 ký tự. Có thể ghi
   "Việc cá nhân", "Việc gia đình", "Khám bệnh"; không yêu cầu chi tiết bệnh lý.
   `SICK`/`OTHER` không còn là loại nghỉ hợp lệ trong API.
 - Ngày bắt đầu từ hôm nay theo `Asia/Ho_Chi_Minh`; ngày kết thúc được tính gồm
-  cả ngày đó. Tối đa 366 ngày lịch/đơn. `FULL_DAY` tính 2 units mỗi ngày lịch;
-  `MORNING`/`AFTERNOON` tính 1 unit và chỉ áp dụng cho đơn một ngày. Chưa loại
-  cuối tuần/ngày lễ và chưa hỗ trợ theo giờ hoặc gửi bù đơn quá khứ.
+  cả ngày đó. Tối đa 366 ngày lịch/đơn. `FULL_DAY` tính 2 units mỗi ngày có ca, không phải ngày lễ;
+  `MORNING`/`AFTERNOON` tính 1 unit khi buổi đó có ca và chỉ áp dụng cho đơn một ngày. Đơn mới bỏ ngày không có ca/ngày lễ chung và chưa hỗ trợ theo giờ hoặc gửi bù đơn quá khứ.
 - Đơn `ANNUAL` không được đi qua hai năm. Số dư được tạo lười khi đọc hoặc duyệt;
   chỉ trừ khi HR/ADMIN duyệt. Nếu không đủ số dư, thao tác duyệt trả `409`.
 - `PENDING → APPROVED / REJECTED / CANCELLED`. Người gửi chỉ rút đơn đang chờ;
@@ -93,16 +92,34 @@ thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy pr
   transaction; lỗi ghi lịch sử sẽ rollback thay đổi.
 - Có outbox Kafka cho thông báo gửi/duyệt/từ chối/rút đơn khi bật `HRM_NOTIFICATIONS_ENABLED`.
   Xem [Notification](../notification-service/README.md) để áp SQL `004` và chuẩn bị topic/consumer.
-  Coverage Attendance vẫn đọc qua REST, chưa tự làm mới khi phép thay đổi. Chỉ `ANNUAL`
+  Coverage Attendance đọc qua REST và tự làm mới khi tải báo cáo kỳ đang mở. Chỉ `ANNUAL`
   dùng sổ số dư; `UNPAID` không trừ số dư phép năm.
+
+## Phép theo lịch làm việc và cơ sở hoàn phép
+
+Đơn mới lấy lịch qua `ATTENDANCE_SERVICE_URL` (mặc định `http://localhost:8085`),
+ưu tiên lịch cá nhân rồi lịch công ty; ca đã ghi công dùng phiên bản ca đã ghi.
+Ngày có ca: FULL_DAY = 2 unit; MORNING/AFTERNOON = 1 unit nếu ca có buổi đó.
+Ngày không có ca, ngày lễ toàn công ty hoặc trước ngày vào làm: 0. Đơn tổng 0 bị từ chối.
+Không mặc định thứ Bảy/Chủ nhật là ngày nghỉ nếu đã phân ca.
+
+`GET /api/v1/leave/requests/estimate?from=YYYY-MM-DD&until=YYYY-MM-DD&period=FULL_DAY`
+cho người gọi xem `totalUnits`, `totalDays` và cơ sở từng ngày, chưa ghi số dư.
+Gửi đơn lưu vào `leave_calendar_snapshots`; duyệt so lịch mới với cơ sở đã lưu,
+trả 409 nếu lịch đổi. Giảm/hủy phép hoàn theo cơ sở gốc, không theo lịch mới.
+Lỗi nguồn trả 503 và không ghi đơn/số dư. Dữ liệu truyền không chứa lý do nghỉ.
+
+Áp [006_leave_calendar.sql](docs/sql/006_leave_calendar.sql) lên database cũ
+(sau migration 005). Schema 001 đã chứa bảng này cho database mới. Giữ nguyên
+số dư/đơn APPROVED cũ; PENDING cũ không có snapshot phải rút/gửi lại để duyệt.
+Projection `/attendance` thêm `adjustmentPending` để chốt công chặn điều chỉnh chưa duyệt.
 
 ## Thiết kế nghỉ phép, lịch làm việc và tích hợp công
 
 Thiết kế chung được tổng hợp tại [Attendance Design](../attendance-service/README.md#design),
 bao gồm các ví dụ tính công, quyền sở hữu dữ liệu, đối soát và xuất CSV.
 Attendance đã có [API/UI ca cố định, phân công, chấm công và CSV tạm tính](../attendance-service/README.md),
-đọc phép qua endpoint coverage. Đơn đi trễ/về sớm đã có tại Attendance; lịch linh hoạt
-và tự đồng bộ ngày công khi phép thay đổi chưa được triển khai.
+đọc phép qua endpoint coverage. Đơn đi trễ/về sớm đã có tại Attendance; lịch linh hoạt chưa triển khai; coverage phép của kỳ đang mở tự cập nhật khi tải báo cáo.
 
 - Leave quản lý phép theo ngày, bước **0,5 ngày**, và phê duyệt; đơn đi trễ/về sớm đã có tại Attendance; Attendance quản lý lịch/ca, giờ thực tế và kết quả tính công.
 - `FIXED_SHIFT`: làm theo giờ ca; đi trễ/về sớm làm tròn lên riêng từng loại,
@@ -145,7 +162,7 @@ Các API dưới `/api/v1/leave/requests`:
 
 Mọi thao tác ghi yêu cầu `If-Match` theo **version đơn gốc** và trả ETag mới. Duyệt, hoàn phép, ghi lịch sử và outbox nằm trong một transaction, khóa theo nhân viên; thao tác lặp hoặc dùng version cũ không hoàn phép lần nữa. `pending-count` bao gồm cả yêu cầu điều chỉnh. Outbox dùng action `UPDATED` để làm mới badge/lịch qua SSE hiện có; vẫn có polling dự phòng 30 giây.
 
-Coverage nghỉ phép trả khoảng ngày mới sau khi duyệt. Bảng công đã lưu snapshot cần HR gọi thao tác `refresh-coverage` hiện có để đối soát; không tự thay đổi snapshot cũ. Xin đi trễ nhưng đến đúng giờ vẫn được tính theo giờ chấm công thực tế, không phát sinh số phút đi trễ chỉ vì có đơn đã duyệt.
+Coverage nghỉ phép trả khoảng ngày mới sau khi duyệt. Bảng công kỳ mở tự làm mới coverage khi đọc. Kỳ đã chốt giữ bản chụp; HR kiểm tra nguồn, mở lại và chốt phiên bản mới nếu cần. Xin đi trễ nhưng đến đúng giờ vẫn được tính theo giờ chấm công thực tế, không phát sinh số phút đi trễ chỉ vì có đơn đã duyệt.
 
 ## Chạy local
 

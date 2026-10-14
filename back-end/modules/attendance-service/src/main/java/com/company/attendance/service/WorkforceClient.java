@@ -33,7 +33,13 @@ public class WorkforceClient {
     public record EmployeePage(List<Employee> content, int totalPages) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Leave(UUID id, UUID employeeId, String leaveType, LocalDate startDate, LocalDate endDate,
-                        String period, String status, long version) {}
+                        String period, String status, long version, Boolean adjustmentPending) {
+        public Leave { adjustmentPending = Boolean.TRUE.equals(adjustmentPending); }
+        public Leave(UUID id, UUID employeeId, String leaveType, LocalDate startDate, LocalDate endDate,
+                String period, String status, long version) {
+            this(id, employeeId, leaveType, startDate, endDate, period, status, version, false);
+        }
+    }
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Holiday(Long id, String type, String status, String audienceType,
                           boolean allDay, LocalDate startDate, LocalDate endDate) {}

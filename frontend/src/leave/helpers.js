@@ -67,6 +67,19 @@ export function submission(form) {
 export function leaveError(error) {
   if (!(error instanceof ApiError)) return 'Không thể xử lý yêu cầu. Vui lòng thử lại.'
   const messages = {
+    'No working time in the requested leave period':
+      'Khoảng nghỉ không có ca làm việc tương ứng; không cần tạo đơn phép.',
+    'Working calendar changed; withdraw and resubmit leave before approval':
+      'Lịch làm việc đã thay đổi. Cần rút và gửi lại đơn để tính đúng số ngày trước khi duyệt.',
+    'Legacy request has no working calendar; withdraw and resubmit before approval':
+      'Đơn cũ chưa có lịch tính phép. Cần rút và gửi lại trước khi duyệt.',
+    'Working calendar is unavailable or incomplete':
+      'Chưa lấy đủ lịch làm việc/ngày nghỉ. Hãy thử lại sau.',
+    'Use full cancellation when no working leave remains':
+      'Không còn ngày làm việc trong khoảng nghỉ. Hãy chọn hủy toàn bộ đơn.',
+    'Invalid leave dates or period':
+      'Kiểm tra ngày nghỉ: từ hôm nay, đúng thứ tự, tối đa 366 ngày; nghỉ nửa ngày chỉ chọn một ngày.',
+
     'Adjustment must reduce approved leave': 'Số ngày còn nghỉ phải ít hơn số ngày đã duyệt.',
     'Remaining leave must be within the approved dates and period':
       'Thời gian còn nghỉ phải nằm trong khoảng đã duyệt; nghỉ nửa ngày chỉ chọn một ngày.',

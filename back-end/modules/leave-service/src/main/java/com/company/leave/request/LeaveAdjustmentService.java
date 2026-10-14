@@ -17,7 +17,10 @@ public class LeaveAdjustmentService {
     private final LeaveRepository repository;
     private final NotificationOutbox notifications;
 
-    public LeaveAdjustmentService(LeaveService leaves, LeaveRepository repository, NotificationOutbox notifications) {
+    private final LeaveCalendarStore calendars;
+
+    public LeaveAdjustmentService(LeaveService leaves, LeaveRepository repository, NotificationOutbox notifications, LeaveCalendarStore calendars) {
+        this.calendars = calendars;
         this.leaves = leaves; this.repository = repository; this.notifications = notifications;
     }
 
@@ -107,8 +110,12 @@ public class LeaveAdjustmentService {
                 || (body.period() != LeavePeriod.FULL_DAY && !body.startDate().equals(body.endDate()))
                 || (request.period() != LeavePeriod.FULL_DAY && body.period() != request.period()))
             throw error(HttpStatus.BAD_REQUEST, "Remaining leave must be within the approved dates and period");
-        int units = body.period() == LeavePeriod.FULL_DAY
-                ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2 : 1;
+        // Preserve the basis actually charged at approval, including legacy calendar-day requests.
+        int units = calendars.find(request.id()).map(days -> days.stream()
+            .filter(d -> !d.date().isBefore(body.startDate()) && !d.date().isAfter(body.endDate()))
+            .mapToInt(d -> d.units(body.period())).sum()).orElseGet(() -> body.period() == LeavePeriod.FULL_DAY
+                ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2 : 1);
+        if (units == 0) throw error(HttpStatus.BAD_REQUEST, "Use full cancellation when no working leave remains");
         if (units >= request.totalUnits()) throw error(HttpStatus.BAD_REQUEST, "Adjustment must reduce approved leave");
         return units;
     }

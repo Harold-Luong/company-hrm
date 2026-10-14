@@ -5,6 +5,16 @@ const base = '/api/v1/attendance'
 const query = (values) =>
   new URLSearchParams(Object.entries(values).filter(([, value]) => value !== '' && value != null))
 export const attendance = {
+  period: (month) => auth.request(`${base}/periods/${encodeURIComponent(month)}`),
+  checkPeriodSources: (month) =>
+    auth.request(`${base}/periods/${encodeURIComponent(month)}/check-sources`),
+  periodHistory: (month) => auth.request(`${base}/periods/${encodeURIComponent(month)}/history`),
+  changePeriod: (month, action, version, reason) =>
+    auth.request(`${base}/periods/${encodeURIComponent(month)}/${action}`, {
+      method: 'POST',
+      headers: { 'If-Match': `"${version}"` },
+      body: JSON.stringify({ reason }),
+    }),
   corrections: (inbox = false, status = '', page = 0) =>
     auth.request(
       `${base}/corrections${inbox ? '/inbox' : ''}?${query({ status, page, size: 20 })}`,

@@ -30,6 +30,7 @@ public class ScheduleService {
     private final OvertimeRequestRepository overtime;
     private final tools.jackson.databind.ObjectMapper mapper;
     private final Clock clock;
+    private final PeriodStore periods;
 
     /**
      * Previews a schedule request.
@@ -97,6 +98,7 @@ public class ScheduleService {
         if (replay != null)
             return replay;
         requireVersion(match, lock.getRevision());
+        periods.requireOpen(request.from(), until(request));
         var shift = validate(request, actor);
         var preview = preview(request, shift, lock.getRevision(), actor);
         if (preview.approvedRequestConflicts() > 0)

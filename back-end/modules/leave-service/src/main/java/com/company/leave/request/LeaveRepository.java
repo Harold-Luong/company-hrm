@@ -125,13 +125,13 @@ public class LeaveRepository {
         var params = new java.util.ArrayList<Object>();
         params.add(until); params.add(from);
         if (employeeId != null) params.add(employeeId);
-        return jdbc.query("SELECT id, employee_id, leave_type, start_date, end_date, leave_period, status, version "
+        return jdbc.query("SELECT id, employee_id, leave_type, start_date, end_date, leave_period, status, version, " + PENDING_ADJUSTMENT + " AS adjustment_pending "
                 + "FROM leave_requests WHERE status IN ('PENDING','APPROVED') AND start_date <= ? AND end_date >= ?"
                 + filter + " ORDER BY start_date, id LIMIT 2001", (rs, row) -> new AttendanceLeave(
                     rs.getObject("id", UUID.class), rs.getObject("employee_id", UUID.class),
                     LeaveType.valueOf(rs.getString("leave_type")), rs.getObject("start_date", LocalDate.class),
                     rs.getObject("end_date", LocalDate.class), LeavePeriod.valueOf(rs.getString("leave_period")),
-                    Status.valueOf(rs.getString("status")), rs.getLong("version")), params.toArray());
+                    Status.valueOf(rs.getString("status")), rs.getLong("version"), rs.getBoolean("adjustment_pending")), params.toArray());
     }
 
     public long pendingCount() {

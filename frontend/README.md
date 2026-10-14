@@ -110,7 +110,7 @@ Nội dung nằm trong `src/help/content.js`; cập nhật cùng các thay đổ
 Luồng Leave dùng `/api/v1/leave/requests`: nhân viên tạo đơn nghỉ cả/nửa ngày, HR/ADMIN
 duyệt hoặc từ chối; người gửi được rút đơn đang chờ. UI gửi version qua `If-Match`,
 yêu cầu tải lại khi có xung đột, giữ nội dung form khi lỗi. Leave có số dư phép năm;
-Attendance đọc phép qua API để đối soát. Chưa có email hoặc tự đồng bộ ngày công đã snapshot. Xem [Leave Service](../back-end/modules/leave-service/README.md).
+Attendance đọc phép qua API và tự cập nhật coverage khi tải công kỳ mở. Chưa có email thông báo phép. Xem [Leave Service](../back-end/modules/leave-service/README.md).
 
 Trong chi tiết đơn đã duyệt, chủ đơn có thể gửi **Điều chỉnh phép đã duyệt**: hủy toàn bộ hoặc chọn khoảng thời gian còn nghỉ ngắn hơn. HR/ADMIN tìm các yêu cầu qua bộ lọc **Điều chỉnh phép đã duyệt** tại `/leave/inbox`. Đơn và số dư chỉ đổi khi HR/ADMIN khác duyệt; phép năm được hoàn phần chênh lệch, lịch cá nhân cập nhật qua SSE/polling. Có lịch sử điều chỉnh, lý do từ chối và rút yêu cầu đang chờ. Badge duyệt nghỉ phép tính cả các yêu cầu điều chỉnh.
 
@@ -154,8 +154,8 @@ Cần chạy Attendance, Employee, Leave, Calendar và áp schema Attendance. Ba
 tạo lịch mặc định thứ Hai–thứ Sáu nếu chưa có lịch công ty; HR kiểm tra lịch có
 hiệu lực và cấu hình allowlist/trusted proxy để chấm công local/triển khai.
 Xem [hướng dẫn backend](../back-end/modules/attendance-service/README.md).
-Bảng công/CSV tạm tính, chưa có khóa kỳ. Đã có đơn bổ sung/điều chỉnh giờ và phê duyệt tại `/attendance/corrections`. Phép thay đổi
-sau khi check-in cần HR cập nhật coverage để đối soát. Chưa hỗ trợ giờ linh hoạt.
+Bảng công/CSV có trạng thái tạm tính hoặc đã chốt. HR/ADMIN chốt/mở tháng tại `/attendance/reports`. Đã có đơn bổ sung/điều chỉnh giờ và phê duyệt tại `/attendance/corrections`. Phép thay đổi
+sau khi check-in được cập nhật khi tải công kỳ mở; kỳ đã chốt cần mở lại để đối soát. Chưa hỗ trợ giờ linh hoạt.
 
 Kiểm thử UI: `npm test`, `npm run build`,
 `npx playwright test tests/e2e/attendance.spec.js`. Browser tests mock API để kiểm tra
@@ -424,7 +424,7 @@ thay công chuẩn. Lý do/ghi chú riêng tư chỉ ở API đơn, không xuấ
 Ví dụ ca 13–15h, đơn xin tới 13:08 được duyệt, thực tế tới 13:16:
 16 phút trễ → trừ 30 phút → 90 phút công; có phép 8 phút, còn 8 phút chưa có phép
 → đối soát 15 phút chưa có phép. Phê duyệt trong cùng Attendance DB hiển thị ở lần
-đọc bảng công tiếp theo; snapshot Leave/Calendar vẫn theo quy tắc refresh coverage.
+đọc bảng công tiếp theo; coverage Leave/Calendar tự cập nhật ở kỳ mở; kỳ đóng giữ snapshot FINAL.
 
 Khởi tạo database bằng [001_attendance_schema.sql](../back-end/modules/attendance-service/docs/sql/001_attendance_schema.sql)
 trước khi chạy backend. File này đã gồm schema đơn đi trễ/về sớm. Nếu bật thông báo Kafka,
@@ -433,3 +433,13 @@ UI giữ key khi retry gửi đơn mất phản hồi; 412 yêu cầu tải lạ
 
 Attendance hiện ghi một cặp vào/ra mỗi ngày. Xin theo buổi không tự tạo sự kiện
 rời/quay lại trong ngày; chỉ thời gian thiếu đo được từ punch mới được đối soát.
+
+## Xem số ngày phép và chốt tháng
+
+Form gửi phép có **Tính số ngày nghỉ**, gọi API estimate theo ngày/buổi; đổi ngày
+xóa kết quả cũ. Số ngày theo lịch ca, bỏ ngày không có ca/ngày lễ, kiểm tra lại khi gửi/duyệt.
+
+Bảng công có phần **Chốt công theo tháng** áp dụng toàn công ty, độc lập bộ lọc báo cáo.
+HR/ADMIN xem trạng thái, nhập lý do rồi chốt/mở lại. Hiển thị lịch sử và nút kiểm tra
+phép/ngày nghỉ thay đổi sau chốt. Kỳ FINAL ẩn nút refresh từng ngày; tải báo cáo/CSV
+dùng dữ liệu đã chốt. Chưa có payroll hoặc tự sửa kỳ đã chốt bằng sự kiện.

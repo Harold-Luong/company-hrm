@@ -19,7 +19,12 @@ public class LeaveService {
     private final Clock clock;
     private final com.company.leave.notifications.NotificationOutbox notifications;
 
-    public LeaveService(LeaveRepository repository, Clock clock, com.company.leave.notifications.NotificationOutbox notifications) {
+    private final LeaveCalendarClient calendar;
+    private final LeaveCalendarStore calendars;
+
+    public LeaveService(LeaveRepository repository, Clock clock, com.company.leave.notifications.NotificationOutbox notifications,
+            LeaveCalendarClient calendar, LeaveCalendarStore calendars) {
+        this.calendar = calendar; this.calendars = calendars;
         this.repository = repository;
         this.clock = clock;
         this.notifications = notifications;
@@ -38,6 +43,17 @@ public class LeaveService {
         return new ResponseStatusException(status, message);
     }
 
+    public record Estimate(int totalUnits, java.math.BigDecimal totalDays, java.util.List<LeaveCalendarClient.Day> days) {}
+    public Estimate estimate(LocalDate from, LocalDate until, LeavePeriod period, JwtAuthenticationToken actor) {
+        if (from == null || until == null || period == null || until.isBefore(from)
+                || ChronoUnit.DAYS.between(from, until) >= 366 || from.isBefore(LocalDate.now(clock))
+                || (period != LeavePeriod.FULL_DAY && !from.equals(until)))
+            throw error(HttpStatus.BAD_REQUEST, "Invalid leave dates or period");
+        var days = calendar.calendar(employee(actor), from, until, actor);
+        int units = days.stream().mapToInt(d -> d.units(period)).sum();
+        return new Estimate(units, java.math.BigDecimal.valueOf(units).divide(java.math.BigDecimal.valueOf(2)), days);
+    }
+
     @Transactional
     public Request submit(Submission body, JwtAuthenticationToken actor) {
         if (body.startDate().isBefore(LocalDate.now(clock)) || body.endDate().isBefore(body.startDate())
@@ -52,15 +68,16 @@ public class LeaveService {
         if (body.leaveType() == LeaveType.ANNUAL && body.startDate().getYear() != body.endDate().getYear()) {
             throw error(HttpStatus.BAD_REQUEST, "Annual leave cannot span calendar years; submit one request per year");
         }
-        int totalUnits = period == LeavePeriod.FULL_DAY
-                ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2
-                : 1;
         UUID employeeId = employee(actor);
+        var calendarDays = calendar.calendar(employeeId, body.startDate(), body.endDate(), actor);
+        int totalUnits = calendarDays.stream().mapToInt(d -> d.units(period)).sum();
+        if (totalUnits == 0) throw error(HttpStatus.BAD_REQUEST, "No working time in the requested leave period");
         repository.lockEmployee(employeeId);
         if (repository.overlaps(employeeId, body.startDate(), body.endDate(), period)) {
             throw error(HttpStatus.CONFLICT, "A pending or approved leave request overlaps these dates");
         }
         Request request = repository.insert(employeeId, actor.getName(), body, period, totalUnits);
+        calendars.save(request.id(), calendarDays);
         repository.audit(request.id(), "SUBMITTED", actor.getName(), null);
         notifications.append(request.id(), request.version(), request.requesterUserId(), request.employeeId(), actor.getName(), "SUBMITTED");
         return request;
@@ -153,6 +170,13 @@ public class LeaveService {
         String cleanNote = note == null ? null : note.trim();
         if (target == Status.REJECTED && (cleanNote == null || cleanNote.isEmpty())) {
             throw error(HttpStatus.BAD_REQUEST, "A rejection reason is required");
+        }
+        if (target == Status.APPROVED) {
+            var original = calendars.find(id).orElseThrow(() -> error(HttpStatus.CONFLICT,
+                "Legacy request has no working calendar; withdraw and resubmit before approval"));
+            var current = calendar.calendar(request.employeeId(), request.startDate(), request.endDate(), actor);
+            if (!original.equals(current)) throw error(HttpStatus.CONFLICT,
+                "Working calendar changed; withdraw and resubmit leave before approval");
         }
         if (target == Status.APPROVED && request.leaveType() == LeaveType.ANNUAL
                 && !repository.consumeAnnual(request.employeeId(), request.startDate().getYear(), request.totalUnits(),

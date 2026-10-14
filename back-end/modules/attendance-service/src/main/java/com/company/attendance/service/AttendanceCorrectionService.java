@@ -32,6 +32,7 @@ public class AttendanceCorrectionService {
     private final OperationService operations;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final PeriodStore periods;
 
     public PageResponse<Response> list(boolean inbox, AttendanceRequestStatus status, int page, int size,
             JwtAuthenticationToken actor) {
@@ -67,7 +68,7 @@ public class AttendanceCorrectionService {
     @Transactional
     public Response update(UUID id, Write body, String match, JwtAuthenticationToken actor) {
         state.lockState();
-        var row = read(id, actor); ownPending(row, actor); requireVersion(match, row.getVersion());
+        var row = read(id, actor); periods.requireOpen(row.getWorkDate()); ownPending(row, actor); requireVersion(match, row.getVersion());
         Instant updated = nextUpdate(row);
         populate(row, body, actor); row.setUpdatedAt(updated);
         requests.flush(); audit(row, "UPDATED", actor);
@@ -77,7 +78,7 @@ public class AttendanceCorrectionService {
     @Transactional
     public Response cancel(UUID id, String match, JwtAuthenticationToken actor) {
         state.lockState();
-        var row = read(id, actor); ownPending(row, actor); requireVersion(match, row.getVersion());
+        var row = read(id, actor); periods.requireOpen(row.getWorkDate()); ownPending(row, actor); requireVersion(match, row.getVersion());
         row.setStatus(CANCELLED); row.setActiveSlot(null); row.setUpdatedAt(nextUpdate(row));
         requests.flush(); audit(row, "CANCELLED", actor);
         return response(row);
@@ -86,7 +87,7 @@ public class AttendanceCorrectionService {
     @Transactional
     public Response decide(UUID id, Decision decision, String match, JwtAuthenticationToken actor) {
         requireReviewer(actor); state.lockState();
-        var row = read(id, actor); requireVersion(match, row.getVersion());
+        var row = read(id, actor); periods.requireOpen(row.getWorkDate()); requireVersion(match, row.getVersion());
         if (row.getEmployeeId().equals(employee(actor)) || row.getRequesterUserId().equals(actor.getName()))
             throw error(HttpStatus.FORBIDDEN, "You cannot review your own attendance correction");
         if (row.getStatus() != PENDING) throw error(HttpStatus.CONFLICT, "Only pending corrections can be reviewed");
@@ -121,6 +122,7 @@ public class AttendanceCorrectionService {
     }
 
     private void populate(AttendanceCorrection row, Write body, JwtAuthenticationToken actor) {
+        periods.requireOpen(body.workDate());
         if (requests.existsByEmployeeIdAndWorkDateAndActiveSlotAndIdNot(row.getEmployeeId(), body.workDate(), "PENDING", row.getId()))
             throw error(HttpStatus.CONFLICT, "A pending correction already exists for this date");
         var context = validate(row, body, actor);

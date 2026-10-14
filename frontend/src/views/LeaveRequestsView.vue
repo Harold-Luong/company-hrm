@@ -26,6 +26,25 @@ const busy = ref(false)
 const sending = ref(false)
 const error = ref('')
 const formError = ref('')
+const estimate = ref(null)
+const estimating = ref(false)
+const estimateError = ref('')
+let estimateGeneration = 0
+async function previewLeave() {
+  const current = ++estimateGeneration
+  estimate.value = null
+  estimateError.value = ''
+  estimating.value = true
+  try {
+    const result = await leave.estimate(form.startDate, form.endDate, form.period)
+    if (current === estimateGeneration) estimate.value = result
+  } catch (cause) {
+    if (current === estimateGeneration) estimateError.value = leaveError(cause)
+  } finally {
+    if (current === estimateGeneration) estimating.value = false
+  }
+}
+
 const form = reactive({
   leaveType: 'ANNUAL',
   startDate: today(),
@@ -33,6 +52,16 @@ const form = reactive({
   period: 'FULL_DAY',
   reason: '',
 })
+watch(
+  () => [form.startDate, form.endDate, form.period],
+  () => {
+    estimateGeneration++
+    estimate.value = null
+    estimating.value = false
+    estimateError.value = ''
+  },
+)
+onBeforeUnmount(() => estimateGeneration++)
 let generation = 0
 onBeforeUnmount(() => generation++)
 async function load(page = 0) {
@@ -190,6 +219,23 @@ watch(
           ></textarea>
         </div>
         <p v-if="formError" class="alert alert-error" role="alert">{{ formError }}</p>
+        <p class="muted">
+          Phép tính theo lịch làm việc của bạn, bỏ ngày không có ca và ngày lễ. Cả ngày tính 1 ngày,
+          buổi có ca tính 0,5 ngày.
+        </p>
+        <button
+          class="button button-secondary"
+          type="button"
+          :disabled="estimating || sending"
+          @click="previewLeave"
+        >
+          {{ estimating ? 'Đang tính…' : 'Tính số ngày nghỉ' }}
+        </button>
+        <p v-if="estimate" role="status">
+          Số ngày nghỉ theo lịch: <strong>{{ estimate.totalDays }}</strong
+          >. Số ngày sẽ được kiểm tra lại khi gửi và duyệt.
+        </p>
+        <p v-if="estimateError" role="alert">{{ estimateError }}</p>
         <button class="button button-primary" type="submit">
           {{ sending ? 'Đang gửi…' : 'Gửi đơn đến HR' }}
         </button>

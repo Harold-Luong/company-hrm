@@ -29,6 +29,44 @@ Thông báo đơn đi trễ/về sớm có outbox Kafka tùy chọn: cần SQL `
 `GET /api/v1/attendance/requests/pending-count` trả `{ "count": N }` cho HR/ADMIN,
 đếm cả đơn đi trễ và về sớm đang `PENDING`, phục vụ badge hàng chờ duyệt.
 
+## Đồng bộ coverage và chốt kỳ công theo tháng
+
+Áp [005_attendance_periods.sql](docs/sql/005_attendance_periods.sql) lên database cũ;
+schema 001 đã gồm hai bảng mới `attendance_periods`, `attendance_period_history`.
+
+Báo cáo kỳ mở tự lấy phép/ngày lễ, cập nhật coverage của ngày đã ghi công khi nội dung
+nguồn đổi. Giữ ca, giờ gốc và correction; tăng recordVersion để đơn điều chỉnh cũ phải
+đối chiếu lại. `refresh-coverage` vẫn hỗ trợ làm mới thủ công. Đây là đồng bộ khi đọc
+API `/mine`, `/reports`, CSV; không có worker nền, không giữ token người dùng để chạy nền.
+
+Endpoint mới `/api/v1/attendance/leave-calendar?employeeId=...&from=...&until=...`
+trả số unit phép theo từng ngày/buổi (0, 1 hoặc 2), chỉ chủ hồ sơ hoặc HR/ADMIN đọc được.
+Dùng ca theo ngày hiệu lực/ca đã ghi công, loại ngày lễ chung và trước ngày vào làm.
+Endpoint này không gọi Leave để tránh vòng lặp REST.
+
+Các API sau dành riêng HR/ADMIN, tháng dạng `YYYY-MM`:
+
+| API | Ý nghĩa |
+| --- | --- |
+| `GET /api/v1/attendance/periods/{month}` | Trạng thái và version; tháng chưa tạo có version -1 |
+| `POST /api/v1/attendance/periods/{month}/close` | Chốt toàn công ty; body `{ "reason": "..." }`, header `If-Match: "<version>"` |
+| `POST /api/v1/attendance/periods/{month}/reopen` | Mở lại, cùng body/header, không xóa revision cũ |
+| `GET /api/v1/attendance/periods/{month}/history` | Lịch sử version, người, thời điểm, lý do |
+| `GET /api/v1/attendance/periods/{month}/check-sources` | So phép/ngày nghỉ hiện tại với lúc chốt, trả `changed`, `checkedAt` |
+
+Chỉ chốt tháng đã kết thúc; chặn đơn phép/điều chỉnh phép/chấm công/correction/OT
+PENDING, OT đã duyệt thiếu giờ, công chưa đầy đủ và xung đột nguồn/đơn đi trễ.
+Thừa hưởng giới hạn 5.000 dòng báo cáo. Các thao tác chốt/mở và mutation Attendance
+cùng khóa schedule state để tuần tự hóa, dùng If-Match chống ghi đè. Kỳ đóng chặn
+chấm công, correction, xét duyệt đơn/OT, refresh và phân lịch ảnh hưởng kỳ đó.
+
+Báo cáo và CSV kỳ đóng đọc bản chụp FINAL, lọc quyền nhân viên/phòng ban trên bản chụp;
+không cần gọi dịch vụ nguồn. Mỗi lần chốt giữ snapshot trong lịch sử, mở lại không xóa.
+Phép/ngày lễ sửa sau chốt không thay báo cáo FINAL: kiểm tra nguồn rồi mở lại/chốt lại.
+Chốt kiểm tra nguồn hai lần và từ chối nếu khác nhau, nhưng không phải transaction
+phân tán; thay đổi commit sau lần đọc cuối được phát hiện ở thao tác kiểm tra nguồn.
+Lịch sử thu hồi/điều chỉnh Leave được giữ ở Leave; Attendance không ghi xuyên database.
+
 ## Cấu hình và chạy độc lập
 
 Project Maven riêng, Java 21, cổng mặc định 8085. Build/chạy từ thư mục
@@ -88,7 +126,7 @@ thay mvn. Không bắt buộc `run-all.sh` hoặc Docker Compose để chạy pr
 - Tham chiếu phiên bản ca bất biến, snapshot nhân viên/phép/ngày nghỉ tối thiểu; ghi sự kiện, kết quả và idempotency trong cùng transaction. Phiên bản `If-Match` chống ghi đè; khóa DB bảo vệ phân công/check-in đồng thời.
 
 Chưa gồm `FLEXIBLE_DURATION`, nhiều lần vào/ra trong một ca,
-khóa kỳ, payroll, tự đồng bộ Kafka hoặc thay đổi sổ số dư Leave.
+payroll, tự đồng bộ Kafka hoặc thay đổi sổ số dư Leave. Đã có chốt/mở tháng và đồng bộ coverage khi đọc.
 **File CSV rút gọn:** nút xuất trên UI mặc định trả 16 cột tiếng Việt, mỗi nhân viên/ngày một dòng:
 Mã nhân viên, Họ tên, Ngày công, Giờ vào (GMT+7), Giờ ra (GMT+7), Công chuẩn (phút),
 Công ghi nhận (phút), Phép năm (phút), Nghỉ không lương (phút), Đi trễ (phút),
@@ -101,7 +139,7 @@ và đơn trễ/sớm xung đột; không chứa ID hoặc lý do riêng tư.
 Số phút giữ đúng kết quả tính hiện hành: công thường tách khỏi OT, trễ/sớm là số phút
 đã làm tròn theo quy tắc hiện tại (kể cả đã xin phép), không suy ra tiền lương hoặc
 quy đổi ngày công theo mức 8 giờ cố định. Công chưa xác định để ô trống, không đổi thành 0.
-Bảng vẫn ghi **Tạm tính - chưa chốt**. CSV mở được bằng Excel, chưa phải định dạng `.xlsx`.
+Bảng kỳ mở ghi **Tạm tính - chưa chốt**, kỳ đóng dùng bản chụp **Đã chốt**. CSV mở được bằng Excel, chưa phải định dạng `.xlsx`.
 Nếu cần các cột kỹ thuật để đối soát, dùng cùng endpoint với `detail=true`; bản đầy đủ
 40 cột cũ vẫn được giữ. JSON API không đổi.
 
@@ -307,9 +345,9 @@ Ngày nghỉ PUBLISHED/HOLIDAY/ALL/allDay không yêu cầu làm việc.
 suy ra thời gian làm. Thời gian thực tế giữ giây, số phút công không âm.
 Ví dụ nghỉ sáng + 13:38–17:30: phép 0,5 ngày/240 phút, thực tế 232 phút, công 225 phút.
 
-Ngày đã check-in giữ snapshot nguồn tại thời điểm ghi nhận. Khi phép hoặc ngày
-nghỉ thay đổi, HR dùng **Cập nhật phép/lịch** để đối soát; thao tác có version và
-audit, không đổi ca/giờ vào ra. Chưa có transaction xuyên các service hoặc tự đồng bộ.
+Ngày đã check-in giữ ca và giờ gốc; coverage phép/ngày nghỉ của kỳ mở tự cập nhật
+khi đọc báo cáo. HR vẫn có **Cập nhật phép/lịch** với version/audit. Kỳ đóng giữ
+bản chụp FINAL; cần mở lại trước khi thay đổi. Không có transaction xuyên service.
 
 Frontend đã kết nối API thật, dùng phiên đăng nhập sẵn có:
 
@@ -364,8 +402,8 @@ thiếu thực tế nằm trong khoảng xin phép; không bù phần vượt gi
 Thiếu punch không suy ra giờ thực tế. Khi phép/ngày nghỉ mới xung đột với đơn duyệt,
 sau refresh nguồn, ID đơn nằm trong conflictingRequestIds để HR đối soát.
 
-Phê duyệt trong cùng database có hiệu lực ở lần đọc báo cáo tiếp theo; báo cáo vẫn
-DRAFT. Leave/Calendar kiểm tra qua REST chưa có transaction xuyên service: nếu
+Phê duyệt trong cùng database có hiệu lực ở lần đọc báo cáo kỳ mở tiếp theo (DRAFT);
+kỳ đóng trả bản chụp FINAL. Leave/Calendar kiểm tra qua REST chưa có transaction xuyên service: nếu
 nguồn thay đổi đồng thời hoặc sau khi duyệt, cần refresh/đối soát; không tự hủy
 phép hoặc đơn đã duyệt. Mỗi đơn có nhật ký trước/sau theo các snapshot version.
 
@@ -465,7 +503,7 @@ giờ ngoài cửa sổ ghi nhận, giờ đảo thứ tự hoặc cặp giờ k
   Lý do và ghi chú xét duyệt chỉ có trong đơn/lịch sử được kiểm tra quyền.
   OT vẫn chấm riêng; đơn điều chỉnh này không sửa OT hoặc chốt bảng công.
 - Phép/ngày nghỉ mới nhất được chụp lại khi duyệt; nguồn thay đổi sau đó vẫn dùng
-  thao tác refresh coverage hiện có. Báo cáo tiếp tục là DRAFT.
+  coverage mới ở lần tải báo cáo kỳ mở tiếp theo. Báo cáo kỳ đã chốt giữ FINAL.
 
 API dưới `/api/v1/attendance/corrections`:
 
@@ -714,7 +752,7 @@ công ty, tổng hợp phép/ngày nghỉ và CSV tạm tính; có UI tương �
 công ty chưa có lịch. Lịch riêng và lịch công ty HR đã cấu hình được giữ nguyên.
 Attendance cũng quản lý đơn đi trễ/về sớm, ca cố định qua đêm và OT có duyệt.
 Leave hỗ trợ bước 0,5 ngày và endpoint coverage tối thiểu phục vụ Attendance.
-Đã có đơn bổ sung/điều chỉnh công và duyệt. Chưa có lịch linh hoạt, chốt kỳ
+Đã có đơn bổ sung/điều chỉnh công, duyệt và chốt/mở tháng. Chưa có lịch linh hoạt
 hoặc tự đồng bộ nguồn. Các mô hình/contract dự kiến bên dưới không đồng nghĩa đã
 triển khai toàn bộ; API hiện hành nằm trong README service.
 
@@ -828,7 +866,7 @@ phải có ánh xạ nghỉ nửa ngày rõ ràng trước khi nhận loại đ�
 | Employee   | Nhân viên, phòng ban, ngày bắt đầu/kết thúc làm việc                                                                                         |
 | Calendar   | Ngày lễ/ngày nghỉ chung có hiệu lực                                                                                                          |
 | Leave      | Đơn nghỉ cả ngày/nửa ngày, số dư phép, phê duyệt và lịch sử nghỉ phép                                                                        |
-| Attendance | Mẫu ca, phân công, sự kiện vào/ra, đơn đi trễ/về sớm, điều chỉnh công và lịch sử duyệt, OT, công tạm tính và CSV; chốt kỳ còn trong lộ trình |
+| Attendance | Mẫu ca, phân công, sự kiện vào/ra, đơn đi trễ/về sớm, điều chỉnh công và lịch sử duyệt, OT, công tạm tính và CSV; chốt/mở lại tháng và lịch sử phiên bản |
 
 Chưa cần Shift Service hoặc Report Service riêng. Không đọc chéo database.
 Attendance lấy dữ liệu qua API nội bộ có xác thực hoặc bản sao từ sự kiện;

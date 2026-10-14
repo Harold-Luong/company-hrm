@@ -61,6 +61,8 @@ async function setup(page, role = 'EMPLOYEE') {
       return route.fulfill({
         json: { id: 'user', employeeId, email: 'an@company.com', roles: [role], active: true },
       })
+    if (path.includes('/attendance/periods/'))
+      return route.fulfill({ json: path.endsWith('/history') ? [] : { month: path.split('/')[5], version: -1, closed: false } })
     if (path.endsWith('/pending-count'))
       return route.fulfill({
         json: {

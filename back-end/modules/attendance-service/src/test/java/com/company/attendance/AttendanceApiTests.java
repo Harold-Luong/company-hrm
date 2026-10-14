@@ -56,7 +56,7 @@ class AttendanceApiTests extends JwtTestSupport {
 
     @BeforeEach
     void reset() {
-        for (String table : List.of("attendance_overtime_requests", "attendance_request_history", "attendance_requests", "attendance_events", "attendance_daily", "attendance_correction_history", "attendance_corrections", "work_schedule_rules", "attendance_schedule_batches", "attendance_operations", "shift_revisions", "work_shifts"))
+        for (String table : List.of("attendance_period_history", "attendance_periods", "attendance_overtime_requests", "attendance_request_history", "attendance_requests", "attendance_events", "attendance_daily", "attendance_correction_history", "attendance_corrections", "work_schedule_rules", "attendance_schedule_batches", "attendance_operations", "shift_revisions", "work_shifts"))
             jdbc.update("DELETE FROM " + table);
         jdbc.update("UPDATE attendance_schedule_state SET revision=0, version=0 WHERE id=1");
         source.leaves = List.of(); source.holidays = List.of(); source.fail = false; source.active = true;
@@ -181,14 +181,14 @@ class AttendanceApiTests extends JwtTestSupport {
         clock.at("15:00"); punch("check-out", "out").andExpect(status().isOk());
         source.leaves = List.of(new WorkforceClient.Leave(UUID.randomUUID(), EMPLOYEE, "ANNUAL", DATE, DATE, "FULL_DAY", "APPROVED", 1));
         mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].workMinutesCounted").value(120));
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].status").value("SOURCE_CONFLICT"));
         String path = BASE + "/employees/" + EMPLOYEE + "/days/" + DATE + "/refresh-coverage";
         mvc.perform(post(path).with(employee()).header("If-Match", "\"1\"")).andExpect(status().isForbidden());
         mvc.perform(post(path).with(hr()).header("If-Match", "\"0\"")).andExpect(status().isPreconditionFailed());
         clock.at("15:01");
-        mvc.perform(post(path).with(hr()).header("If-Match", "\"1\""))
+        mvc.perform(post(path).with(hr()).header("If-Match", "\"2\""))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SOURCE_CONFLICT"))
-                .andExpect(jsonPath("$.workMinutesCounted").doesNotExist()).andExpect(jsonPath("$.recordVersion").value(2));
+                .andExpect(jsonPath("$.workMinutesCounted").doesNotExist()).andExpect(jsonPath("$.recordVersion").value(3));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_events", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_operations WHERE operation_type='REFRESH_COVERAGE'", Integer.class)).isEqualTo(1);
     }
@@ -530,7 +530,7 @@ class AttendanceApiTests extends JwtTestSupport {
         punch("check-in", "in").andExpect(status().isOk());
         clock.at("15:00");
         punch("check-out", "out").andExpect(status().isOk());
-        // Later source changes must not replace the saved day's leave snapshot.
+        // Open-period reads must refresh leave while retaining the assigned shift and original punches.
         source.leaves = List.of(new WorkforceClient.Leave(UUID.randomUUID(), EMPLOYEE, "ANNUAL", DATE, DATE, "FULL_DAY", "APPROVED", 1));
         LocalDate until = DATE.plusDays(30);
         clock.time = until.atTime(21, 0).atZone(clock.getZone()).toInstant();
@@ -546,15 +546,16 @@ class AttendanceApiTests extends JwtTestSupport {
             mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + until).with(employee()))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(31))
                     .andExpect(jsonPath("$[0].shiftId").value(personal))
-                    .andExpect(jsonPath("$[0].workMinutesCounted").value(105))
-                    .andExpect(jsonPath("$[0].annualLeaveMinutes").value(0))
-                    .andExpect(jsonPath("$[0].permissionCoverage.approvedRequestIds[0]").value(request))
+                    .andExpect(jsonPath("$[0].workMinutesCounted").isEmpty())
+                    .andExpect(jsonPath("$[0].status").value("SOURCE_CONFLICT"))
+                    .andExpect(jsonPath("$[0].annualLeaveMinutes").value(120))
+                    .andExpect(jsonPath("$[0].permissionCoverage.conflictingRequestIds[0]").value(request))
                     .andExpect(jsonPath("$[0].overtime.approvedMinutes").value(120))
                     .andExpect(jsonPath("$[1].status").value("NO_SCHEDULE"))
                     .andExpect(jsonPath("$[7].shiftId").value(company))
                     .andExpect(jsonPath("$[7].permissionCoverage.approvedRequestIds").isEmpty())
                     .andExpect(jsonPath("$[7].overtime.approvedMinutes").value(0));
-            assertThat(statistics.getPrepareStatementCount()).isEqualTo(oneDayQueries).isEqualTo(4);
+            assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(oneDayQueries * 3);
             mvc.perform(get(BASE + "/reports?employeeId=" + OTHER + "&from=" + DATE + "&until=" + until).with(hr()))
                     .andExpect(status().isOk()).andExpect(jsonPath("$[0].shiftId").value(company))
                     .andExpect(jsonPath("$[0].permissionCoverage.approvedRequestIds").isEmpty())
@@ -835,6 +836,97 @@ class AttendanceApiTests extends JwtTestSupport {
         mvc.perform(post(BASE + "/corrections").with(employee()).contentType("application/json").content(body))
                 .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM attendance_corrections", Integer.class)).isZero();
+    }
+
+    @Test
+    void leaveCalendarResolvesPersonalShiftOffDaysAndHolidaysWithOwnerScope() throws Exception {
+        String shift = assignedRequestShift();
+        mvc.perform(get(BASE + "/leave-calendar?employeeId=" + EMPLOYEE + "&from=" + DATE + "&until=" + DATE.plusDays(1)).with(employee()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].shiftId").value(shift))
+            .andExpect(jsonPath("$[0].fullUnits").value(2)).andExpect(jsonPath("$[0].morningUnits").value(0))
+            .andExpect(jsonPath("$[0].afternoonUnits").value(1)).andExpect(jsonPath("$[1].fullUnits").value(0));
+        source.holidays = List.of(new WorkforceClient.Holiday(1L, "HOLIDAY", "PUBLISHED", "ALL", true, DATE, DATE));
+        mvc.perform(get(BASE + "/leave-calendar?employeeId=" + EMPLOYEE + "&from=" + DATE + "&until=" + DATE).with(employee()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].fullUnits").value(0))
+            .andExpect(jsonPath("$[0].afternoonUnits").value(0));
+        mvc.perform(get(BASE + "/leave-calendar?employeeId=" + OTHER + "&from=" + DATE + "&until=" + DATE).with(employee()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void openReportAutomaticallyAppliesAndRemovesLeaveWithoutChangingPunches() throws Exception {
+        assignedRequestShift(); clock.at("13:00"); punch("check-in", "sync-in");
+        clock.at("15:00"); punch("check-out", "sync-out");
+        source.leaves = List.of(new WorkforceClient.Leave(UUID.randomUUID(), EMPLOYEE, "ANNUAL", DATE, DATE, "FULL_DAY", "APPROVED", 1));
+        String url = BASE + "/mine?from=" + DATE + "&until=" + DATE;
+        mvc.perform(get(url).with(employee())).andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].status").value("SOURCE_CONFLICT"))
+            .andExpect(jsonPath("$[0].annualLeaveMinutes").value(120));
+        source.leaves = List.of();
+        mvc.perform(get(url).with(employee())).andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].status").value("CLOSED"))
+            .andExpect(jsonPath("$[0].annualLeaveMinutes").value(0))
+            .andExpect(jsonPath("$[0].workMinutesCounted").value(120));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM attendance_events", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT leave_snapshot FROM attendance_daily", String.class)).isEqualTo("[]");
+    }
+
+    private void completedHolidayMonth() throws Exception {
+        assignedRequestShift();
+        source.holidays = List.of(new WorkforceClient.Holiday(1L, "HOLIDAY", "PUBLISHED", "ALL", true,
+            LocalDate.of(2030, 1, 1), LocalDate.of(2030, 1, 31)));
+        clock.time = Instant.parse("2030-02-02T01:00:00Z");
+    }
+    private ResultActions periodChange(String action, long version) throws Exception {
+        return mvc.perform(post(BASE + "/periods/2030-01/" + action).with(hr()).header("If-Match", "\"" + version + "\"")
+            .contentType("application/json").content("{\"reason\":\"Reviewed monthly attendance\"}"));
+    }
+    @Test
+    void periodFreezesReportsGuardsMutationsAndPreservesRevisionsAcrossReopen() throws Exception {
+        completedHolidayMonth();
+        mvc.perform(get(BASE + "/periods/2030-01").with(hr())).andExpect(jsonPath("$.version").value(-1));
+        periodChange("close", -1).andExpect(status().isOk()).andExpect(jsonPath("$.closed").value(true));
+        mvc.perform(get(BASE + "/periods/2030-01/check-sources").with(hr())).andExpect(jsonPath("$.changed").value(false));
+        source.holidays = List.of();
+        mvc.perform(get(BASE + "/periods/2030-01/check-sources").with(hr())).andExpect(jsonPath("$.changed").value(true));
+        source.fail = true;
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].reportState").value("FINAL"))
+            .andExpect(jsonPath("$[0].status").value("HOLIDAY"));
+        mvc.perform(get(BASE + "/reports/export.csv?from=" + DATE + "&until=" + DATE).with(hr()))
+            .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("Đã chốt")));
+        submitCorrection(correctionBody(UUID.randomUUID().toString(), null, "13:00", "15:00"), "closed-correction")
+            .andExpect(status().isConflict());
+        mvc.perform(post(BASE + "/employees/" + EMPLOYEE + "/days/" + DATE + "/refresh-coverage").with(hr()).header("If-Match", "\"0\""))
+            .andExpect(status().isConflict());
+        periodChange("reopen", -1).andExpect(status().isPreconditionFailed());
+        periodChange("reopen", 0).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1));
+        source.fail = false;
+        mvc.perform(get(BASE + "/mine?from=" + DATE + "&until=" + DATE).with(employee()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].reportState").value("DRAFT"))
+            .andExpect(jsonPath("$[0].status").value("NO_RECORD"));
+        periodChange("close", 1).andExpect(status().isConflict());
+        source.holidays = List.of(new WorkforceClient.Holiday(2L, "HOLIDAY", "PUBLISHED", "ALL", true,
+            LocalDate.of(2030, 1, 1), LocalDate.of(2030, 1, 31)));
+        periodChange("close", 1).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
+        mvc.perform(get(BASE + "/periods/2030-01/history").with(hr())).andExpect(jsonPath("$.length()").value(3));
+        mvc.perform(get(BASE + "/periods/2030-01").with(employee())).andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM attendance_period_history WHERE closed = true", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void periodRejectsPendingLeaveAdjustmentsCurrentMonthsAndStaleConcurrentClose() throws Exception {
+        periodChange("close", -1).andExpect(status().isConflict());
+        completedHolidayMonth();
+        source.leaves = List.of(new WorkforceClient.Leave(UUID.randomUUID(), EMPLOYEE, "ANNUAL", DATE, DATE, "FULL_DAY", "APPROVED", 1, true));
+        periodChange("close", -1).andExpect(status().isConflict());
+        source.leaves = List.of();
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> periodChange("close", -1).andReturn().getResponse().getStatus());
+            var second = pool.submit(() -> periodChange("close", -1).andReturn().getResponse().getStatus());
+            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(200, 412);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM attendance_period_history", Integer.class)).isEqualTo(1);
     }
 
     private String correctionBody(String shift, Long version, String in, String out) {

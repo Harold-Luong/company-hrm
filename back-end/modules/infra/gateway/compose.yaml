@@ -130,6 +130,7 @@ services:
         MODULE: leave-service
     environment:
       SERVER_PORT: 8084
+      ATTENDANCE_SERVICE_URL: http://attendance:8085
       SPRING_DATASOURCE_URL: jdbc:postgresql://leave-db:5432/leave_db
       SPRING_DATASOURCE_USERNAME: leave_user
       SPRING_DATASOURCE_PASSWORD: ${LEAVE_DB_PASSWORD:?Set Leave DB password}

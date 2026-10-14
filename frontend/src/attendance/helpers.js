@@ -107,6 +107,27 @@ export function attendanceError(error) {
   if (error.status === 422)
     return 'Phạm vi dữ liệu quá lớn. Hãy chọn ít nhân viên hoặc rút ngắn khoảng ngày.'
   const messages = {
+    'Leave or holidays changed during closing; reload and retry':
+      'Phép hoặc ngày nghỉ vừa thay đổi khi chốt. Hãy tải lại và kiểm tra trước khi thử lại.',
+    'Period must be closed before checking sources': 'Kỳ công chưa chốt. Hãy tải lại trạng thái.',
+
+    'Attendance period is closed; HR/ADMIN must reopen it with a reason':
+      'Kỳ công đã chốt. HR/ADMIN cần mở lại kỳ và ghi lý do trước khi thay đổi.',
+    'Schedule overlaps a closed attendance period':
+      'Lịch mới ảnh hưởng kỳ công đã chốt. Cần mở lại kỳ trước.',
+    'Only completed months can be closed': 'Chỉ được chốt tháng đã kết thúc.',
+    'Resolve pending attendance, correction and OT requests before closing':
+      'Cần xử lý hết đơn đi trễ/về sớm, điều chỉnh công và OT trước khi chốt.',
+    'Complete approved OT recordings before closing':
+      'OT đã duyệt còn thiếu giờ vào/ra. Cần hoàn thiện trước khi chốt.',
+    'Resolve pending leave and leave adjustments before closing':
+      'Còn đơn nghỉ phép hoặc điều chỉnh phép chờ duyệt trong tháng.',
+    'Resolve missing punches and source conflicts before closing':
+      'Còn ngày công thiếu giờ vào/ra hoặc xung đột phép/ngày nghỉ. Cần xử lý trước khi chốt.',
+    'There are no employees to close': 'Không có dữ liệu nhân viên trong tháng để chốt.',
+    'Period is already closed': 'Kỳ công đã chốt. Hãy tải lại trạng thái.',
+    'Period is already open': 'Kỳ công đang mở. Hãy tải lại trạng thái.',
+
     'You cannot review your own attendance correction':
       'Bạn không được tự xét duyệt đơn điều chỉnh của mình.',
     'Only pending corrections can be reviewed': 'Đơn đã được xử lý. Hãy tải lại danh sách.',

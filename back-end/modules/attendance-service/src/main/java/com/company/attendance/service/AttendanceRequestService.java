@@ -27,6 +27,7 @@ public class AttendanceRequestService {
     private final OperationService operations;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final PeriodStore periods;
     private final com.company.attendance.notifications.NotificationOutbox notifications;
 
     public PageResponse<Response> list(boolean inbox, AttendanceRequestStatus status, int page, int size, JwtAuthenticationToken actor) {
@@ -56,7 +57,7 @@ public class AttendanceRequestService {
     }
     @Transactional
     public Response update(UUID id,Write body,String match,JwtAuthenticationToken actor) {
-        state.lockState(); var row=read(id,actor); ownPending(row,actor); requireVersion(match,row.getVersion());
+        state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); ownPending(row,actor); requireVersion(match,row.getVersion());
         // Do not allow an expired pending request to be repurposed as a new request.
         if(row.getWorkDate().isBefore(LocalDate.now(clock))) throw error(HttpStatus.CONFLICT,"Past requests cannot be edited");
         var before=response(row); populate(row,body,actor);
@@ -66,12 +67,12 @@ public class AttendanceRequestService {
     }
     @Transactional
     public Response cancel(UUID id,String match,JwtAuthenticationToken actor) {
-        state.lockState(); var row=read(id,actor); ownPending(row,actor); requireVersion(match,row.getVersion());
+        state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); ownPending(row,actor); requireVersion(match,row.getVersion());
         row.setStatus(CANCELLED); row.setActiveSlot(null); row.setUpdatedAt(nextUpdate(row)); requests.flush(); audit(row,"CANCELLED",actor); return response(row);
     }
     @Transactional
     public Response decide(UUID id,Decision decision,String match,JwtAuthenticationToken actor) {
-        requireReviewer(actor); state.lockState(); var row=read(id,actor); requireVersion(match,row.getVersion());
+        requireReviewer(actor); state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); requireVersion(match,row.getVersion());
         if(row.getEmployeeId().equals(employee(actor)) || row.getRequesterUserId().equals(actor.getName()))
             throw error(HttpStatus.FORBIDDEN,"You cannot review your own attendance request");
         if(row.getStatus()!=PENDING) throw error(HttpStatus.CONFLICT,"Only pending requests can be reviewed");
@@ -84,6 +85,7 @@ public class AttendanceRequestService {
         requests.flush(); audit(row,decision.status().name(),actor); return response(row);
     }
     private void populate(AttendanceRequest row,Write body,JwtAuthenticationToken actor) {
+        periods.requireOpen(body.workDate());
         var person=source.employee(row.getEmployeeId(),actor);
         if(!source.eligible(person,body.workDate())) throw error(HttpStatus.CONFLICT,"Employee is not eligible on the request date");
         var plan=validateSchedule(row,body,actor,true);

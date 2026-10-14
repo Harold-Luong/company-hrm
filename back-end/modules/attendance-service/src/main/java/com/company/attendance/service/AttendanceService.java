@@ -32,6 +32,7 @@ public class AttendanceService {
     private final ObjectMapper mapper;
     private final AttendanceSnapshots snapshots;
     private final Clock clock;
+    private final PeriodStore periods;
 
     @Transactional
     public AttendanceResponse punch(boolean checkIn, String key, String ip, JwtAuthenticationToken actor) {
@@ -61,6 +62,7 @@ public class AttendanceService {
                     date = date.minusDays(1);
             }
         }
+        periods.requireOpen(date);
         var person = source.employee(employee, actor);
         if (!source.eligible(person, date))
             throw error(HttpStatus.FORBIDDEN, "Employee is not eligible to record attendance");
@@ -105,10 +107,12 @@ public class AttendanceService {
         return response;
     }
 
+    @Transactional
     public List<AttendanceResponse> mine(LocalDate from, LocalDate until, JwtAuthenticationToken actor) {
         return report(employee(actor), null, from, until, actor);
     }
 
+    @Transactional
     public List<AttendanceResponse> report(UUID employee, UUID department, LocalDate from, LocalDate until,
             JwtAuthenticationToken actor) {
         ScheduleService.dateRange(from, until);
@@ -116,6 +120,24 @@ public class AttendanceService {
             requireReviewer(actor);
         if (until.isAfter(LocalDate.now(clock)))
             throw error(HttpStatus.BAD_REQUEST, "Attendance reports cannot include future dates");
+        state.lockState();
+        List<AttendanceResponse> all = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(from); !month.isAfter(YearMonth.from(until)); month = month.plusMonths(1)) {
+            LocalDate first = from.isAfter(month.atDay(1)) ? from : month.atDay(1);
+            LocalDate last = until.isBefore(month.atEndOfMonth()) ? until : month.atEndOfMonth();
+            var frozen = periods.frozen(month);
+            if (frozen.isPresent()) {
+                frozen.get().stream().filter(row -> !row.workDate().isBefore(first) && !row.workDate().isAfter(last))
+                    .filter(row -> employee == null || employee.equals(row.employeeId()))
+                    .filter(row -> department == null || department.equals(row.departmentId())).forEach(all::add);
+            } else all.addAll(draft(employee, department, first, last, actor));
+            if (all.size() > 5000) throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Report exceeds 5000 rows; narrow the scope");
+        }
+        return all;
+    }
+
+    private List<AttendanceResponse> draft(UUID employee, UUID department, LocalDate from, LocalDate until,
+            JwtAuthenticationToken actor) {
         List<WorkforceClient.Employee> people = employee == null ? source.employees(actor)
                 : List.of(source.employee(employee, actor));
         if (department != null)
@@ -140,7 +162,15 @@ public class AttendanceService {
                 var requests = activeRequests.getOrDefault(date, List.of());
                 var ot = overtimeSummaries.getOrDefault(date, OvertimeModels.Summary.empty());
                 if (saved.containsKey(date)) {
-                    result.add(result(saved.get(date), requests, ot));
+                    var day = saved.get(date);
+                    String leaveJson = snapshots.leaves(person.id(), date, leave);
+                    String holidayJson = snapshots.holidays(date, holidays);
+                    if (!leaveJson.equals(day.getLeaveSnapshot()) || !holidayJson.equals(day.getHolidaySnapshot())) {
+                        day.setLeaveSnapshot(leaveJson); day.setHolidaySnapshot(holidayJson);
+                        day.setSourceObservedAt(clock.instant());
+                        days.flush();
+                    }
+                    result.add(result(day, requests, ot));
                     continue;
                 }
                 if (date.isBefore(person.hireDate()))
@@ -168,6 +198,7 @@ public class AttendanceService {
     public AttendanceResponse refresh(UUID employee, LocalDate date, String match, JwtAuthenticationToken actor) {
         requireReviewer(actor);
         state.lockState();
+        periods.requireOpen(date);
         var day = days.findByEmployeeIdAndWorkDate(employee, date)
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Recorded day not found"));
         requireVersion(match, day.getVersion());

@@ -12,4 +12,12 @@ public record AttendanceResponse(UUID employeeId, String employeeCode, String em
         Integer roundedLateMinutes, Long earlyActualSeconds, Integer roundedEarlyMinutes,
         String status, List<UUID> pendingLeaveIds, List<UUID> appliedLeaveIds,
         Instant sourceObservedAt, Long recordVersion, String reportState, AttendancePermissionCoverage permissionCoverage, OvertimeModels.Summary overtime,
-        Instant originalCheckIn, Instant originalCheckOut, UUID correctionId) {}
+        Instant originalCheckIn, Instant originalCheckOut, UUID correctionId) {
+    public AttendanceResponse withReportState(String state) {
+        return new AttendanceResponse(employeeId, employeeCode, employeeName, departmentId, workDate, shiftId,
+            shiftVersion, checkIn, checkOut, baseRequiredMinutes, annualLeaveMinutes, unpaidLeaveMinutes, leaveDays,
+            remainingRequiredMinutes, workedActualSeconds, workMinutesCounted, lateActualSeconds, roundedLateMinutes,
+            earlyActualSeconds, roundedEarlyMinutes, status, pendingLeaveIds, appliedLeaveIds, sourceObservedAt,
+            recordVersion, state, permissionCoverage, overtime, originalCheckIn, originalCheckOut, correctionId);
+    }
+}

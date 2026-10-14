@@ -25,6 +25,7 @@ public class OvertimeService {
     private final WorkforceClient source;
     private final OperationService operations;
     private final Clock clock;
+    private final PeriodStore periods;
 
     public PageResponse<Response> list(boolean inbox,String status,int page,int size,JwtAuthenticationToken actor) {
         if(inbox) requireReviewer(actor); page(page,size);
@@ -34,6 +35,7 @@ public class OvertimeService {
     public Response create(Write body,String key,JwtAuthenticationToken actor) {
         state.lockState();
         var replay=operations.replay(actor.getName(),"CREATE_OT",key,body,Response.class); if(replay!=null) return replay;
+        periods.requireOpen(body.start().toLocalDate());
         var person=source.employee(employee(actor),actor);
         var row=new OvertimeRequest(); row.setId(UUID.randomUUID()); row.setEmployeeId(person.id());
         row.setRequesterUserId(actor.getName()); row.setEmployeeName(person.lastName()+" "+person.firstName());
@@ -48,6 +50,7 @@ public class OvertimeService {
                 || !end.isAfter(start) || Duration.between(start,end).toHours()>=24
                 || (beforeStart && !start.atZone(ZONE).toInstant().isAfter(clock.instant())) || start.toLocalDate().isAfter(LocalDate.now(clock).plusDays(365)))
             throw error(HttpStatus.BAD_REQUEST,"OT must be in the future, at minute precision, and shorter than 24 hours");
+        periods.requireOpen(row.getWorkDate());
         var person=source.employee(row.getEmployeeId(),actor);
         if(!source.eligible(person,start.toLocalDate()) || !source.eligible(person,end.toLocalDate()))
             throw error(HttpStatus.CONFLICT,"Employee is not eligible for OT");
@@ -76,7 +79,7 @@ public class OvertimeService {
     }
     @Transactional
     public Response decide(UUID id,AttendanceRequestModels.Decision decision,String match,JwtAuthenticationToken actor) {
-        requireReviewer(actor); state.lockState(); var row=read(id,actor); requireVersion(match,row.getVersion());
+        requireReviewer(actor); state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); requireVersion(match,row.getVersion());
         if(row.getRequesterUserId().equals(actor.getName()) || row.getEmployeeId().equals(employee(actor)))
             throw error(HttpStatus.FORBIDDEN,"You cannot review your own OT request");
         pending(row);
@@ -91,7 +94,7 @@ public class OvertimeService {
     }
     @Transactional
     public Response cancel(UUID id,String match,JwtAuthenticationToken actor) {
-        state.lockState(); var row=read(id,actor); own(row,actor); requireVersion(match,row.getVersion()); pending(row);
+        state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); own(row,actor); requireVersion(match,row.getVersion()); pending(row);
         row.setStatus("CANCELLED"); requests.flush(); var result=response(row);
         operations.save(actor.getName(),"CANCEL_OT",UUID.randomUUID().toString(),Map.of("id",id),result); return result;
     }
@@ -99,7 +102,7 @@ public class OvertimeService {
     public Response punch(UUID id,boolean checkIn,String key,String ip,JwtAuthenticationToken actor) {
         state.lockState(); var type=checkIn?"OT_CHECK_IN":"OT_CHECK_OUT"; var body=Map.of("id",id);
         var replay=operations.replay(actor.getName(),type,key,body,Response.class); if(replay!=null) return replay;
-        var row=read(id,actor); own(row,actor);
+        var row=read(id,actor); periods.requireOpen(row.getWorkDate()); own(row,actor);
         if(!"APPROVED".equals(row.getStatus())) throw error(HttpStatus.CONFLICT,"OT must be approved before recording time");
         Instant now=clock.instant(),start=row.getStartTime().atZone(ZONE).toInstant(),end=row.getEndTime().atZone(ZONE).toInstant();
         if(checkIn) {

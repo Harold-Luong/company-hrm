@@ -39,11 +39,26 @@ class LeaveIntegrationTests extends JwtTestSupport {
     @Autowired JdbcTemplate jdbc;
     @Autowired LeaveService service;
     @Autowired com.company.leave.request.LeaveAdjustmentService adjustments;
+    @Autowired FakeCalendar calendar;
     static final UUID EMPLOYEE = UUID.fromString("d38e31b7-0bba-420c-8eaf-50edbe5a61ae");
     static final UUID HR = UUID.fromString("aa8e31b7-0bba-420c-8eaf-50edbe5a61ae");
     static final String BASE = "/api/v1/leave/requests";
+    static class FakeCalendar extends com.company.leave.request.LeaveCalendarClient {
+        boolean workingWeek;
+        boolean fail;
+        boolean changed;
+        FakeCalendar() { super("http://unused", new tools.jackson.databind.ObjectMapper()); }
+        @Override public List<Day> calendar(UUID employee, LocalDate from, LocalDate until, JwtAuthenticationToken actor) {
+            if (fail) throw new ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "Working calendar unavailable");
+            return from.datesUntil(until.plusDays(1)).map(d -> {
+                boolean off = workingWeek && (d.getDayOfWeek().getValue() >= 6 || d.equals(LocalDate.of(2030, 2, 4)));
+                return new Day(d, new UUID(0, 1), changed ? 1L : 0L, off ? 0 : 2, off ? 0 : 1, off ? 0 : 1);
+            }).toList();
+        }
+    }
     @TestConfiguration
     static class TimeConfig {
+        @Bean @Primary FakeCalendar fakeCalendar() { return new FakeCalendar(); }
         @Bean @Primary Clock testClock() { return Clock.fixed(Instant.parse("2030-01-01T00:00:00Z"), ZoneId.of("Asia/Ho_Chi_Minh")); }
     }
     @DynamicPropertySource
@@ -53,7 +68,7 @@ class LeaveIntegrationTests extends JwtTestSupport {
         registry.add("spring.datasource.password", () -> System.getenv().getOrDefault("LEAVE_TEST_DB_PASSWORD", ""));
     }
     @BeforeEach
-    void clear() { jdbc.execute("TRUNCATE leave_adjustments, leave_request_history, leave_balances, leave_requests, leave_request_owners RESTART IDENTITY"); }
+    void clear() { calendar.workingWeek = false; calendar.fail = false; calendar.changed = false; jdbc.execute("TRUNCATE leave_calendar_snapshots, leave_adjustments, leave_request_history, leave_balances, leave_requests, leave_request_owners RESTART IDENTITY"); }
     private JwtAuthenticationToken actor(UUID employee, String role) {
         var jwt = Jwt.withTokenValue("test").header("alg", "RS256").subject(employee.toString())
                 .claim("employee_id", employee.toString()).claim("roles", List.of(role)).build();
@@ -68,6 +83,55 @@ class LeaveIntegrationTests extends JwtTestSupport {
     }
     private String version(Request request) { return "\"" + request.version() + "\""; }
     private AdjustmentSubmission cancellation() { return new AdjustmentSubmission(true, null, null, null, "Worked as usual"); }
+
+    @Test
+    void workingCalendarExcludesWeekendAndHolidayAndRefundUsesOriginalBasis() {
+        calendar.workingWeek = true;
+        var body = new Submission(LeaveType.ANNUAL, LocalDate.of(2030, 2, 1), LocalDate.of(2030, 2, 5), LeavePeriod.FULL_DAY, "Family");
+        var request = service.submit(body, actor(EMPLOYEE, "EMPLOYEE"));
+        assertThat(request.totalUnits()).isEqualTo(4); // Friday + Tuesday, Monday is a holiday.
+        var approved = service.decide(request.id(), Status.APPROVED, version(request), null, actor(HR, "HR"));
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(4);
+        var day = LocalDate.of(2030, 2, 5);
+        var pending = adjustments.submit(request.id(), version(approved),
+            new AdjustmentSubmission(false, day, day, LeavePeriod.AFTERNOON, "Keep only Tuesday afternoon"), actor(EMPLOYEE, "EMPLOYEE"));
+        calendar.changed = true; calendar.workingWeek = false; // Refund must not use a newer calendar.
+        var change = adjustments.list(request.id(), actor(HR, "HR")).getFirst();
+        var result = adjustments.decide(request.id(), change.id(), version(pending), Status.APPROVED, null, actor(HR, "HR"));
+        assertThat(result.totalUnits()).isEqualTo(1);
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isEqualTo(1);
+    }
+
+    @Test
+    void noWorkingDaysUnavailableSourceAndCalendarChangesNeverConsumeBalance() {
+        calendar.workingWeek = true;
+        var off = new Submission(LeaveType.ANNUAL, LocalDate.of(2030, 2, 2), LocalDate.of(2030, 2, 4), LeavePeriod.FULL_DAY, "Off days");
+        assertThatThrownBy(() -> service.submit(off, actor(EMPLOYEE, "EMPLOYEE")))
+            .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        calendar.fail = true;
+        assertThatThrownBy(() -> submit(EMPLOYEE)).isInstanceOfSatisfying(ResponseStatusException.class,
+            e -> assertThat(e.getStatusCode().value()).isEqualTo(503));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM leave_requests", Integer.class)).isZero();
+        calendar.fail = false;
+        var request = submit(EMPLOYEE);
+        calendar.changed = true;
+        assertThatThrownBy(() -> service.decide(request.id(), Status.APPROVED, version(request), null, actor(HR, "HR")))
+            .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(409));
+        assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
+        assertThat(service.get(request.id(), actor(EMPLOYEE, "EMPLOYEE")).status()).isEqualTo(Status.PENDING);
+    }
+
+    @Test
+    void estimateUsesHalfDayUnitsAndLegacyPendingRequiresResubmission() throws Exception {
+        calendar.workingWeek = true;
+        mvc.perform(get(BASE + "/estimate?from=2030-02-01&until=2030-02-01&period=MORNING").with(authentication(actor(EMPLOYEE, "EMPLOYEE"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.totalUnits").value(1)).andExpect(jsonPath("$.totalDays").value(0.5));
+        var request = submit(EMPLOYEE);
+        jdbc.update("DELETE FROM leave_calendar_snapshots WHERE request_id = ?", request.id());
+        assertThatThrownBy(() -> service.decide(request.id(), Status.APPROVED, version(request), null, actor(HR, "HR")))
+            .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode().value()).isEqualTo(409));
+        service.decide(request.id(), Status.CANCELLED, version(request), null, actor(EMPLOYEE, "EMPLOYEE"));
+    }
 
     @Test
     void approvedCancellationRefundsOnlyAfterReviewAndOnlyOnce() throws Exception {

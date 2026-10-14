@@ -149,3 +149,17 @@ test('HR cannot review their own request', async ({ page }) => {
   await expect(page.getByText('Đơn của bạn cần HR/ADMIN khác xử lý.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Duyệt đơn', exact: true })).toHaveCount(0)
 })
+
+test('employee previews working-calendar leave days and changing dates clears the estimate', async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route('**/api/v1/leave/requests/estimate?*', (route) =>
+    route.fulfill({ json: { totalUnits: 2, totalDays: 1, days: [] } }),
+  )
+  await page.goto('/leave')
+  await page.getByRole('button', { name: 'Tính số ngày nghỉ' }).click()
+  await expect(page.getByRole('status')).toContainText('Số ngày nghỉ theo lịch: 1')
+  await page.locator('#leave-start').fill('2030-02-01')
+  await expect(page.getByText('Số ngày nghỉ theo lịch:')).toHaveCount(0)
+})

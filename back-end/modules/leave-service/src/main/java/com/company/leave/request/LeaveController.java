@@ -51,6 +51,12 @@ public class LeaveController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(service.attendance(employeeId, from, until, actor));
     }
+    @GetMapping("/estimate")
+    ResponseEntity<LeaveService.Estimate> estimate(@RequestParam java.time.LocalDate from,
+            @RequestParam java.time.LocalDate until, @RequestParam(defaultValue="FULL_DAY") LeavePeriod period,
+            JwtAuthenticationToken actor) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.estimate(from, until, period, actor));
+    }
     @GetMapping("/{id}")
     ResponseEntity<Request> get(@PathVariable UUID id, JwtAuthenticationToken actor) { return response(service.get(id, actor)); }
     @GetMapping("/{id}/history")

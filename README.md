@@ -152,11 +152,12 @@ trả kết quả chưa xác định, không mặc định bằng 0. Vào sớm/
 Đơn trễ/sớm đã duyệt xác nhận khoảng vắng có phép, vẫn trừ công và không trừ quỹ
 phép. Điều chỉnh công qua xét duyệt giữ dữ liệu chấm gốc. OT duyệt trước và chấm
 giờ riêng; số phút thực tế giao với khoảng được duyệt, không cộng vào công thường.
-Thay đổi Leave/Calendar chưa tự cập nhật snapshot: HR dùng refresh coverage.
-Bảng công/CSV là DRAFT, chưa có khóa kỳ hoặc tính lương.
+Kỳ công đang mở tự lấy và lưu coverage Leave/Calendar mới nhất khi đọc báo cáo.
+HR/ADMIN chốt hoặc mở lại tháng toàn công ty với lý do và lịch sử phiên bản; báo cáo/CSV
+đã chốt dùng bản chụp FINAL. Chưa có tính lương.
 
 Leave dùng ANNUAL/UNPAID, bước nửa ngày; phép năm mặc định 12 ngày/năm, chỉ trừ
-khi duyệt. Hiện còn tính theo ngày lịch, chưa loại cuối tuần/ngày lễ. Không tự
+khi duyệt. Đơn mới tính theo lịch ca có hiệu lực, bỏ ngày không có ca và ngày lễ chung. Không tự
 suy ra quy tắc lương hoặc phép part-time từ công thức tính phút.
 
 Thiết kế chi tiết, ví dụ tính công và phần mở rộng nằm trong
@@ -192,8 +193,8 @@ nội bộ cùng project, [chưa nối các trường công hưởng lương và
 | Tài khoản | Login/refresh/logout, provisioning, kích hoạt/email, trạng thái sau kích hoạt | Khóa/mở account, đối soát cũ, DLT, thu hồi quyền tức thì |
 | Hồ sơ | Nhân viên/phòng ban/chức danh, tự cấp mã EMP bằng sequence, quản lý trực tiếp | Hợp đồng, lịch sử điều chuyển, hồ sơ mở rộng, quyền dữ liệu nhạy cảm |
 | Calendar | CRUD, publish/cancel, audit/version, lịch chung audience ALL | Audience theo tổ chức, lặp/nhắc lịch, tổng hợp ca/phép/OT |
-| Leave | Cả/nửa ngày, số dư năm, duyệt/từ chối/rút, REST coverage | Tính phép theo lịch/ngày lễ, ledger, hoàn phép/hủy sau duyệt, quản lý theo team |
-| Attendance | Ca cố định/qua đêm, lịch, check-in/out, trễ/sớm, correction, OT, CSV | FLEXIBLE_DURATION, nhiều ca/phiên, chốt kỳ/revision, đồng bộ nguồn |
+| Leave | Phép theo lịch ca/ngày lễ, số dư năm, duyệt/từ chối/rút, điều chỉnh/hoàn phép, REST coverage | Ledger đầy đủ, quản lý theo team |
+| Attendance | Ca cố định/qua đêm, check-in/out, correction, OT, tự cập nhật coverage khi đọc, chốt/mở tháng có revision và CSV | FLEXIBLE_DURATION, nhiều ca/phiên, đồng bộ nền bằng sự kiện |
 | Notification | Producer outbox, consumer, danh sách/đã đọc/SSE | Frontend, hai bộ Compose, email/push và sự kiện correction/OT |
 | Device / Payroll / Recruitment / Performance | Chưa triển khai | Phân tích và nghiệm thu từng phạm vi riêng |
 
@@ -204,10 +205,10 @@ ra tính năng đã phát hành: ca qua đêm, correction, OT và Notification b
 
 1. Attendance MVP: kiểm chứng mạng, quyền, snapshot, concurrency, correction,
    CSV cùng kết quả với API; migration và backup/restore cho pilot.
-2. Attendance mở rộng: nhiều ca/phiên, break events, FLEXIBLE_DURATION, khóa/mở
-   kỳ có audit/revision. Flex chỉ mở sau khi đủ tính công, UI và chính sách phép;
+2. Attendance mở rộng: nhiều ca/phiên, break events, FLEXIBLE_DURATION; chốt/mở
+   tháng có audit/revision đã có. Flex chỉ mở sau khi đủ tính công, UI và chính sách phép;
    hiện backend vẫn từ chối mode này, chưa có chức năng ADMIN mở khóa.
-3. Leave/Calendar: tính theo lịch cá nhân/ngày lễ, ledger, phạm vi người duyệt,
+3. Leave/Calendar: hoàn thiện ledger và phạm vi người duyệt,
    đồng bộ có version và calendar tổng hợp bảo vệ lý do nghỉ riêng tư.
 4. Device: adapter cho vendor thực tế, xác thực nguồn, mapping nhân viên,
    chống trùng provider/device/event ID, đối soát offline/sai thứ tự/đồng hồ lệch.
@@ -216,6 +217,38 @@ ra tính năng đã phát hành: ca qua đêm, correction, OT và Notification b
    hiệu lực, dashboard và thông báo. Chuyển phòng ban không làm mất lịch sử.
 6. Payroll/Recruitment/Performance: phạm vi và tiêu chí riêng. Payroll cần công/phép
    đã đối soát và khóa kỳ, cùng cơ chế điều chỉnh hồi tố.
+
+## Tính phép theo lịch → cập nhật công → chốt tháng
+
+Đã có backend và UI cho chuỗi này. Quy tắc được áp dụng cho **đơn phép mới**:
+ngày có ca tính 1 ngày phép; buổi có ca tính 0,5 ngày; ngày không có ca và ngày
+nghỉ chung `HOLIDAY/PUBLISHED/ALL/allDay` không trừ phép. Thứ Bảy/Chủ nhật vẫn
+trừ phép nếu nhân viên có ca và không phải ngày nghỉ chung. Ca qua đêm thuộc ngày bắt đầu.
+
+- Leave đọc `/api/v1/attendance/leave-calendar` bằng token người gọi; Attendance
+  chỉ đọc lịch ca và Calendar, không gọi ngược Leave trong endpoint này.
+- Lưu cơ sở tính phép theo ngày. Duyệt kiểm tra lại lịch; lịch thay đổi yêu cầu
+  rút/gửi lại, không âm thầm đổi số ngày. Điều chỉnh hoàn theo cơ sở đã trừ.
+- Công đang mở lấy coverage mới khi đọc bảng công/CSV. Phép duyệt, giảm hoặc hủy
+  có hiệu lực ở lần tải tiếp theo; đây là đồng bộ khi đọc, chưa có worker nền/Kafka.
+- Tại **Bảng công → Chốt công theo tháng**, HR/ADMIN chốt toàn công ty sau khi tháng
+  kết thúc và hết đơn chờ/thiếu giờ/xung đột. Mở lại cần lý do. Các lần chốt lưu
+  bản chụp bất biến; dữ liệu FINAL vẫn đọc được khi dịch vụ nguồn ngừng hoạt động.
+- Phép/ngày nghỉ được sửa sau chốt không sửa báo cáo FINAL. Nút **Kiểm tra thay đổi
+  phép/ngày nghỉ** phát hiện khác biệt; mở lại để đối soát và chốt phiên bản mới.
+  Không có transaction phân tán giữa Leave, Calendar và Attendance; chốt ghi nhận
+  dữ liệu quan sát tại thời điểm chốt, không khóa database của service nguồn.
+
+**Database đang dùng:** áp `leave-service/docs/sql/006_leave_calendar.sql` và
+`attendance-service/docs/sql/005_attendance_periods.sql` trước khi chạy bản mới.
+Leave cần `005_leave_adjustments.sql` nếu chưa áp. Schema `001` của database mới
+đã chứa bảng mới; migration đều có thể chạy lại. Không tự sửa số dư phép lịch sử; ngày lễ bổ sung sau duyệt cần yêu cầu điều chỉnh/hoàn phép theo cơ sở đã trừ.
+Đơn cũ PENDING thiếu cơ sở tính phải rút/gửi lại trước khi duyệt; đơn cũ APPROVED
+vẫn hoàn theo cách tính ban đầu. Cấu hình `ATTENDANCE_SERVICE_URL` của Leave:
+local `http://localhost:8085`, Docker `http://attendance:8085` (đã thêm trong Compose).
+Triển khai Leave và Attendance cùng phiên bản; nguồn lịch lỗi trả 503, không mặc định 0 ngày.
+
+Giới hạn báo cáo/chốt hiện tại: tối đa 5.000 dòng nhân viên-ngày, chưa có payroll.
 
 ## Quy ước phát triển và triển khai
 

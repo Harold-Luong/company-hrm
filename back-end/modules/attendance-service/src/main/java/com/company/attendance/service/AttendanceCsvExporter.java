@@ -27,7 +27,7 @@ public class AttendanceCsvExporter {
                     localTime(r.checkIn()), localTime(r.checkOut()), r.baseRequiredMinutes(), r.workMinutesCounted(),
                     r.annualLeaveMinutes(), r.unpaidLeaveMinutes(), r.roundedLateMinutes(), r.roundedEarlyMinutes(),
                     r.overtime().approvedMinutes(), r.overtime().countedMinutes(), statusLabel(r.status()),
-                    reviewNotes(r), "DRAFT".equals(r.reportState()) ? "Tạm tính - chưa chốt" : r.reportState() };
+                    reviewNotes(r), "DRAFT".equals(r.reportState()) ? "Tạm tính - chưa chốt" : "FINAL".equals(r.reportState()) ? "Đã chốt" : r.reportState() };
             csv.append(String.join(",", Arrays.stream(values).map(AttendanceCsvExporter::csvCell).toList()))
                     .append("\r\n");
         }
