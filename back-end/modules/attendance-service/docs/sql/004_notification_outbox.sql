@@ -1,4 +1,5 @@
--- Apply once before enabling HRM_NOTIFICATIONS_ENABLED. Safe to rerun.
+-- Existing databases need this table before running the JPA outbox, even when
+-- HRM_NOTIFICATIONS_ENABLED=false. New databases include it in 001. Safe to rerun.
 CREATE TABLE IF NOT EXISTS notification_outbox (
     event_id UUID PRIMARY KEY,
     message_key VARCHAR(255) NOT NULL,

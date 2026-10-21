@@ -296,7 +296,20 @@ SELECT '00000000-0000-0000-0000-000000000001', id, version, definition, active, 
 FROM work_shifts WHERE id = '00000000-0000-0000-0000-000000000001'
     AND NOT EXISTS (SELECT 1 FROM shift_revisions WHERE id = '00000000-0000-0000-0000-000000000001');
 
+CREATE TABLE IF NOT EXISTS notification_outbox (
+    event_id UUID PRIMARY KEY,
+    message_key VARCHAR(255) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    next_attempt_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    sent_at TIMESTAMP WITH TIME ZONE
+);
+
 -- BEGIN POSTGRESQL ONLY
+CREATE INDEX IF NOT EXISTS notification_outbox_pending_idx
+    ON notification_outbox(next_attempt_at, created_at) WHERE sent_at IS NULL;
+
 -- Test H2 đọc cùng file và bỏ khối đặc thù PostgreSQL này; verify-schema.sh kiểm tra đầy đủ.
 CREATE INDEX IF NOT EXISTS attendance_operation_expiry_idx ON attendance_operations (operation_type, occurred_at)
     WHERE response_body IS NOT NULL;

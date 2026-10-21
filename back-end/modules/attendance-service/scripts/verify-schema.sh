@@ -14,14 +14,35 @@ export PGOPTIONS="-c search_path=$test_schema"
 for attempt in 1 2; do
     psql -X -v ON_ERROR_STOP=1 -q -f "$service_dir/docs/sql/001_attendance_schema.sql" >> "$log_file" 2>&1
 done
+# The upgrade script remains safe for databases already initialized from 001.
+for attempt in 1 2; do
+    psql -X -v ON_ERROR_STOP=1 -q -f "$service_dir/docs/sql/004_notification_outbox.sql" >> "$log_file" 2>&1
+done
 psql -X -v ON_ERROR_STOP=1 -q >> "$log_file" 2>&1 <<'SQL'
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM pg_tables WHERE schemaname=current_schema()) <> 13
+    IF (SELECT count(*) FROM pg_tables WHERE schemaname=current_schema()) <> 16
         OR (SELECT count(*) FROM work_shifts) <> 1
         OR (SELECT count(*) FROM shift_revisions) <> 1
         OR (SELECT count(*) FROM attendance_schedule_state) <> 1 THEN
         RAISE EXCEPTION 'Incomplete schema or duplicate seed';
+    END IF;
+END $$;
+INSERT INTO notification_outbox(event_id, message_key, payload)
+VALUES ('20000000-0000-0000-0000-000000000006', 'SCHEMA_TEST', '{}');
+BEGIN;
+SELECT event_id FROM notification_outbox
+WHERE sent_at IS NULL AND next_attempt_at <= CURRENT_TIMESTAMP
+ORDER BY created_at, event_id LIMIT 1 FOR UPDATE SKIP LOCKED;
+UPDATE notification_outbox SET attempts = attempts + 1, sent_at = CURRENT_TIMESTAMP;
+ROLLBACK;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM notification_outbox
+        WHERE attempts = 0 AND sent_at IS NULL AND created_at IS NOT NULL AND next_attempt_at IS NOT NULL)
+        OR NOT EXISTS (SELECT 1 FROM pg_indexes
+            WHERE schemaname=current_schema() AND indexname='notification_outbox_pending_idx') THEN
+        RAISE EXCEPTION 'Outbox schema, defaults, index or rollback failed';
     END IF;
 END $$;
 INSERT INTO attendance_schedule_batches(id,schedule_revision,actor_user_id,request_body,replaced_rules,occurred_at)
