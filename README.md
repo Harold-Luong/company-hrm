@@ -11,6 +11,7 @@
 - [Quy ước phát triển và triển khai](#quy-ước-phát-triển-và-triển-khai)
 - [Chạy local bằng Maven và Git Bash](#chạy-local-bằng-maven-và-git-bash)
 - [Chạy HRM bằng Docker](#chạy-hrm-bằng-docker)
+- [Chạy mỗi project bằng Docker riêng](#docker-independent)
 - [Hướng dẫn giao tiếp giữa các service HRM](#hướng-dẫn-giao-tiếp-giữa-các-service-hrm)
 - [Kafka local cho HRM](#kafka-local-cho-hrm)
 
@@ -99,18 +100,19 @@ chạy thủ công không dừng các project còn lại.
 | Project | Cần để khởi động tối thiểu | Cần thêm khi dùng chức năng tích hợp |
 | --- | --- | --- |
 | Auth | Database/schema, hai cặp RSA; tắt sự kiện và activation nếu chưa cấu hình | Kafka cho provisioning; Resend/cấu hình mail khi bật activation |
-| Employee | Database/schema, access public key; HRM_EVENTS_ENABLED=false nếu không có Kafka | Kafka và Auth consumer để hoàn tất cấp tài khoản |
-| Calendar | Database/schema, access public key | Auth để lấy token khi sử dụng API; CRUD không cần Kafka |
-| Leave | Database/schema, access public key; thông báo tắt | Kafka và Notification để nhận thông báo mới |
-| Attendance | Database/schema, access public key; thông báo tắt | Employee, Leave, Calendar qua REST cho nghiệp vụ; Kafka/Notification khi bật thông báo |
-| Notification | Database/schema, access public key; consumer tắt | Kafka/topic và producer Leave/Attendance để có thông báo mới |
-| Gateway | Access public key và các URL đích | Backend tương ứng phải sẵn sàng khi gọi route đó |
+| Employee | Database/schema, access public key; HRM_EVENTS_ENABLED=false nếu không có Kafka | Auth để kiểm tra phiên; Kafka và Auth consumer để hoàn tất cấp tài khoản |
+| Calendar | Database/schema, access public key | Auth để kiểm tra phiên khi sử dụng API; CRUD không cần Kafka |
+| Leave | Database/schema, access public key; thông báo tắt | Auth để kiểm tra phiên; Kafka và Notification để nhận thông báo mới |
+| Attendance | Database/schema, access public key; thông báo tắt | Auth để kiểm tra phiên; Employee, Leave, Calendar qua REST cho nghiệp vụ; Kafka/Notification khi bật thông báo |
+| Notification | Database/schema, access public key; consumer tắt | Auth để kiểm tra phiên; Kafka/topic và producer Leave/Attendance để có thông báo mới |
+| Gateway | Access public key và các URL đích | Auth để kiểm tra phiên; backend tương ứng phải sẵn sàng khi gọi route đó |
 | Frontend | Node/npm, dependency riêng | Gateway + Auth để đăng nhập; service tương ứng cho từng màn hình |
 
 Access public key được cấp từ Auth nhưng có thể lưu tại đường dẫn tuyệt đối của
 từng project; không cần giữ cấu trúc thư mục service bên cạnh nhau để xác minh JWT.
-Sau khi có key và token hợp lệ, resource server xác minh cục bộ, không gọi Auth
-trên mỗi request. Health của một tiến trình không chứng minh cả luồng liên service
+Resource server xác minh chữ ký JWT cục bộ rồi gọi trực tiếp Auth qua
+`AUTH_SERVICE_URL` để xác nhận phiên hiện hành cho mỗi request xác thực.
+Auth phải sẵn sàng khi dùng API nghiệp vụ, kể cả gọi thẳng service không qua Gateway. Health của một tiến trình không chứng minh cả luồng liên service
 đã sẵn sàng. API Attendance không coi lỗi nguồn là không có phép/ngày nghỉ.
 
 ## Các luồng nghiệp vụ chính
@@ -170,13 +172,19 @@ nội bộ cùng project, [chưa nối các trường công hưởng lương và
   service khác nhận access public key, cùng issuer/audience. sub là account ID,
   employee_id là UUID hồ sơ. Chưa có JWKS/multiple kid.
 - Có EMPLOYEE, MANAGER, HR, ADMIN; account có nhiều role, không có role hierarchy.
-  HR/ADMIN quản trị nghiệp vụ hiện có; MANAGER chưa có quyền duyệt theo team.
+  HR và ADMIN có cùng quyền nghiệp vụ; ADMIN thêm quyền quản trị và cấp tài khoản
+  (tạo tài khoản trực tiếp và gửi yêu cầu cấp tài khoản cho nhân viên).
+  MANAGER giữ nguyên role, chờ thiết kế sau; chưa có quản lý nhóm hoặc duyệt hai cấp Manager → HR.
   Mỗi API kiểm tra quyền/phạm vi ở backend; không dựa vào việc UI ẩn nút.
 - Auth đọc account/role hiện tại từ DB; các resource server dùng claim JWT.
-  Logout thu hồi refresh session, không thu hồi tức thì access JWT ở service khác.
+  Mỗi tài khoản chỉ có một phiên: đăng nhập mới thay phiên cũ; logout thu hồi cả
+  access và refresh token của phiên hiện hành. Gateway và các service kiểm tra phiên tại Auth.
   TTL mặc định tại Auth: access 1 ngày, refresh 7 ngày, có thể ghi đè khi triển khai.
-- Frontend giữ access token trong bộ nhớ; refresh token trong localStorage dùng
-  chung giữa tab, đồng bộ bằng Web Locks. Chưa có HttpOnly cookie.
+- Frontend giữ access token trong bộ nhớ; Auth đặt refresh token trong cookie
+  `HttpOnly; Secure; SameSite=Strict`. Storage chỉ giữ mã đồng bộ phiên, không chứa token.
+  Web Locks tuần tự hóa login/refresh/logout giữa các tab; các endpoint này và
+  logout-all yêu cầu CSRF token lấy từ `/api/v1/auth/csrf`. Triển khai cùng origin
+  qua HTTPS; chỉ khi phát triển bằng HTTP mới đặt `AUTH_COOKIES_SECURE=false` tại Auth.
 - Transaction theo nghiệp vụ, gồm dữ liệu + audit + idempotency/outbox nếu áp dụng.
   Constraint/lock/version bảo vệ thao tác đồng thời. Không có transaction chung
   giữa database, REST, Kafka và Resend; gọi ngoài diễn ra sau commit qua worker.
@@ -186,11 +194,36 @@ nội bộ cùng project, [chưa nối các trường công hưởng lương và
 - Sự kiện có thể giao trùng/sai thứ tự; consumer chống trùng và áp version tại
   nguồn. PENDING lâu cần kiểm tra outbox/consumer, không tự kết luận thất bại.
 
+### Một phiên đăng nhập cho mỗi tài khoản
+
+Auth lưu `users.active_session_id`; access/refresh JWT mang `sid`. Đăng nhập mới
+khóa hàng User, thu hồi refresh token cũ, đổi `sid` và tạo token mới trong cùng
+transaction. Refresh xoay token nhưng giữ `sid`, nên nhiều tab cùng browser profile
+vẫn dùng chung một phiên. Đây là giới hạn phiên đăng nhập, không phải nhận diện
+phần cứng: bản sao của cùng token vẫn thuộc cùng phiên.
+
+Gateway và Employee/Calendar/Leave/Attendance/Notification kiểm tra
+`GET /api/v1/auth/session` sau khi xác minh JWT. Dùng `AUTH_SERVICE_URL` trỏ trực tiếp
+Auth, mặc định `http://localhost:8081`, trong Compose là `http://auth:8081`.
+Không cache kết quả hợp lệ. Phiên cũ trả 401 ở request tiếp theo; Auth lỗi/mất kết nối
+trả 503 và không cho request nghiệp vụ đi tiếp. Notification kiểm tra lại trước mỗi
+đợt gửi SSE; frontend kiểm tra mỗi 15 giây khi tab hiển thị và khi quay lại tab.
+
+Request đã qua kiểm tra trước khi phiên bị thay thế vẫn có thể hoàn tất; không có
+rollback phân tán. Transaction, version/If-Match, constraint và idempotency vẫn cần
+để giữ nhất quán dữ liệu, kể cả khi chỉ có một phiên hoặc nhiều tab cùng phiên.
+
+**Nâng cấp DB hiện có:** chạy `auth-service-main/docs/sql/003_single_active_session.sql`
+trước khi triển khai. Schema `001` đã có cột cho DB mới. Triển khai đồng bộ Auth,
+Gateway và các resource service trong cửa sổ bảo trì để tránh trộn cơ chế cũ/mới.
+Các token cũ không có `sid` sẽ bị từ chối; người dùng đăng nhập lại. Migration không
+xóa tài khoản, lịch sử phiên hoặc dữ liệu nghiệp vụ.
+
 ## Hiện trạng và lộ trình
 
 | Hạng mục | Đã có | Còn lại |
 | --- | --- | --- |
-| Tài khoản | Login/refresh/logout, provisioning, kích hoạt/email, trạng thái sau kích hoạt | Khóa/mở account, đối soát cũ, DLT, thu hồi quyền tức thì |
+| Tài khoản | Login/refresh/logout, provisioning, kích hoạt/email, quản trị vai trò, khóa/mở, buộc đăng xuất, audit và thu hồi phiên khi đổi quyền | Đổi/quên mật khẩu, đối soát cũ, DLT |
 | Hồ sơ | Nhân viên/phòng ban/chức danh, tự cấp mã EMP bằng sequence, quản lý trực tiếp | Hợp đồng, lịch sử điều chuyển, hồ sơ mở rộng, quyền dữ liệu nhạy cảm |
 | Calendar | CRUD, publish/cancel, audit/version, lịch chung audience ALL | Audience theo tổ chức, lặp/nhắc lịch, tổng hợp ca/phép/OT |
 | Leave | Phép theo lịch ca/ngày lễ, số dư năm, duyệt/từ chối/rút, điều chỉnh/hoàn phép, REST coverage | Ledger đầy đủ, quản lý theo team |
@@ -207,7 +240,7 @@ ra tính năng đã phát hành: ca qua đêm, correction, OT và Notification b
    CSV cùng kết quả với API; migration và backup/restore cho pilot.
 2. Attendance mở rộng: nhiều ca/phiên, break events, FLEXIBLE_DURATION; chốt/mở
    tháng có audit/revision đã có. Flex chỉ mở sau khi đủ tính công, UI và chính sách phép;
-   hiện backend vẫn từ chối mode này, chưa có chức năng ADMIN mở khóa.
+   hiện backend vẫn từ chối mode này; cơ chế bật tính năng và quyền truy cập chờ thiết kế sau.
 3. Leave/Calendar: hoàn thiện ledger và phạm vi người duyệt,
    đồng bộ có version và calendar tổng hợp bảo vệ lý do nghỉ riêng tư.
 4. Device: adapter cho vendor thực tế, xác thực nguồn, mapping nhân viên,
@@ -310,7 +343,9 @@ cấu hình và hạ tầng.
 Owner thông thường là `<service>_user`. Schema nằm trong `docs/sql` của từng
 module. Dùng schema khởi tạo cho database mới; database đã có dữ liệu cần đối
 chiếu migration của module, không chạy lại hoặc xóa database để sửa lỗi khởi động.
-Leave và Attendance cần thêm `004_notification_outbox.sql` nếu bật thông báo.
+Leave cần thêm `004_notification_outbox.sql` nếu bật thông báo. Attendance đã có
+outbox trong schema khởi tạo; database Attendance cũ thiếu bảng phải chạy
+`004_notification_outbox.sql` trước khi dùng bản JPA, kể cả khi tắt thông báo.
 Leave cần `005_leave_adjustments.sql` cho cả database mới và database hiện có;
 thiếu bảng `leave_adjustments` sẽ làm lỗi tải danh sách đơn và số đơn chờ duyệt,
 dù `/actuator/health` vẫn có thể báo `UP`.
@@ -456,6 +491,126 @@ cổng. Cluster PostgreSQL cũ trong `.cache/local/postgres` cần được qu�
 `pg_ctl` của bản PostgreSQL tương thích hoặc công cụ đã khởi chạy nó. Giữ nguyên
 thư mục dữ liệu và khóa khi khởi động lại.
 
+<a id="docker-independent"></a>
+
+## Chạy mỗi project bằng Docker riêng
+
+Mỗi backend có `Dockerfile`, `.dockerignore`, `compose.yaml` và
+`.env.docker.example` ngay trong thư mục project. Frontend có bộ file tương tự.
+Mỗi Compose chỉ chứa **một service ứng dụng**, không có `depends_on` kéo các
+project khác lên. Build context chỉ là thư mục project đó; image không cần mã
+nguồn của service khác. Các bộ Compose gom nhóm bên dưới vẫn dùng được cho demo.
+
+| Thư mục | Service / DNS trong Docker | Image mặc định | Cổng host |
+| --- | --- | --- | --- |
+| `frontend` | `frontend` | `company-hrm/frontend:local` | 5173 |
+| `back-end/modules/gateway` | `gateway` | `company-hrm/gateway:local` | 8080 |
+| `back-end/modules/auth-service-main` | `auth` | `company-hrm/auth:local` | 8081 |
+| `back-end/modules/employee-service` | `employee` | `company-hrm/employee:local` | 8082 |
+| `back-end/modules/calendar-service` | `calendar` | `company-hrm/calendar:local` | 8083 |
+| `back-end/modules/leave-service` | `leave` | `company-hrm/leave:local` | 8084 |
+| `back-end/modules/attendance-service` | `attendance` | `company-hrm/attendance:local` | 8085 |
+| `back-end/modules/notification-service` | `notification` | `company-hrm/notification:local` | 8086 |
+
+Tạo network một lần trên máy Docker; dùng chung giá trị `HRM_DOCKER_NETWORK`
+trong các `.env.docker`:
+
+```bash
+docker network create hrm-services
+```
+
+Ví dụ chạy Attendance, từ thư mục gốc repository:
+
+```bash
+cd back-end/modules/attendance-service
+cp -n .env.docker.example .env.docker
+# Sửa .env.docker: database, đường dẫn public key và URL các service.
+docker compose --env-file .env.docker config -q
+docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker logs -f attendance
+```
+
+Chạy cùng các lệnh trong thư mục project khác khi cần. Frontend mở tại
+`http://localhost:5173`. Mỗi project có tên Compose riêng (`hrm-attendance`,
+`hrm-auth`, ...), nên các lệnh sau chỉ tác động project đang đứng:
+
+```bash
+docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker stop
+docker compose --env-file .env.docker down
+```
+
+Network là external, không bị xóa khi `down`. Không dùng cùng một `-p` cho nhiều
+project. Nếu chạy nhiều hệ thống khách hàng trên một host, đặt tên project,
+network và cổng host khác nhau; chuẩn bị database và khóa riêng cho từng hệ thống.
+
+### Database, khóa và kết nối giữa các container
+
+- Chuẩn bị PostgreSQL và áp schema/migration theo README của mỗi service trước
+  khi chạy. Các Compose riêng không tạo database, chạy migration hoặc nạp seed.
+  Attendance cần bảng outbox; Auth cần `active_session_id` theo các migration đã ghi.
+- `.env.docker` tách biệt `.env` dùng cho Maven/IDE. Mẫu kết nối tới PostgreSQL
+  trên máy Docker qua `host.docker.internal:55432`; đổi thành địa chỉ database
+  thực tế. Database phải lắng nghe trên địa chỉ container truy cập được và cho
+  phép kết nối tương ứng. Trong container, `localhost` là chính container đó.
+- JWT keys được mount bằng Compose secrets. Auth nhận hai cặp khóa; service khác
+  chỉ nhận access public key của Auth. Đường dẫn `*_KEY_FILE` là đường dẫn trên
+  host, tương đối với thư mục project hoặc tuyệt đối. Khóa không được đóng vào image.
+  UID/GID mặc định `10001:10001` phải đọc được file; có thể đặt `APP_UID`/`APP_GID`
+  theo chủ sở hữu khóa trên host. Không tạo lại khóa mỗi lần build/restart.
+- Các URL mặc định dùng DNS trên network chung, ví dụ `http://auth:8081`,
+  `http://calendar:8083`. Khi chạy trên nhiều máy, thay bằng địa chỉ mạng thực tế;
+  bridge network này chỉ nối container trên cùng Docker host.
+- Frontend nhận `API_GATEWAY_URL` lúc khởi động Nginx, không cần rebuild khi đổi
+  URL. URL không thêm `/api`; frontend giữ nguyên đường dẫn API khi proxy.
+  Frontend vẫn khởi động khi Gateway chưa chạy; lúc đó API trả lỗi kết nối.
+- Các service khởi động độc lập nhưng API có xác thực vẫn cần Auth để kiểm tra
+  phiên. Attendance còn cần Employee/Leave/Calendar cho các nghiệp vụ tích hợp.
+  Cấu hình mạng công ty và proxy tin cậy riêng cho check-in/out; không thêm toàn
+  bộ subnet Docker vào allowlist để bỏ qua kiểm tra mạng. Với proxy hiện tại,
+  Gateway chuyển tiếp IP của TCP peer (có thể là Nginx), không tự suy ra IP người dùng.
+
+### Kafka chạy riêng khi cần sự kiện
+
+Mặc định các cờ sự kiện/thông báo trong `.env.docker.example` được tắt. Nếu dùng
+Kafka của repository, từ `back-end/modules/infra/kafka` chạy:
+
+```bash
+docker compose -f compose.yaml -f compose.services.yaml up -d
+docker compose -f compose.yaml -f compose.services.yaml exec kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+  --create --if-not-exists --topic hrm.requests.notifications.v1 \
+  --partitions 1 --replication-factor 1
+```
+
+Override `compose.services.yaml` nối Kafka vào `hrm-services`; nếu dùng network
+khác, truyền cùng `HRM_DOCKER_NETWORK`. Sau khi topic/schema sẵn sàng, bật cờ phù
+hợp trong Auth/Employee hoặc Attendance/Leave/Notification rồi chạy lại `up -d`
+của từng project. Nếu dùng broker bên ngoài, cả bootstrap URL và địa chỉ broker
+quảng bá phải truy cập được từ container.
+
+### Đưa image lên server
+
+Build image riêng bằng `docker build -t <registry>/<service>:<version> .` trong
+thư mục project, hoặc đặt `IMAGE_REPOSITORY`/`IMAGE_TAG` trong `.env.docker` rồi:
+
+```bash
+docker compose --env-file .env.docker build
+docker compose --env-file .env.docker push
+```
+
+Máy đích chỉ cần `compose.yaml`, `.env.docker`, các file khóa và kết nối hạ tầng:
+
+```bash
+docker compose --env-file .env.docker pull
+docker compose --env-file .env.docker up -d --no-build
+```
+
+Các cổng mặc định chỉ bind `127.0.0.1`. Cấu hình tên miền/HTTPS và reverse proxy
+khi triển khai cho người dùng bên ngoài; các file chạy riêng không tự cấp TLS.
+Backend chạy bằng user không phải root và có healthcheck trong image. Build image
+bỏ qua test; chạy bộ test của project trước khi phát hành.
+
 <a id="docker"></a>
 
 ## Chạy HRM bằng Docker
@@ -464,10 +619,11 @@ Bộ [compose.yaml](compose.yaml) tại thư mục gốc dành cho phát triển
 frontend Vue/Nginx, API Gateway, Auth, Employee, Calendar, Leave, Attendance,
 5 PostgreSQL database riêng và Kafka. Không cần cài Java, Maven, Node hoặc
 PostgreSQL trên máy host. Bộ này có **6 backend gồm Gateway**, chưa triển khai
-Notification (`8086`), database/topic thông báo hoặc SQL outbox `004`. Các cờ
+Notification (`8086`), database/topic thông báo hoặc outbox của Leave. Schema
+Attendance đã bao gồm outbox JPA. Các cờ
 `HRM_NOTIFICATIONS_ENABLED` vẫn mặc định tắt; route Notification trong Gateway
 chưa có backend đích trong Compose. Xem [Notification](back-end/modules/notification-service/README.md)
-cho cách chạy native. `.env` gốc dành cho Compose, không nạp `.env` của từng module.
+cho cách chạy riêng. `.env` gốc dành cho Compose, không nạp `.env` của từng module.
 
 <a id="docker-khởi-động"></a>
 
@@ -644,7 +800,8 @@ Flow này không cần `employee_references` tại Auth hoặc lỗi `EMPLOYEE_N
 là điều kiện tiên quyết cho yêu cầu cấp tài khoản. Xem [cách chạy flow đã có](back-end/modules/employee-service/README.md#provisioning).
 Auth mặc định `HRM_EVENTS_ENABLED=false`, Employee mặc định `true`; bật cả hai sau khi chuẩn bị schema/topics. Auth cần `docs/sql/001_auth_schema.sql`, Employee cần
 `docs/sql/001_employee_schema.sql` trong thư mục từng service ngay cả khi chưa bật sự kiện. Khi bật ở Auth, `/register` cũ trả `409` để không bỏ qua Outbox.
-Phạm vi quyền API mới hiện là HR/ADMIN toàn hệ thống, chưa chia theo phòng ban/tenant.
+API gửi yêu cầu cấp tài khoản chỉ dành cho ADMIN; API tra cứu kết quả dành cho
+HR/ADMIN toàn hệ thống, chưa chia theo phòng ban/tenant.
 
 <a id="events-3-quyền-sở-hữu-dữ-liệu"></a>
 
@@ -667,7 +824,7 @@ và không được cập nhật bằng kết quả cấp tài khoản từ Auth
 ### 4. Tạo nhân viên và yêu cầu cấp tài khoản
 
 1. UI tạo nhân viên tại Employee, nhận `201 Created` cùng `employeeId` sau commit.
-2. Khi HR/ADMIN chọn cấp tài khoản, UI gửi yêu cầu riêng tới Employee bằng ID đó.
+2. Khi ADMIN chọn cấp tài khoản, UI gửi yêu cầu riêng tới Employee bằng ID đó.
 3. Employee kiểm tra quyền/phạm vi dữ liệu, nhân viên tồn tại, email đăng nhập và
    dữ liệu yêu cầu. Không tin `employeeId`, role hoặc danh tính người yêu cầu chỉ
    vì client gửi lên. MVP cấp role `EMPLOYEE`; cấp quyền cao hơn cần luồng có phân quyền riêng.
@@ -1342,3 +1499,12 @@ và quy trình khôi phục. `acks=all` với một replica vẫn chỉ lưu tr�
 
 Tham khảo cấu hình từ [Apache Kafka Docker](https://kafka.apache.org/41/getting-started/docker/)
 và [Spring Boot Kafka](https://docs.spring.io/spring-boot/reference/messaging/kafka.html).
+
+## Quản trị tài khoản và thu hồi quyền
+
+ADMIN mở **Quản trị tài khoản** (`/accounts`) để tra cứu, khóa/mở khóa, đổi vai trò hoặc buộc
+đăng xuất tài khoản khác. Quyền cũ bị thu hồi qua `sid` ở request tiếp theo; audit và thu hồi
+refresh session commit cùng thay đổi. Không cho tự sửa tài khoản quản trị đang thao tác.
+Trước khi nâng cấp DB hiện có, chạy `back-end/modules/auth-service-main/docs/sql/004_account_management.sql`
+với owner của Auth database. DB mới dùng schema `001` đã bao gồm phần này. Chưa tự chạy migration
+hoặc triển khai lên môi trường đang hoạt động. Chi tiết contract và giới hạn trong README Auth.

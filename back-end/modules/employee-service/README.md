@@ -1,5 +1,9 @@
 # Employee Service
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -34,6 +38,18 @@ tại Employee sau khi có `employeeId`; Employee gửi `EmployeeAccountRequeste
 ---
 
 Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
 
 ## Cấu hình và chạy độc lập
 
@@ -635,7 +651,7 @@ PUT    /api/v1/positions/{id}
 ```
 
 Employee đã tích hợp Spring Security OAuth2 Resource Server để xác minh access
-JWT từ Auth bằng public key RS256, không gọi Auth trên mỗi request. Hướng dẫn
+JWT từ Auth bằng public key RS256 và kiểm tra phiên hiện hành tại Auth trên mỗi request xác thực. Hướng dẫn
 cấu hình khóa và gọi API nằm ở mục 18 bên dưới. Phân quyền theo role/phạm vi dữ
 liệu, kiểm tra `accountStatus` và thu hồi token chưa được triển khai.
 
@@ -1065,7 +1081,8 @@ Các API `/api/v1/**` yêu cầu xác thực, ngoại trừ GET
 Đường dẫn khác bị từ chối; SQL nằm trong `docs/sql`, không cung cấp qua HTTP.
 Nếu gửi token sai ngay cả tới đường dẫn công khai, bộ lọc Bearer vẫn trả `401`.
 
-Cấu hình stateless, không lưu phiên đăng nhập, không hỗ trợ Basic/form login.
+Cấu hình stateless, không tạo HTTP session tại Employee; Auth lưu phiên đăng nhập đang có hiệu lực.
+Không hỗ trợ Basic/form login.
 CSRF bị tắt vì xác thực qua Bearer header, không dùng cookie tự gửi của trình duyệt.
 
 ### Phạm vi bảo vệ hiện tại
@@ -1076,8 +1093,9 @@ ADMIN; tra cứu kết quả cho phép HR/ADMIN. Các API quản lý hồ sơ/ph
 Người dùng khác chỉ đọc hồ sơ có ID khớp claim `employee_id`; không có quyền liệt kê hoặc sửa.
 
 `accountStatus` được đồng bộ qua Kafka nhưng chỉ dùng để hiển thị, không kiểm tra
-trong bộ lọc. JWT còn hạn có thể tiếp tục dùng sau khi tài khoản bị khóa ở Auth.
-Phân quyền dữ liệu hiện kiểm tra tại controller; cơ chế thu hồi tức thời access JWT ở các resource service chưa có.
+trong bộ lọc. Auth kiểm tra trạng thái tài khoản và phiên hiện tại qua `/api/v1/auth/session`;
+token bị từ chối khi tài khoản bị khóa, đã logout hoặc có lần đăng nhập mới.
+Phân quyền dữ liệu kiểm tra tại controller; phiên access JWT được kiểm tra trực tiếp với Auth, kể cả gọi service không qua Gateway.
 
 ### Kiểm thử
 
@@ -1235,7 +1253,7 @@ topic và chạy schema đầy đủ. Đây là luồng cho một yêu cầu m�
 
 ```mermaid
 flowchart TB
-    UI["HR bấm Cấp tài khoản"]
+    UI["ADMIN bấm Cấp tài khoản"]
 
     subgraph EMP_REQ["Employee Service — tiếp nhận HTTP"]
         SEC["SecurityConfig: xác minh JWT"]

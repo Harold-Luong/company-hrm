@@ -1,5 +1,9 @@
 # API Gateway
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -43,6 +47,18 @@ không cần private key, refresh key hoặc kết nối database.
 
 Chạy native với `.env` riêng như bên dưới; Gateway không có datasource.
 Mẫu public key dùng `file:./keys/access-public.pem` từ thư mục Gateway; đổi sang đường dẫn tuyệt đối nếu IDE dùng working directory khác.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
 
 ## Cấu hình và chạy độc lập
 
@@ -285,3 +301,12 @@ feature. Không bật mail trong cấu hình này khi chưa có egress.
 Workforce ở đây là `calendar-service`; route API vẫn giữ `/api/v1/calendar` và
 `/api/v1/calendar-events`. Khi có Workforce riêng, thay build/URL và thêm route
 phù hợp. Các bảng Calendar hiện có khởi tạo trong `workforce_db` mới.
+
+
+### Browser auth cookie
+
+`GET /api/v1/auth/csrf` là public. Gateway cho phép header `X-XSRF-TOKEN` và
+credential với các CORS origin đã cấu hình; Auth kiểm tra CSRF trên
+login/refresh/logout/logout-all. Refresh vẫn bỏ qua Bearer hết hạn tại Gateway.
+Cookie/Set-Cookie được chuyển tới/từ Auth; Cookie và CSRF header bị loại khi
+chuyển sang các service nghiệp vụ. Triển khai frontend và `/api` cùng origin HTTPS.

@@ -1,5 +1,9 @@
 # Auth Service
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -86,15 +90,18 @@ bao gồm cả hai. Seed không gửi mail hoặc tạo phiên đăng nhập.
 | Role | Ý nghĩa |
 | --- | --- |
 | EMPLOYEE | Tài khoản nhân viên; vẫn cần Employee liên kết và đang active để chấm công |
-| MANAGER | Quản lý; phạm vi team phải được module nghiệp vụ kiểm tra |
-| HR | Quản trị nghiệp vụ nhân sự; không được tạo tài khoản |
-| ADMIN | Quản trị tài khoản; không mặc định có toàn bộ quyền HR |
+| MANAGER | Giữ lại role, chờ thiết kế; chưa có chức năng quản lý nhóm hoặc xét duyệt riêng |
+| HR | Quản lý nghiệp vụ nhân sự; không được tạo tài khoản hoặc gửi yêu cầu cấp tài khoản |
+| ADMIN | Cùng quyền nghiệp vụ với HR, thêm quyền tạo tài khoản và gửi yêu cầu cấp tài khoản cho nhân viên |
 
 Mỗi User có tập `roles` (`Set<UserRole>`), được lưu trong bảng `user_roles`.
 Một account có thể có nhiều role, ví dụ `["EMPLOYEE", "HR"]`; role không trùng và không có thứ tự.
-Không có role hierarchy tự động. Các API tự phục vụ trong module Employee/Attendance sau này
-cần kiểm tra Employee liên kết và phạm vi dữ liệu, không chỉ `hasRole('EMPLOYEE')` vì Manager/HR
-cũng có thể là nhân viên. Việc khai báo role chưa triển khai quyền nghiệp vụ của các module đó.
+Không có role hierarchy tự động; các API nghiệp vụ khai báo rõ cả HR và ADMIN.
+Khác biệt quyền duy nhất giữa hai role hiện tại là cấp tài khoản, gồm tạo trực tiếp
+qua Auth và gửi yêu cầu qua Employee. HR/ADMIN đều được tra cứu kết quả và hỗ trợ kích hoạt.
+Các API cá nhân kiểm tra Employee liên kết và phạm vi dữ liệu; HR/ADMIN vẫn chịu
+điều kiện nghiệp vụ như không tự duyệt đơn của mình. MANAGER chưa có luồng duyệt
+trước HR; tính năng này chờ thiết kế sau.
 
 User có `active`, `activationPending`, password hash, `createdAt`, `updatedAt` và `lastLoginAt` nullable:
 chỉ cập nhật khi đăng nhập thành công, trong cùng transaction tạo refresh session. Login thất bại
@@ -129,14 +136,32 @@ sau khi đổi role; account inactive không sử dụng được access/refresh
 Thay đổi role không sửa payload của JWT đã phát hành; frontend đọc `/me` để lấy role hiện tại,
 token cấp sau login/refresh mang role mới. Mỗi request xác thực cần đọc account và tập roles từ DB.
 
-Logout vẫn chỉ thu hồi refresh session. Khi account active trở lại, access token chưa hết hạn
-có thể dùng lại; việc thu hồi vĩnh viễn access token không thuộc thay đổi này.
+Mỗi tài khoản có một phiên đăng nhập hiện hành. Đăng nhập mới thành công thay
+phiên cũ và thu hồi các refresh token trước đó trong cùng transaction. Sai mật khẩu
+hoặc lỗi tạo token rollback, không làm mất phiên đang dùng. `users.active_session_id`
+được đưa vào claim `sid` của access/refresh JWT; `jti` của refresh vẫn đổi sau mỗi
+lần refresh, còn `sid` giữ nguyên để các tab cùng phiên tiếp tục hoạt động.
 
-Tạo refresh session, refresh, logout và logout-all phối hợp bằng khóa ghi trên hàng User
-trong cùng transaction, theo thứ tự User trước rồi refresh session. Nếu refresh lấy khóa trước,
-logout-all chờ và thu hồi cả phiên mới; nếu logout-all lấy khóa trước, refresh chờ rồi bị từ chối.
-Logout-all cập nhật trực tiếp các phiên chưa thu hồi của user đó. Login mới lấy khóa sau
-logout-all vẫn có thể tạo phiên mới; logout-all không khóa tài khoản và không cấm đăng nhập lại.
+Login, refresh, logout và logout-all lấy khóa ghi hàng User trước refresh session.
+Logout kiểm tra `sid` dưới khóa trước khi thu hồi: request logout của phiên cũ
+không thể đăng xuất phiên mới. Logout-all cũng kiểm tra phiên của access token,
+thu hồi toàn bộ refresh token và xóa `active_session_id`; dùng lại access token đó
+trả 401. Account vẫn có thể đăng nhập lại sau logout.
+
+`GET /api/v1/auth/session` yêu cầu Bearer access JWT, trả 204 và `Cache-Control: no-store`
+khi chữ ký, hạn dùng, account và `sid` hợp lệ; trả 401 nếu phiên bị thay thế/đăng xuất,
+403 nếu account inactive. Endpoint không trả dữ liệu cá nhân. Gateway và các service
+kiểm tra endpoint này cho mỗi request xác thực; không cache chấp nhận. Auth không
+sẵn sàng thì phía gọi trả 503. Request đã được xác thực trước khi đổi phiên có thể
+hoàn tất, không bị rollback tự động. Thay role vẫn cần token mới để resource service
+nhận claim role mới; Auth tự đọc role hiện tại trong DB.
+
+DB mới dùng schema `001`. DB đang dùng cần áp
+[`003_single_active_session.sql`](docs/sql/003_single_active_session.sql) trước deploy.
+Triển khai đồng bộ Auth/Gateway/resource service; token cũ thiếu `sid` yêu cầu đăng
+nhập lại. `SingleSessionTests` kiểm tra thay phiên, rollback, refresh, logout cũ và
+đăng nhập/refresh đồng thời. Các test bảo mật tạo token trực tiếp phải cấp `sid`
+khớp account fixture.
 
 ## Cấp tài khoản qua Employee
 
@@ -323,16 +348,31 @@ curl --fail http://localhost:8081/api/v1/auth/health-check
 Kỳ vọng `status=UP`, `database=UP`; đây không phải kiểm tra Kafka/Resend. Mở Swagger
 ở `http://localhost:8081/swagger-ui.html` để thao tác API.
 
-Cấu hình mail/worker xem [kích hoạt tài khoản](#activation). Đăng nhập:
+Cấu hình mail/worker xem [kích hoạt tài khoản](#activation). Đăng nhập bằng cookie
+jar và CSRF token (ví dụ cần `jq`; với HTTP local, chạy Auth với
+`AUTH_COOKIES_SECURE=false`):
 
 ```bash
-curl -X POST http://localhost:8081/api/v1/auth/login \
+auth_cookie_jar=$(mktemp)
+auth_csrf=$(curl --fail --silent --show-error \
+  -c "$auth_cookie_jar" http://localhost:8081/api/v1/auth/csrf | jq -r '.token')
+curl --fail -X POST http://localhost:8081/api/v1/auth/login \
+  -b "$auth_cookie_jar" -c "$auth_cookie_jar" \
+  -H "X-XSRF-TOKEN: $auth_csrf" \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@company.com","password":"Admin@123456"}'
+
+# Refresh không gửi token trong JSON.
+curl --fail -X POST http://localhost:8081/api/v1/auth/refresh \
+  -b "$auth_cookie_jar" -c "$auth_cookie_jar" -H "X-XSRF-TOKEN: $auth_csrf"
+curl --fail -X POST http://localhost:8081/api/v1/auth/logout \
+  -b "$auth_cookie_jar" -c "$auth_cookie_jar" -H "X-XSRF-TOKEN: $auth_csrf"
+rm "$auth_cookie_jar"
 ```
 
-Account `disabled@company.com` trả `403`. ADMIN không tự có quyền HR; cả hai vai
-trò đều được phép gọi các API cấp tài khoản theo chính sách hiện tại.
+Account `disabled@company.com` trả `403`. Chỉ ADMIN được tạo tài khoản hoặc gửi
+yêu cầu cấp tài khoản cho nhân viên. HR/ADMIN có cùng quyền nghiệp vụ còn lại,
+bao gồm tra cứu kết quả cấp tài khoản và hỗ trợ kích hoạt.
 
 ## Kiểm thử
 
@@ -487,7 +527,7 @@ cũ. Nếu đã có schema đúng và account HR/Admin, bỏ qua các bước SQ
 
 Seed mới có `admin@company.com` và `hr@company.com`, mật khẩu `Admin@123456`.
 Account seed đã hoàn tất kích hoạt (`activation_pending=false`), nên **không dùng
-account seed làm đối tượng gửi lời mời**. Dùng HR/Admin seed để cấp account cho
+account seed làm đối tượng gửi lời mời**. Dùng Admin seed để cấp account cho
 nhân viên khác (EMP004 chưa có account trong seed), rồi theo dõi email của account
 mới đó. Chạy seed không gửi mail; seed chạy lại cũng không reset mật khẩu account cũ.
 
@@ -810,3 +850,78 @@ high request volume can also create high log volume.
 
 Design references: [OWASP authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#login-throttling)
 and [OWASP logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#data-to-exclude).
+
+
+## Browser cookie và CSRF
+
+Login trả access token trong JSON và đặt refresh token bằng cookie HttpOnly;
+refresh/logout chỉ đọc cookie, bỏ qua refreshToken trong body. Refresh xoay cookie
+sau mỗi lần thành công; logout xóa cookie kể cả khi token không hợp lệ, logout-all
+xóa sau khi thu hồi thành công. Không trả refresh token trong JSON API browser.
+
+Trước mỗi login/refresh/logout/logout-all, gọi `GET /api/v1/auth/csrf`, giữ cookie
+CSRF và gửi `token` trả về trong header `X-XSRF-TOKEN`. Spring Security kiểm tra
+cookie + masked header; thiếu/sai trả 403 trước khi thay đổi phiên. Endpoint CSRF
+không cache và không dùng HttpSession. `sessionPresent` chỉ là dấu hiệu cookie tồn
+tại, không xác nhận phiên hợp lệ. Các API Bearer khác không dùng cookie để xác thực.
+
+Mặc định `AUTH_COOKIES_SECURE=true`: cookie `__Host-hrm-refresh` và
+`__Host-hrm-csrf` có Secure, HttpOnly, SameSite=Strict, Path=/, không Domain.
+Phục vụ frontend và Gateway dưới cùng origin HTTPS. Gateway cho qua CSRF header
+và Set-Cookie, chỉ gửi cookie về Auth. CORS cho credential chỉ với origin được
+cấu hình cụ thể. Local HTTP có thể đặt `AUTH_COOKIES_SECURE=false`, tên cookie trở
+thành `hrm-refresh-dev`/`hrm-csrf-dev`; không dùng ở production.
+
+Đây là thay đổi API browser: triển khai đồng thời frontend/Auth/Gateway, tải lại
+các tab cũ và đăng nhập lại. Các client gọi refresh/logout bằng JSON phải chuyển
+sang cookie jar + CSRF header. Không có đường fallback nhận token từ body.
+
+## Quản trị tài khoản và thu hồi quyền
+
+Chỉ ADMIN; mọi endpoint dưới `/api/v1/auth/accounts` yêu cầu Bearer access token.
+Cookie đơn lẻ không cấp quyền và các endpoint này không sử dụng cookie để xác thực.
+
+| Endpoint | Mục đích |
+| --- | --- |
+| `GET /accounts?search=&status=&role=&page=0&size=20` | Tìm theo phần email (không phân biệt hoa thường), lọc trạng thái/vai trò, phân trang theo ID giảm dần |
+| `GET /accounts/{id}` | Thông tin tài khoản, trạng thái và version quản trị; không trả hash mật khẩu/token/sid |
+| `GET /accounts/{id}/audit?page=0&size=20` | Audit mới nhất trước, gồm người thực hiện, lý do và trạng thái/vai trò trước–sau |
+| `POST /accounts/{id}/actions` | Thực hiện một lệnh quản trị theo enum |
+
+Body mẫu:
+
+```json
+{"version": 0, "action": "CHANGE_ROLES", "roles": ["EMPLOYEE"], "reason": "Thay đổi phân công"}
+```
+
+`action`: `DISABLE`, `ENABLE`, `CHANGE_ROLES`, `REVOKE_SESSIONS`. Chỉ CHANGE_ROLES nhận
+`roles`, không được rỗng hoặc chứa null/role ngoài enum. `reason` bắt buộc, tối đa 500 ký tự.
+Mỗi lệnh thành công tăng `version`, thu hồi toàn bộ refresh session và xóa `active_session_id`.
+Access token cũ bị Auth/Gateway/resource service từ chối ở request tiếp theo; SSE ngắt ở lần
+kiểm tra phiên tiếp theo. Request đã qua xác thực có thể hoàn tất; không có rollback phân tán.
+
+Không cho tự sửa chính mình (`409 ACCOUNT_SELF_CHANGE_FORBIDDEN`); dùng logout/logout-all
+cho phiên của mình. Hai ADMIN thay đổi lẫn nhau khóa các account theo thứ tự ID, rồi kiểm tra
+lại sid/quyền của actor bên trong transaction, để không thể đồng thời loại bỏ mọi ADMIN.
+Version cũ trả `412 ACCOUNT_VERSION_CONFLICT`; không tự retry lệnh sau mất response.
+Login/refresh không tăng version quản trị; kích hoạt tăng version để chặn ghi đè dữ liệu cũ.
+
+Khóa tài khoản chờ kích hoạt cũng thu hồi link mời chưa dùng và hủy email đang chờ.
+Không thể kích hoạt/gửi lại lời mời khi đang khóa. Mở khóa không tự kích hoạt, không khôi phục
+link hay phiên cũ: phải gửi lại lời mời và hoàn tất đặt mật khẩu. Đổi role không đổi trạng thái.
+Nếu bật `HRM_EVENTS_ENABLED`, khóa/mở phát AccountStatusChanged qua outbox trong cùng transaction,
+dùng chung sequence accountVersion với activation; Employee nhận trạng thái theo version.
+Nếu tắt cờ, quyền tại Auth vẫn có hiệu lực ngay nhưng trạng thái bản sao ở Employee không tự đồng bộ.
+
+Audit không lưu mật khẩu, token hoặc cookie. Account ID/email của actor và target là snapshot,
+không xóa theo tài khoản. Quyền đọc audit cũng chỉ ADMIN. Chưa có API xóa/sửa audit.
+
+**Nâng cấp:** chạy `docs/sql/004_account_management.sql` trước khi triển khai Auth mới.
+Script thêm `administratively_locked`, `management_version`, bảng `account_management_audit`;
+chạy lại không reset dữ liệu. Schema `001` dành cho DB mới đã gồm các thay đổi. Migration
+không tự cấp quyền ADMIN; dùng ADMIN hiện có. Việc đổi trạng thái hồ sơ nhân viên không tự
+khóa Auth account: quản trị viên phải thực hiện lệnh khóa riêng tại màn hình này.
+
+Kiểm thử: `AccountManagementTests` bao phủ quyền ADMIN, cookie không cấp quyền, thu hồi cả hai
+loại token, đổi role, version/validation, khóa pending activation, audit rollback và hai ADMIN
+thao tác đồng thời. `AuthSchemaTests` kiểm tra migration chạy lại không mất dữ liệu.

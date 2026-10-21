@@ -1,5 +1,9 @@
 # Attendance Service
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -24,7 +28,7 @@ Cấu trúc controller → service → repository/entity giống Employee.
 
 Cấu hình `.env` và cách chạy Maven/Git Bash: [hướng dẫn chạy độc lập](../../../README.md#local). Mẫu `.env` dùng PostgreSQL `55432` và allowlist loopback; bảng bên dưới ghi mặc định trong mã nguồn.
 
-Thông báo đơn đi trễ/về sớm có outbox Kafka tùy chọn: cần SQL `004_notification_outbox.sql`, topic và `HRM_NOTIFICATIONS_ENABLED=true`. Xem [Notification](../notification-service/README.md). Điều chỉnh công/OT chưa phát thông báo qua luồng này.
+Thông báo đơn đi trễ/về sớm có outbox JPA; gửi Kafka khi cấu hình topic và `HRM_NOTIFICATIONS_ENABLED=true`. Bảng outbox nằm trong schema `001`; database cũ thiếu bảng cần chạy `004_notification_outbox.sql` dù đang tắt thông báo. Xem [Notification](../notification-service/README.md). Điều chỉnh công/OT chưa phát thông báo qua luồng này.
 
 `GET /api/v1/attendance/requests/pending-count` trả `{ "count": N }` cho HR/ADMIN,
 đếm cả đơn đi trễ và về sớm đang `PENDING`, phục vụ badge hàng chờ duyệt.
@@ -66,6 +70,18 @@ Phép/ngày lễ sửa sau chốt không thay báo cáo FINAL: kiểm tra nguồ
 Chốt kiểm tra nguồn hai lần và từ chối nếu khác nhau, nhưng không phải transaction
 phân tán; thay đổi commit sau lần đọc cuối được phát hiện ở thao tác kiểm tra nguồn.
 Lịch sử thu hồi/điều chỉnh Leave được giữ ở Leave; Attendance không ghi xuyên database.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
 
 ## Cấu hình và chạy độc lập
 
@@ -152,9 +168,8 @@ một hàng điều phối chung; cần đánh giá tải trước khi mở rộ
   hạn 08:00–17:00 hoặc 08:00–17:30, cấu hình riêng các khoảng nghỉ. Ca part-time
   cố định như 13:00–17:00 cũng dùng chế độ này.
 - **`FLEXIBLE_DURATION` để giai đoạn sau**: tính theo thời lượng phải làm, thuộc
-  nhóm tính năng nâng cao và mặc định ẩn. Sau khi triển khai đầy đủ, chỉ ADMIN
-  được mở khóa ở cấp công ty; HR/nhân viên không tự mở khóa. Backend phải kiểm
-  tra trạng thái mở khóa, không chỉ ẩn lựa chọn trên UI.
+  nhóm tính năng nâng cao và mặc định ẩn. Cơ chế bật tính năng và quyền truy cập
+  sẽ được thiết kế khi triển khai; hiện không có quyền mở khóa riêng cho ADMIN.
 - Hiện UI chỉ tạo ca cố định; backend từ chối tạo/sửa ca linh hoạt. Enum giữ
   `FLEXIBLE_DURATION` để mô tả hướng mở rộng. Chưa có nút hoặc API mở khóa trong
   phiên bản hiện tại; không thay đổi chính sách tính công của các ca đã lưu.
@@ -197,8 +212,9 @@ một hàng điều phối chung; cần đánh giá tải trước khi mở rộ
   riêng. API/UI hiện hành chưa sử dụng các trường kết quả mở rộng này.
 
 [Schema nghiệp vụ chính](docs/sql/001_attendance_schema.sql) khai báo bảng, index,
-FK và trigger cho chấm công. Thông báo Kafka dùng thêm
-[004_notification_outbox.sql](docs/sql/004_notification_outbox.sql). Chưa có công cụ
+FK và trigger cho chấm công, bao gồm bảng `notification_outbox`. Database cũ thiếu
+bảng này cần áp [004_notification_outbox.sql](docs/sql/004_notification_outbox.sql),
+kể cả khi tắt thông báo, vì Hibernate kiểm tra entity khi khởi động. Chưa có công cụ
 migration tự động; database có dữ liệu cần kế hoạch nâng cấp riêng. Chỉ tạo lại
 database phát triển khi chấp nhận mất dữ liệu, theo [hướng dẫn SQL](#database).
 
@@ -532,8 +548,18 @@ Schema chính bổ sung hai bảng `attendance_corrections`, `attendance_correct
 
 Attendance dùng PostgreSQL riêng `attendance_db`, JPA `ddl-auto=validate`, không
 query/FK chéo database. Schema nghiệp vụ chính:
-[001_attendance_schema.sql](docs/sql/001_attendance_schema.sql). Khi bật thông báo Kafka, áp thêm
-[004_notification_outbox.sql](docs/sql/004_notification_outbox.sql); xem [Notification](../notification-service/README.md).
+[001_attendance_schema.sql](docs/sql/001_attendance_schema.sql), đã bao gồm outbox.
+Database cũ thiếu `notification_outbox` cần áp
+[004_notification_outbox.sql](docs/sql/004_notification_outbox.sql) trước khi khởi động,
+kể cả khi `HRM_NOTIFICATIONS_ENABLED=false`; xem [Notification](../notification-service/README.md).
+
+`NotificationOutbox` lưu sự kiện qua `NotificationOutboxRepository` trong cùng
+transaction JPA với đơn và lịch sử nghiệp vụ. Publisher dùng native query
+`FOR UPDATE SKIP LOCKED` để giữ khóa từng sự kiện; JPA cập nhật entity khi commit.
+Gửi lỗi được ghi log và retry sau 10 giây, mỗi lượt xử lý tối đa 20 sự kiện.
+Thời điểm sự kiện, kiểm tra đến hạn và retry dùng chung `Clock` của Attendance.
+Kafka có thể nhận lại sự kiện nếu gửi thành công nhưng commit trạng thái thất bại;
+consumer phải giữ cơ chế chống trùng theo `eventId`.
 Lệnh `psql` bên dưới dùng cổng mặc định `5432`; thêm `-p 55432` nếu dùng cluster trong [hướng dẫn chạy độc lập](../../../README.md#local).
 
 Trong giai đoạn phát triển, sửa cấu trúc trực tiếp trong file này rồi tạo lại
@@ -574,8 +600,8 @@ DROP DATABASE IF EXISTS attendance_db;
 CREATE DATABASE attendance_db OWNER attendance_user;
 ```
 
-Sau đó chạy lại `001_attendance_schema.sql` bằng lệnh phía trên; nếu bật thông báo,
-áp thêm `004_notification_outbox.sql`, rồi khởi động backend. Script schema không tự xóa database.
+Sau đó chạy lại `001_attendance_schema.sql` bằng lệnh phía trên rồi khởi động backend.
+Schema này đã bao gồm outbox; script không tự xóa database.
 
 Compose chỉ mount file này vào `docker-entrypoint-initdb.d`, tự chạy với volume
 PostgreSQL mới. Với database trống đã tạo lại trong Compose, từ `infra/gateway`:
@@ -786,9 +812,8 @@ Lịch linh hoạt không cần khai báo một giờ bắt đầu/kết thúc g
 
 Ưu tiên hiện tại là **`FIXED_SHIFT`**, phù hợp với lịch có khung giờ xác định,
 kể cả ca part-time. **`FLEXIBLE_DURATION` thuộc giai đoạn nâng cao**, mặc định
-ẩn và chỉ xuất hiện sau khi ADMIN mở khóa ở cấp công ty. HR và nhân viên không
-được tự thay đổi trạng thái mở khóa; backend phải kiểm tra trạng thái này khi
-tạo/sửa ca, kể cả khi gọi API trực tiếp. Việc mở khóa chỉ cung cấp thêm lựa chọn,
+ẩn. Cơ chế bật tính năng và quyền truy cập chờ thiết kế sau; không coi đây là
+quyền riêng của ADMIN trong phiên bản hiện tại. Khi triển khai, việc bật tính năng
 không tự chuyển các ca cố định đã có sang chế độ linh hoạt.
 
 Đây là chính sách cho giai đoạn sau: hiện chưa triển khai cách tính công linh
@@ -1096,9 +1121,9 @@ outbox cùng transaction duyệt và consumer chống trùng/sai thứ tự theo
 2. Đơn đi trễ/về sớm đã triển khai trong Attendance, không thuộc Leave.
    Tiếp tục hoàn thiện tính phép theo lịch/ngày nghỉ và đối soát dữ liệu đã duyệt.
 3. Đối soát, khóa kỳ, CSV chi tiết và tổng tháng.
-4. Triển khai `FLEXIBLE_DURATION` như tính năng nâng cao mặc định ẩn, chỉ ADMIN
-   được mở khóa, sau khi hoàn thiện tính công, UI/validation, chính sách nghỉ/nửa
-   ngày flex và kiểm thử tương ứng. Chọn
+4. Triển khai `FLEXIBLE_DURATION` như tính năng nâng cao mặc định ẩn, sau khi
+   hoàn thiện tính công, UI/validation, chính sách nghỉ/nửa ngày flex và kiểm thử.
+   Thiết kế cơ chế bật tính năng và quyền truy cập ở giai đoạn đó. Chọn
    chế độ theo assignment, không tạo Attendance Service riêng cho từng chế độ.
 
 Các ca nghiệm thu bắt buộc: toàn bộ ví dụ mục 7; 0/15/15 phút 1 giây ở biên

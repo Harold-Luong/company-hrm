@@ -1,5 +1,9 @@
 # Leave Service
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -15,6 +19,18 @@ gửi đơn nghỉ cả ngày hoặc nửa ngày; đơn xuất hiện trong hàn
 xem kết quả trên hệ thống, chưa có email/push hoặc phân công một HR cụ thể.
 
 Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
 
 ## Cấu hình và chạy độc lập
 
@@ -219,7 +235,8 @@ file `.env` triển khai. Database mới tự khởi tạo schema khi volume cò
 ## API
 
 Prefix `/api/v1/leave/requests`, tất cả cần Bearer access JWT. JWT RS256 được
-xác minh cục bộ; Logout/khóa tài khoản không tự thu hồi access token đã phát hành.
+xác minh cục bộ, sau đó kiểm tra phiên trực tiếp với Auth. Logout, khóa tài khoản
+hoặc đăng nhập mới khiến token của phiên cũ bị từ chối ở lần kiểm tra tiếp theo.
 
 | Method / đường dẫn | Quyền / nội dung |
 | --- | --- |

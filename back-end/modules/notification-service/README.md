@@ -1,5 +1,9 @@
 # Notification Service
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -15,6 +19,21 @@ Frontend dùng SSE để cập nhật badge, lịch nghỉ phép và kết quả
 không tải lại trang. Kết quả cấp tài khoản hiện toast cho đúng HR/Admin đã yêu cầu,
 kể cả khi đã chuyển trang. Chưa có giao diện danh sách thông báo/đánh dấu đã đọc,
 gửi push hoặc sự kiện từ điều chỉnh công/OT. Email kích hoạt vẫn do Auth gửi.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
+
+SSE đang mở kiểm tra lại phiên trước mỗi đợt gửi; khi Auth từ chối hoặc không
+sẵn sàng, stream đóng. Request/đợt gửi đã qua kiểm tra có thể hoàn tất.
 
 ## Cấu hình và chạy độc lập
 

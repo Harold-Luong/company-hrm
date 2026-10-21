@@ -1,5 +1,9 @@
 # Company HRM — Frontend
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Project chạy độc lập](#project-chạy-độc-lập)
@@ -76,34 +80,41 @@ Hai trang trợ giúp dùng chung cho mọi tài khoản đã đăng nhập, m�
 
 Nội dung nằm trong `src/help/content.js`; cập nhật cùng các thay đổi quy tắc ở Attendance/Leave và `src/attendance/report.js`. Các trang chỉ giải thích quy tắc hiện có, không tính lại hay ghi dữ liệu nghiệp vụ. Liên kết tới trang quản lý chỉ hiện cho HR/ADMIN; nội dung tài liệu vẫn đọc được với mọi vai trò. Bảng công và phần chấm công trong hồ sơ có liên kết tra cứu công thức.
 
-| Trang                   | Đường dẫn                                              | Quyền                     |
-| ----------------------- | ------------------------------------------------------ | ------------------------- |
-| Đăng nhập               | `/login`                                               | Chưa đăng nhập            |
-| Tổng quan               | `/`                                                    | Mọi tài khoản đã xác thực |
-| Tài khoản của tôi       | `/account`                                             | Mọi tài khoản đã xác thực |
-| Tạo tài khoản           | `/accounts/new`                                        | ADMIN         |
-| Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`       | HR hoặc ADMIN |
-| Phòng ban               | `/departments`, `/departments/new`, `/departments/:id` | HR hoặc ADMIN |
-| Chức danh               | `/positions`, `/positions/new`, `/positions/:id`       | HR hoặc ADMIN |
-| Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                           | ADMIN         |
-| Kết nối dịch vụ         | `/services`                                            | Mọi tài khoản đã xác thực |
-| Nghỉ phép của tôi       | `/leave`                                               | Mọi tài khoản đã xác thực |
-| Duyệt nghỉ phép         | `/leave/inbox`                                         | HR hoặc ADMIN |
-| Chi tiết đơn nghỉ       | `/leave/requests/:id`                                  | Người gửi hoặc HR/ADMIN (backend kiểm tra) |
-| Lịch nghỉ và sự kiện | `/calendar` | Mọi tài khoản đã xác thực |
-| Quản lý lịch | `/calendar-events`, `/calendar-events/new`, `/calendar-events/:id` | HR hoặc ADMIN |
-| Từ chối truy cập        | `/forbidden`                                           | Tài khoản đã xác thực     |
+| Trang                   | Đường dẫn                                                          | Quyền                                      |
+| ----------------------- | ------------------------------------------------------------------ | ------------------------------------------ |
+| Đăng nhập               | `/login`                                                           | Chưa đăng nhập                             |
+| Tổng quan               | `/`                                                                | Mọi tài khoản đã xác thực                  |
+| Tài khoản của tôi       | `/account`                                                         | Mọi tài khoản đã xác thực                  |
+| Tạo tài khoản           | `/accounts/new`                                                    | ADMIN                                      |
+| Nhân viên               | `/employees`, `/employees/new`, `/employees/:id`                   | HR hoặc ADMIN                              |
+| Phòng ban               | `/departments`, `/departments/new`, `/departments/:id`             | HR hoặc ADMIN                              |
+| Chức danh               | `/positions`, `/positions/new`, `/positions/:id`                   | HR hoặc ADMIN                              |
+| Cấp tài khoản qua Kafka | Trong hồ sơ `/employees/:id`                                       | ADMIN                                      |
+| Kết nối dịch vụ         | `/services`                                                        | Mọi tài khoản đã xác thực                  |
+| Nghỉ phép của tôi       | `/leave`                                                           | Mọi tài khoản đã xác thực                  |
+| Duyệt nghỉ phép         | `/leave/inbox`                                                     | HR hoặc ADMIN                              |
+| Chi tiết đơn nghỉ       | `/leave/requests/:id`                                              | Người gửi hoặc HR/ADMIN (backend kiểm tra) |
+| Lịch nghỉ và sự kiện    | `/calendar`                                                        | Mọi tài khoản đã xác thực                  |
+| Quản lý lịch            | `/calendar-events`, `/calendar-events/new`, `/calendar-events/:id` | HR hoặc ADMIN                              |
+| Từ chối truy cập        | `/forbidden`                                                       | Tài khoản đã xác thực                      |
 
 - Bảo vệ cả điều hướng từ menu và truy cập URL trực tiếp; chưa đăng nhập được đưa
   về login rồi quay lại trang hợp lệ sau khi xác thực.
 - Lấy vai trò hiện tại từ `/me` khi khôi phục phiên và mỗi lần điều hướng trang được
   bảo vệ. Không suy quyền từ JWT hoặc dữ liệu vai trò lưu ở browser.
-- Hỗ trợ tài khoản nhiều vai trò; không có role hierarchy tự động. ADMIN không được
-  suy thành HR. Quyền phía frontend phục vụ UX; backend vẫn kiểm tra từng API.
+- Hỗ trợ tài khoản nhiều vai trò; không có role hierarchy tự động. Các nhóm quyền
+  nghiệp vụ chấp nhận cả HR và ADMIN. ADMIN có thêm quyền quản trị tài khoản và cấp tài khoản:
+  tạo trực tiếp và gửi yêu cầu cấp tài khoản cho nhân viên. Tra cứu kết quả, kiểm
+  tra/gửi lại lời mời kích hoạt đều dành cho HR/ADMIN.
+- MANAGER giữ nguyên role, chờ thiết kế sau; chưa có màn hình quản lý nhóm hoặc
+  quyền xét duyệt riêng, chưa có luồng Manager duyệt rồi HR duyệt tiếp.
+  Quyền phía frontend phục vụ UX; backend vẫn kiểm tra từng API và phạm vi dữ liệu.
 - Không có đăng ký công khai. Form cấp tài khoản yêu cầu Employee UUID hiện có theo
   contract của Auth, chỉ gọi `/auth/register`, không tạo/sửa/tìm kiếm Employee.
-- Chưa triển khai danh sách tài khoản, sửa vai trò,
-  khóa tài khoản hay quên mật khẩu. UI không giả lập các API chưa có.
+- ADMIN quản trị tài khoản tại `/accounts`: lọc email/trạng thái/vai trò, xem chi tiết và audit,
+  khóa/mở khóa, đổi vai trò, buộc đăng xuất. Mỗi thao tác yêu cầu lý do, xác nhận và phiên bản hiện tại;
+  lỗi mạng hoặc 412 yêu cầu tải lại, không tự gửi lại thao tác ghi. Không tự sửa tài khoản của mình.
+- Chưa triển khai đổi/quên mật khẩu.
 
 ## Nghỉ phép
 
@@ -116,16 +127,16 @@ Trong chi tiết đơn đã duyệt, chủ đơn có thể gửi **Điều chỉ
 
 ## Chấm công
 
-| Trang | Đường dẫn | Quyền |
-| --- | --- | --- |
-| Công của tôi, ghi giờ vào/ra, lịch sử | `/attendance` | Đã đăng nhập |
-| Đơn đi trễ/về sớm cá nhân | `/attendance/requests` | Đã đăng nhập |
-| Duyệt đơn đi trễ/về sớm | `/attendance/requests/inbox` | HR/ADMIN |
-| Bổ sung/điều chỉnh công | `/attendance/corrections` | Đã đăng nhập; xét duyệt cần HR/ADMIN |
-| Đăng ký/chấm giờ OT | `/attendance/overtime` | Đã đăng nhập; xét duyệt cần HR/ADMIN |
-| Mẫu ca, tạo/sửa/vô hiệu hóa, lịch sử | `/attendance/shifts` | HR/ADMIN |
-| Phân công, chọn nhân viên/phạm vi, preview và lịch sử | `/attendance/schedules` | HR/ADMIN |
-| Bảng công, đối soát phép/lịch, CSV | `/attendance/reports` | HR/ADMIN |
+| Trang                                                 | Đường dẫn                    | Quyền                                |
+| ----------------------------------------------------- | ---------------------------- | ------------------------------------ |
+| Công của tôi, ghi giờ vào/ra, lịch sử                 | `/attendance`                | Đã đăng nhập                         |
+| Đơn đi trễ/về sớm cá nhân                             | `/attendance/requests`       | Đã đăng nhập                         |
+| Duyệt đơn đi trễ/về sớm                               | `/attendance/requests/inbox` | HR/ADMIN                             |
+| Bổ sung/điều chỉnh công                               | `/attendance/corrections`    | Đã đăng nhập; xét duyệt cần HR/ADMIN |
+| Đăng ký/chấm giờ OT                                   | `/attendance/overtime`       | Đã đăng nhập; xét duyệt cần HR/ADMIN |
+| Mẫu ca, tạo/sửa/vô hiệu hóa, lịch sử                  | `/attendance/shifts`         | HR/ADMIN                             |
+| Phân công, chọn nhân viên/phạm vi, preview và lịch sử | `/attendance/schedules`      | HR/ADMIN                             |
+| Bảng công, đối soát phép/lịch, CSV                    | `/attendance/reports`        | HR/ADMIN                             |
 
 UI gọi `/api/v1/attendance` qua Gateway với phiên Auth hiện tại. Nhân viên chỉ tự
 chấm công, giờ lấy từ server; HR áp lịch mặc định hoặc lịch riêng có ngày hiệu lực.
@@ -167,10 +178,11 @@ Prefix: `/api/v1/auth`.
 
 | Endpoint           | Sử dụng                                              |
 | ------------------ | ---------------------------------------------------- |
-| `POST /login`      | Lấy cặp token từ `data`, sau đó đọc `/me`            |
+| `GET /csrf`        | Lấy CSRF token và khởi tạo cookie CSRF HttpOnly     |
+| `POST /login`      | Lấy access token từ `data`, nhận refresh cookie, đọc `/me` |
 | `GET /me`          | Thông tin account và tập `roles` hiện tại            |
-| `POST /refresh`    | Xoay vòng cặp token khi khôi phục phiên hoặc gặp 401 |
-| `POST /logout`     | Thu hồi refresh session hiện tại                     |
+| `POST /refresh`    | Gửi cookie và CSRF header, nhận access token và cookie mới |
+| `POST /logout`     | Thu hồi phiên hiện tại và xóa refresh cookie         |
 | `POST /logout-all` | Thu hồi tất cả refresh session sau xác nhận trong UI |
 | `POST /register`   | Cấp tài khoản với email, password, employeeId, roles |
 
@@ -227,27 +239,40 @@ register khi lỗi mạng/5xx vì thao tác ghi có thể đã được server x
 
 ## Phiên đăng nhập
 
-Access token và thông tin người dùng chỉ nằm trong bộ nhớ của mỗi tab. Refresh
-token và mã phiên đăng nhập lưu chung trong `localStorage` tại `company-hrm.session`.
-Các tab cùng origin (giao thức/host/port), cùng browser profile dùng chung phiên;
-tab mới tự khôi phục đăng nhập. Không lưu mật khẩu, access token hoặc roles vào storage.
-Phiên có thể được khôi phục cả khi đóng/mở lại trình duyệt, đến khi refresh token hết
-hạn hoặc đăng xuất. Đăng xuất ở một tab xóa phiên ở tất cả tab qua sự kiện `storage`.
+Mỗi tài khoản chỉ có một phiên trên server. Đăng nhập từ trình duyệt/thiết bị khác
+thay thế phiên cũ; nhiều tab cùng browser profile vẫn dùng chung phiên. Khi nhận
+401 và refresh cũng bị từ chối, UI xóa phiên và về login. Tab đang hiển thị kiểm tra
+phiên mỗi 15 giây, khi được focus hoặc hiển thị lại; thông báo cho biết phiên đã
+kết thúc hoặc tài khoản đăng nhập ở nơi khác. Lỗi mạng/503 giữ phiên để thử lại.
+Backend chặn request mới của phiên cũ ngay khi kiểm tra; thời gian polling chỉ ảnh
+hưởng thời điểm giao diện chuyển về login. Token cũ trước bản nâng cấp cần đăng nhập lại.
 
-Web Locks tuần tự hóa login, refresh và logout giữa các tab. Mỗi lần refresh đọc token
-mới nhất sau khi lấy khóa; mỗi tab vẫn giữ access token riêng. Mã phiên không đổi
-khi refresh và đổi khi đăng nhập lại, giúp loại bỏ response từ phiên cũ. Frontend
-kiểm tra lại phiên trước/sau request để xử lý cả tab nền nhận sự kiện storage chậm.
-Yêu cầu HTTPS (hoặc localhost khi phát triển) và trình duyệt hỗ trợ Web Locks;
-thiếu hỗ trợ sẽ báo lỗi thay vì refresh đồng thời không có khóa.
+Access token và thông tin người dùng chỉ nằm trong bộ nhớ mỗi tab. Refresh token
+nằm trong cookie `HttpOnly; Secure; SameSite=Strict` do Auth đặt. Frontend không
+đọc cookie này, không nhận refresh token trong JSON, không lưu token vào storage.
+`company-hrm.session` chỉ chứa `{ id }` để nhận biết thay đổi phiên giữa các tab.
 
-Sau khi nâng cấp từ phiên bản chỉ dùng `sessionStorage`, đăng nhập lại một lần.
-Token riêng của tab cũ được xóa; không tự nhập lại token cũ vì nó có thể đã bị xoay
-vòng hoặc thu hồi. Các tab đang chạy bản frontend cũ nên được tải lại.
+Login, refresh, logout và logout-all lấy masked CSRF token qua
+`GET /api/v1/auth/csrf` rồi gửi header `X-XSRF-TOKEN`. Cookie CSRF cũng HttpOnly;
+frontend lấy token qua JSON và không lưu nó vào storage. Các request dùng
+`credentials: 'same-origin'`; triển khai frontend và `/api` qua cùng origin.
+Web Locks tuần tự hóa thao tác cookie giữa các tab; không tự retry refresh khi
+kết quả không xác định. Bearer API khác tiếp tục dùng access token.
 
-Backend hiện trả refresh token trong JSON, chưa hỗ trợ HttpOnly cookie. Vì vậy
-refresh token trong localStorage vẫn có thể bị đọc nếu xảy ra XSS và tồn tại sau
-khi đóng tab. Khi chuyển sang cookie HttpOnly cần điều chỉnh cả backend và cơ chế CSRF.
+Lựa chọn production mặc định yêu cầu HTTPS. Với HTTP local, đặt
+`AUTH_COOKIES_SECURE=false` ở Auth (cookie đổi sang tên dành cho dev), chỉ dùng
+trên máy phát triển. Không dùng cấu hình này ở production. Gateway phải cho qua
+`Set-Cookie`, cookie và CSRF header tới Auth; cookie không chuyển tới service khác.
+
+Nâng cấp đồng thời frontend/Auth/Gateway. Người dùng phiên bản cũ cần đăng nhập
+lại; frontend xóa refresh token cũ trong localStorage/sessionStorage và không gửi
+lại token đó. Reload các tab đang chạy bản cũ. Cookie cho phép khôi phục sau khi
+mở lại trình duyệt hoặc mất metadata trong storage, nếu phiên vẫn hợp lệ.
+
+Đăng xuất đồng bộ các tab qua `storage`. Nếu mất mạng, frontend không thể tự xóa
+cookie HttpOnly: xóa trạng thái local và lưu cờ `company-hrm.signed-out` để tránh
+khôi phục cookie khi reload. Cờ này chỉ được bỏ sau đăng nhập mới thành công;
+UI vẫn thông báo chưa xác nhận được thu hồi trên server.
 
 Lỗi mạng khi khôi phục phiên đưa tới trang kết nối gián đoạn để thử lại, không tự
 xóa phiên. Token refresh đã hết hạn/thu hồi hoặc account inactive đưa về login.
@@ -261,20 +286,17 @@ lực tới khi hết hạn (mặc định Auth hiện là 1 ngày; thời hạn
 
 ## Cấu trúc
 
-```text
-src/
-├── auth/                   # HTTP client, session và vai trò truy cập
-├── assets/styles/main.css  # Design system và responsive
-├── components/             # Icon và role badge dùng chung
-├── layouts/                # Sidebar, topbar và workspace layout
-├── router/                 # Routes và guard xác thực/phân quyền
-├── views/                  # Login, dashboard, account, create account, lỗi
-├── App.vue
-└── main.js
-tests/
-├── unit/                   # Phiên, rotation, concurrency, redirect an toàn
-└── e2e/                    # Browser: đăng nhập, quyền, mobile, live Auth opt-in
-```
+Frontend được tổ chức theo nghiệp vụ (`hrm`, `attendance`, `leave`, `calendar`),
+với HTTP client dùng chung trong `src/api`, tiện ích trong `src/shared` và logic
+Vue tái sử dụng trong `src/composables`. Views/components gọi API nghiệp vụ;
+endpoint, payload và session được quản lý ở lớp tương ứng.
+
+Xem [kiến trúc frontend và quy tắc mở rộng](docs/architecture.md) để biết nơi sửa
+URL, thêm API, xử lý request đồng thời, idempotency và kiểm tra sau thay đổi.
+
+Text giao diện được quản lý trong `src/locales/`, adapter ở `src/content/`, cấu hình dùng chung nằm trong
+`src/config/`. Xem [hướng dẫn chỉnh sửa nội dung](src/content/README.md), gồm ví dụ
+đổi nhãn nút theo trạng thái mà không sửa component.
 
 ## Kiểm tra và build
 
@@ -365,7 +387,6 @@ trạng thái/lịch sử. HR/ADMIN có hàng chờ duyệt riêng tại `/atten
 có phép; công vẫn trừ theo bước 15 phút. Không còn dữ liệu mẫu hoặc memory store.
 [Contract và migration cần chạy](#requests).
 
-
 ### Phân ca và OT
 
 - `/attendance/schedules`: backend tự khởi tạo ca mặc định thứ Hai–thứ Sáu nếu công ty chưa có lịch, không ngày kết thúc;
@@ -388,16 +409,16 @@ sửa/rút đơn PENDING và lịch sử của mình. Danh sách phân trang/l�
 
 Prefix `/api/v1/attendance/requests`:
 
-| Method / path | Chức năng |
-| --- | --- |
-| GET / | Danh sách bản thân, `status`, `page`, `size` |
-| GET /inbox | Danh sách HR/ADMIN, cùng bộ lọc |
-| POST / | Tạo đơn, `Idempotency-Key` bắt buộc |
-| GET /{id} | Chi tiết và ETag, chủ đơn hoặc HR/ADMIN |
-| PUT /{id} | Chủ đơn sửa PENDING, `If-Match` |
-| POST /{id}/cancel | Chủ đơn rút PENDING, `If-Match` |
+| Method / path       | Chức năng                                          |
+| ------------------- | -------------------------------------------------- |
+| GET /               | Danh sách bản thân, `status`, `page`, `size`       |
+| GET /inbox          | Danh sách HR/ADMIN, cùng bộ lọc                    |
+| POST /              | Tạo đơn, `Idempotency-Key` bắt buộc                |
+| GET /{id}           | Chi tiết và ETag, chủ đơn hoặc HR/ADMIN            |
+| PUT /{id}           | Chủ đơn sửa PENDING, `If-Match`                    |
+| POST /{id}/cancel   | Chủ đơn rút PENDING, `If-Match`                    |
 | POST /{id}/decision | HR/ADMIN duyệt/từ chối, `If-Match`, không tự duyệt |
-| GET /{id}/history | Lịch sử có phân trang, chủ đơn hoặc HR/ADMIN |
+| GET /{id}/history   | Lịch sử có phân trang, chủ đơn hoặc HR/ADMIN       |
 
 Body gửi/sửa: `workDate`, `shiftId`, `shiftVersion`, `requestType`
 (`LATE_ARRIVAL`/`EARLY_DEPARTURE`), `period` (`MORNING`/`AFTERNOON`),
@@ -443,3 +464,18 @@ Bảng công có phần **Chốt công theo tháng** áp dụng toàn công ty, 
 HR/ADMIN xem trạng thái, nhập lý do rồi chốt/mở lại. Hiển thị lịch sử và nút kiểm tra
 phép/ngày nghỉ thay đổi sau chốt. Kỳ FINAL ẩn nút refresh từng ngày; tải báo cáo/CSV
 dùng dữ liệu đã chốt. Chưa có payroll hoặc tự sửa kỳ đã chốt bằng sự kiện.
+
+## Tiếng Việt / English
+
+Giao diện hỗ trợ Việt/Anh, đổi tại menu tài khoản hoặc trang đăng nhập/kích hoạt.
+Lựa chọn được lưu và đồng bộ giữa các tab, không cần tải lại trang.
+Sửa nội dung trong `src/locales/vi.json` và `src/locales/en.json`; xem
+[hướng dẫn i18n](src/content/README.md) về khóa dịch, tham số và định dạng ngày/số.
+
+### Quản trị tài khoản
+
+`src/accounts/` chứa API, enum và xử lý lỗi; nội dung màn hình nằm trong `accountManagement`
+của `locales/vi.json` và `locales/en.json`. Chỉ ADMIN truy cập `/accounts` và `/accounts/:id`.
+Tài khoản chờ kích hoạt bị khóa sẽ không dùng được link cũ; mở khóa vẫn phải gửi lại lời mời
+và hoàn tất kích hoạt. Các API quản trị dùng Bearer, không dùng refresh cookie để cấp quyền.
+Thay đổi có hiệu lực với request xác thực tiếp theo; request đang xử lý có thể vẫn hoàn tất.

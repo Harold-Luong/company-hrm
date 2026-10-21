@@ -1,5 +1,9 @@
 # Calendar Service — Thiết kế Holiday và sự kiện công ty
 
+Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
+`.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../../../README.md#docker-independent)
+để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.
+
 **Mục lục**
 
 - [Cấu hình và chạy độc lập](#cấu-hình-và-chạy-độc-lập)
@@ -21,6 +25,18 @@
 - [Khởi tạo database và chạy Calendar Service](#khởi-tạo-database-và-chạy-calendar-service)
 
 Chạy native với `.env` theo [hướng dẫn chạy độc lập](../../../README.md#local). Các ví dụ database bên dưới dùng mặc định trong mã nguồn (`5432`); mẫu `.env` hiện dùng `55432` và bản sao public key trong `keys/` của service. Nạp file vào environment trước khi chạy Maven, hoặc chỉnh biến theo database/khóa của máy.
+
+## Kiểm tra phiên đăng nhập
+
+Mỗi tài khoản chỉ có một phiên; đăng nhập mới thay phiên cũ. Service vẫn xác minh
+chữ ký/hạn JWT cục bộ, sau đó gọi `GET /api/v1/auth/session` với Bearer token để
+kiểm tra phiên tại Auth. Cấu hình `AUTH_SERVICE_URL` trỏ **trực tiếp Auth**, không
+trỏ Gateway: local `http://localhost:8081`, Docker `http://auth:8081`.
+Khởi động/health không yêu cầu Auth sẵn sàng; API có xác thực cần kết nối Auth.
+Phiên bị thu hồi trả 401; Auth lỗi/timeout trả 503, không tiếp tục nghiệp vụ.
+Không cache kết quả kiểm tra; các test nghiệp vụ mock `SessionVerifier`, test
+`SessionVerifierTests` (ở resource service) kiểm tra HTTP contract riêng.
+Đổi role chưa cập nhật claim trong JWT cũ; login/refresh cấp claim mới.
 
 ## Cấu hình và chạy độc lập
 
@@ -159,7 +175,7 @@ Calendar hoạt động như OAuth2 Resource Server, kế thừa contract access
 - Không copy private key hoặc dùng refresh public key. Thiếu/sai access public key phải làm service khởi động thất bại.
 - API stateless; public health tối thiểu và tài liệu Swagger. API nghiệp vụ yêu cầu xác thực, đường dẫn ngoài contract bị từ chối.
 
-Không gọi Auth cho mỗi request. Do xác minh JWT cục bộ, logout hoặc đổi role tại Auth không tự thu hồi ngay access token đã phát hành. Calendar có giới hạn này tương tự Employee; không mô tả đây là kiểm tra trạng thái tài khoản tức thời.
+Calendar kiểm tra phiên tại Auth cho mỗi request có Bearer token; logout hoặc đăng nhập nơi khác chặn phiên cũ. Đổi role vẫn cần token mới để nhận claim mới.
 
 Tham khảo implementation trong [Employee SecurityConfig](../employee-service/src/main/java/com/company/employee/config/SecurityConfig.java), [AccessTokenClaimsValidator](../employee-service/src/main/java/com/company/employee/security/AccessTokenClaimsValidator.java) và [JWT của Auth](../auth-service-main/README.md#jwt).
 
@@ -533,17 +549,32 @@ Swagger UI dùng cùng cách cấu hình với Employee Service: tài liệu Ope
 
 Kiểm thử bảo mật không cần PostgreSQL hoặc khóa thật: `./mvnw -Dtest=JwtSecurityTests test`. Test tự sinh cặp khóa RSA để kiểm tra JWT và phân quyền xem/quản lý.
 
-Kiểm thử integration dùng PostgreSQL riêng. Tạo schema trên DB thử trước khi chạy; các thay đổi trong test được rollback:
+Kiểm thử integration dùng PostgreSQL 16 riêng do Testcontainers tạo. Cần Docker
+đang chạy và tài khoản hiện tại được truy cập Docker. Từ thư mục service:
 
 ```bash
-psql -X -v ON_ERROR_STOP=1 -h localhost -p 5432 -U calendar_test -d calendar_test \
-  -f docs/sql/001_calendar_schema.sql
-
-CALENDAR_DB_URL=jdbc:postgresql://localhost:5432/calendar_test \
-CALENDAR_DB_USER=calendar_test CALENDAR_DB_PASSWORD=your-local-test-password ./mvnw test
+./mvnw test
 ```
 
-Bộ test validate entity theo schema đã tạo, đọc qua API và kiểm tra DTO, ẩn draft/actor, lịch rỗng, khoảng giao năm và biên thời gian. `CalendarManagementIntegrationTests` kiểm tra CRUD, vòng đời, version, ghi đồng thời, validation và rollback khi audit lỗi. Không chạy bộ test trên DB nghiệp vụ.
+Không cần tạo database/user, chạy SQL thủ công hoặc nạp `.env` để test. Lần đầu
+cần tải dependency và Docker image `postgres:16`. `CalendarDatabaseTestSupport`
+cấp kết nối bằng `@ServiceConnection`, ưu tiên hơn `CALENDAR_DB_*` và
+`SPRING_DATASOURCE_*`; test không dùng database ứng dụng dù terminal có các biến này.
+Nếu Docker không sẵn sàng, test báo lỗi, không chuyển sang database local.
+
+Schema được nạp từ `docs/sql/001_calendar_schema.sql`, không nạp seed nghiệp vụ;
+Hibernate validate entity trên schema thật. Container dùng cổng ngẫu nhiên,
+không mount volume dữ liệu ứng dụng và không bật reuse. Spring quản lý container
+theo vòng đời test context, dọn container khi context kết thúc.
+
+Bộ test kiểm tra DTO, ẩn draft/actor, lịch rỗng, khoảng giao năm và biên thời gian.
+`CalendarIntegrationTests` rollback từng test. `CalendarManagementIntegrationTests`
+có commit và chạy đồng thời; nó xóa dữ liệu lịch/audit trong container trước mỗi
+test, không rollback toàn bộ test. Bộ này kiểm tra CRUD, vòng đời, version,
+validation và rollback nghiệp vụ khi ghi audit lỗi. `CalendarServiceApplicationTests`
+xác nhận kết nối vẫn tới container ngay cả khi cấu hình datasource ứng dụng trỏ
+tới một địa chỉ khác. Test database mới phải kế thừa `CalendarDatabaseTestSupport`;
+`JwtTestSupport` chỉ cấp khóa JWT tạm và dành riêng cho test không cần database.
 
 Cấu hình mặc định liên quan đến database và JWT (environment có thể ghi đè):
 
@@ -582,8 +613,8 @@ và dùng cùng cổng trong `psql`/SQL editor. Từ thư mục service, nạp `
 [cấu hình độc lập](#cấu-hình-và-chạy-độc-lập) trước khi chạy:
 
 ```bash
-./mvnw test
-./mvnw clean package
+./mvnw test # Integration test tự tạo PostgreSQL container; cần Docker.
+./mvnw clean package # Cũng chạy test trên container riêng.
 ./mvnw spring-boot:run
 ```
 
