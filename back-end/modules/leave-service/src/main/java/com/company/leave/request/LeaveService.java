@@ -78,7 +78,7 @@ public class LeaveService {
         }
         Request request = repository.insert(employeeId, actor.getName(), body, period, totalUnits);
         calendars.save(request.id(), calendarDays);
-        repository.audit(request.id(), "SUBMITTED", actor.getName(), null);
+        repository.audit(request.id(), LeaveHistoryAction.SUBMITTED, actor.getName(), null);
         notifications.append(request.id(), request.version(), request.requesterUserId(), request.employeeId(), actor.getName(), "SUBMITTED");
         return request;
     }
@@ -186,7 +186,7 @@ public class LeaveService {
         if (!repository.transition(id, request.version(), target, actor.getName(), cleanNote)) {
             throw error(HttpStatus.PRECONDITION_FAILED, "Leave request has changed; reload before retrying");
         }
-        repository.audit(id, target.name(), actor.getName(), cleanNote);
+        repository.audit(id, LeaveHistoryAction.forDecision(target), actor.getName(), cleanNote);
         notifications.append(id, request.version() + 1, request.requesterUserId(), request.employeeId(), actor.getName(), target.name());
         return repository.find(id).orElseThrow();
     }

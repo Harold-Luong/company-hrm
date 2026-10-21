@@ -56,7 +56,7 @@ public final class LeaveModels {
     public record AttendanceLeave(UUID id, UUID employeeId, LeaveType leaveType, LocalDate startDate,
             LocalDate endDate, LeavePeriod period, Status status, long version, boolean adjustmentPending) {}
 
-    public record History(long id, String action, String actorUserId, String note, Instant occurredAt) {
+    public record History(long id, LeaveHistoryAction action, String actorUserId, String note, Instant occurredAt) {
     }
 
     public record Page(List<Request> content, int page, int size, long totalElements, long totalPages) {

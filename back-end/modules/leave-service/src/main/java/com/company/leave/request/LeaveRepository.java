@@ -193,14 +193,14 @@ public class LeaveRepository {
                 """, status.name(), reviewed ? actor : null, reviewed, note, id, version) == 1;
     }
 
-    public void audit(UUID id, String action, String actor, String note) {
+    public void audit(UUID id, LeaveHistoryAction action, String actor, String note) {
         jdbc.update("INSERT INTO leave_request_history(request_id, action, actor_user_id, note) VALUES (?, ?, ?, ?)",
-                id, action, actor, note);
+                id, action.name(), actor, note);
     }
 
     public List<History> history(UUID id) {
         return jdbc.query("SELECT * FROM leave_request_history WHERE request_id = ? ORDER BY id",
-                (rs, i) -> new History(rs.getLong("id"), rs.getString("action"), rs.getString("actor_user_id"),
+                (rs, i) -> new History(rs.getLong("id"), LeaveHistoryAction.valueOf(rs.getString("action")), rs.getString("actor_user_id"),
                         rs.getString("note"), instant(rs, "occurred_at")),
                 id);
     }

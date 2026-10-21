@@ -45,7 +45,7 @@ public class LeaveAdjustmentService {
         if (request.adjustmentPending()) throw error(HttpStatus.CONFLICT, "An adjustment is already pending");
         int units = remainingUnits(request, body);
         repository.insertAdjustment(request, body, units, actor.getName());
-        return record(request, "ADJUSTMENT_SUBMITTED", body.reason().trim(), actor);
+        return record(request, LeaveHistoryAction.ADJUSTMENT_SUBMITTED, body.reason().trim(), actor);
     }
 
     @Transactional
@@ -81,7 +81,7 @@ public class LeaveAdjustmentService {
         }
         if (!repository.decideAdjustment(change.id(), target, actor.getName(), cleanNote))
             throw error(HttpStatus.CONFLICT, "Adjustment already processed");
-        return record(request, "ADJUSTMENT_" + target.name(), cleanNote, actor);
+        return record(request, LeaveHistoryAction.forAdjustmentDecision(target), cleanNote, actor);
     }
 
     private Request lock(UUID id, String match, JwtAuthenticationToken actor) {
@@ -120,7 +120,7 @@ public class LeaveAdjustmentService {
         return units;
     }
 
-    private Request record(Request request, String action, String note, JwtAuthenticationToken actor) {
+    private Request record(Request request, LeaveHistoryAction action, String note, JwtAuthenticationToken actor) {
         repository.bumpVersion(request.id());
         repository.audit(request.id(), action, actor.getName(), note);
         // Existing event contract: refresh consumers without requiring new Kafka action enums.
