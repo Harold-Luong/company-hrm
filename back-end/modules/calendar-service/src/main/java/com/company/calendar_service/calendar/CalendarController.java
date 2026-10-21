@@ -25,7 +25,7 @@ public class CalendarController {
     @GetMapping
     public ResponseEntity<CalendarResponse> get(@RequestParam(required = false) Integer year) {
         int selected = year == null ? LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).getYear() : year;
-        if (selected < 1900 || selected > 2100) {
+        if (selected < 2020 || selected > 2100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "year must be between 1900 and 2100");
         }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.read(selected));
