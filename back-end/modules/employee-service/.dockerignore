@@ -1,0 +1,13 @@
+target
+.git
+.idea
+.vscode
+.env
+.env.*
+keys
+**/*.pem
+**/*.key
+**/*.p12
+**/*.jks
+src/test
+*.log

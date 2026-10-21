@@ -80,6 +80,7 @@ services:
       args:
         MODULE: employee-service
     environment:
+      AUTH_SERVICE_URL: http://auth:8081
       SERVER_PORT: 8082
       SPRING_DATASOURCE_URL: jdbc:postgresql://employee-db:5432/employee_db
       SPRING_DATASOURCE_USERNAME: employee_user
@@ -107,6 +108,7 @@ services:
       args:
         MODULE: calendar-service
     environment:
+      AUTH_SERVICE_URL: http://auth:8081
       SERVER_PORT: 8083
       SPRING_DATASOURCE_URL: jdbc:postgresql://workforce-db:5432/workforce_db
       SPRING_DATASOURCE_USERNAME: workforce_user
@@ -129,6 +131,7 @@ services:
       args:
         MODULE: leave-service
     environment:
+      AUTH_SERVICE_URL: http://auth:8081
       SERVER_PORT: 8084
       ATTENDANCE_SERVICE_URL: http://attendance:8085
       SPRING_DATASOURCE_URL: jdbc:postgresql://leave-db:5432/leave_db
@@ -151,6 +154,7 @@ services:
       args:
         MODULE: attendance-service
     environment:
+      AUTH_SERVICE_URL: http://auth:8081
       SERVER_PORT: 8085
       ATTENDANCE_DB_URL: jdbc:postgresql://attendance-db:5432/attendance_db
       ATTENDANCE_DB_USER: attendance_user

@@ -1,0 +1,13 @@
+# Optional: attach the independent Kafka project to the service network.
+# docker compose -f compose.yaml -f compose.services.yaml up -d
+services:
+  kafka:
+    networks:
+      default: {}
+      services:
+        aliases: [kafka]
+
+networks:
+  services:
+    name: ${HRM_DOCKER_NETWORK:-hrm-services}
+    external: true

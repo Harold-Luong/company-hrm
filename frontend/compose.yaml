@@ -1,0 +1,25 @@
+name: hrm-frontend
+
+services:
+  frontend:
+    image: ${IMAGE_REPOSITORY:-company-hrm/frontend}:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '${HOST_BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-5173}:80'
+    environment:
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://gateway:8080}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      services:
+        aliases: [frontend]
+
+networks:
+  services:
+    name: ${HRM_DOCKER_NETWORK:-hrm-services}
+    external: true

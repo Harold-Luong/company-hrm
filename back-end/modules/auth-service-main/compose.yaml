@@ -1,0 +1,52 @@
+name: hrm-auth
+
+services:
+  auth:
+    image: ${IMAGE_REPOSITORY:-company-hrm/auth}:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    user: "${APP_UID:-10001}:${APP_GID:-10001}"
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - .env.docker
+    environment:
+      SERVER_ADDRESS: "0.0.0.0"
+      SERVER_PORT: "8081"
+      JWT_ACCESS_PUBLIC_KEY: file:/run/secrets/access-public.pem
+      JWT_ACCESS_PRIVATE_KEY: file:/run/secrets/access-private.pem
+      JWT_REFRESH_PUBLIC_KEY: file:/run/secrets/refresh-public.pem
+      JWT_REFRESH_PRIVATE_KEY: file:/run/secrets/refresh-private.pem
+    ports:
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8081}:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - source: access-public
+        target: access-public.pem
+      - source: access-private
+        target: access-private.pem
+      - source: refresh-public
+        target: refresh-public.pem
+      - source: refresh-private
+        target: refresh-private.pem
+    networks:
+      services:
+        aliases: [auth]
+
+networks:
+  services:
+    name: ${HRM_DOCKER_NETWORK:-hrm-services}
+    external: true
+
+secrets:
+  access-public:
+    file: ${JWT_ACCESS_PUBLIC_KEY_FILE:-./keys/access-public.pem}
+  access-private:
+    file: ${JWT_ACCESS_PRIVATE_KEY_FILE:-./keys/access-private.pem}
+  refresh-public:
+    file: ${JWT_REFRESH_PUBLIC_KEY_FILE:-./keys/refresh-public.pem}
+  refresh-private:
+    file: ${JWT_REFRESH_PRIVATE_KEY_FILE:-./keys/refresh-private.pem}
