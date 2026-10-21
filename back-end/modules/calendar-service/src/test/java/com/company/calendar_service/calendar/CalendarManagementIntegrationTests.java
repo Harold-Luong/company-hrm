@@ -1,6 +1,6 @@
 package com.company.calendar_service.calendar;
 
-import com.company.calendar_service.JwtTestSupport;
+import com.company.calendar_service.CalendarDatabaseTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser(username = "hr-actor", roles = "HR")
-class CalendarManagementIntegrationTests extends JwtTestSupport {
+class CalendarManagementIntegrationTests extends CalendarDatabaseTestSupport {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;

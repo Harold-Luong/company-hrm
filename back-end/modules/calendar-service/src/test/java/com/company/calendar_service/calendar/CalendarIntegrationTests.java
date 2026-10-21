@@ -1,6 +1,6 @@
 package com.company.calendar_service.calendar;
 
-import com.company.calendar_service.JwtTestSupport;
+import com.company.calendar_service.CalendarDatabaseTestSupport;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Transactional
 @WithMockUser(roles = "EMPLOYEE")
-class CalendarIntegrationTests extends JwtTestSupport {
+class CalendarIntegrationTests extends CalendarDatabaseTestSupport {
     @Autowired
     private MockMvc mvc;
     @Autowired
