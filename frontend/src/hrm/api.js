@@ -1,52 +1,30 @@
-import { auth } from '@/auth/session.js'
+import { pagination } from '../config/presentation.js'
+import { requestJson } from '../api/client.js'
+import { idempotencyHeader } from '../api/headers.js'
+import { hrmEndpoints as endpoints } from './endpoints.js'
 
-export const employeeStatuses = {
-  ACTIVE: 'Đang làm việc',
-  INACTIVE: 'Tạm ngừng',
-  PROBATION: 'Thử việc',
-  SUSPENDED: 'Đình chỉ công việc',
-  TERMINATED: 'Chấm dứt hợp đồng',
-}
-export const accountStatuses = {
-  NOT_CREATED: 'Chưa có tài khoản',
-  PENDING_ACTIVATION: 'Chờ kích hoạt',
-  ACTIVE: 'Đang hoạt động',
-  SUSPENDED: 'Tạm đình chỉ',
-  DISABLED: 'Đã vô hiệu hóa',
-}
-export const requestStatuses = {
-  PENDING: 'Đang xử lý',
-  SUCCEEDED: 'Đã cấp tài khoản',
-  FAILED: 'Cấp tài khoản thất bại',
-}
-export const fullName = (employee) => `${employee.lastName} ${employee.firstName}`
-export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Preserve existing imports; new UI code can import constants and utils directly.
+export { employeeStatuses, accountStatuses, requestStatuses } from './constants.js'
+export { fullName, uuidPattern } from './utils.js'
+
 export const hrm = {
-  list: (resource, page = 0, size = 20) =>
-    auth.request(`/api/v1/${resource}?page=${page}&size=${size}`),
-  get: (resource, id) => auth.request(`/api/v1/${resource}/${encodeURIComponent(id)}`),
+  list: (resource, page = 0, size = pagination.pageSize) =>
+    requestJson(endpoints.collection(resource), { query: { page, size } }),
+  get: (resource, id) => requestJson(endpoints.detail(resource, id)),
   save: (resource, id, body) =>
-    auth.request(`/api/v1/${resource}${id ? `/${encodeURIComponent(id)}` : ''}`, {
+    requestJson(id ? endpoints.detail(resource, id) : endpoints.collection(resource), {
       method: id ? 'PUT' : 'POST',
-      body: JSON.stringify(body),
+      body,
     }),
-  status: (id, status) =>
-    auth.request(`/api/v1/employees/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
+  status: (id, status) => requestJson(endpoints.status(id), { method: 'PATCH', body: { status } }),
   provision: (id, email, key) =>
-    auth.request(`/api/v1/employees/${id}/account-requests`, {
+    requestJson(endpoints.accountRequests(id), {
       method: 'POST',
-      headers: { 'Idempotency-Key': key },
-      body: JSON.stringify({ email }),
+      headers: idempotencyHeader(key),
+      body: { email },
     }),
-  request: (id, requestId) =>
-    auth.request(`/api/v1/employees/${id}/account-requests/${encodeURIComponent(requestId)}`),
-  activationInvitation: (employeeId) =>
-    auth.request(`/api/v1/auth/activation-invitations/${encodeURIComponent(employeeId)}`),
+  request: (id, requestId) => requestJson(endpoints.accountRequest(id, requestId)),
+  activationInvitation: (employeeId) => requestJson(endpoints.activationInvitation(employeeId)),
   resendActivationInvitation: (employeeId) =>
-    auth.request(`/api/v1/auth/activation-invitations/${encodeURIComponent(employeeId)}`, {
-      method: 'POST',
-    }),
+    requestJson(endpoints.activationInvitation(employeeId), { method: 'POST' }),
 }

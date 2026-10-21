@@ -1,4 +1,6 @@
 <script setup>
+import { helpLayout as copy } from '@/content/workspace.js'
+
 import AppIcon from '@/components/AppIcon.vue'
 import '@/assets/styles/help.css'
 
@@ -12,15 +14,17 @@ defineProps({
   <div class="help-page">
     <div class="page-heading">
       <div>
-        <p class="eyebrow">TRUNG TÂM TRỢ GIÚP</p>
+        <p class="eyebrow">{{ copy.eyebrow }}</p>
         <h1>{{ title }}</h1>
         <p class="muted">{{ description }}</p>
       </div>
       <span class="help-heading-icon"><AppIcon name="book" :size="28" /></span>
     </div>
-    <nav class="help-tabs" aria-label="Tài liệu sử dụng">
-      <RouterLink to="/help/guide" active-class="is-active">Hướng dẫn sử dụng</RouterLink>
-      <RouterLink to="/help/features" active-class="is-active">Chức năng & công thức</RouterLink>
+    <nav class="help-tabs" :aria-label="copy.title">
+      <RouterLink to="/help/guide" active-class="is-active">{{ copy.userGuide }}</RouterLink>
+      <RouterLink to="/help/features" active-class="is-active">{{
+        copy.featureReference
+      }}</RouterLink>
     </nav>
     <slot />
   </div>

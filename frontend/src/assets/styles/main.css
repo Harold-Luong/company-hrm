@@ -356,7 +356,7 @@ h3 {
 }
 .login-form-wrap {
     width: 100%;
-    max-width: 390px;
+    max-width: 490px;
 }
 .login-lock {
     display: inline-flex;
@@ -1593,4 +1593,9 @@ textarea {
     .data-table td {
         padding: 14px;
     }
+}
+
+.auth-language {
+    align-self: flex-end;
+    margin-bottom: 1rem;
 }

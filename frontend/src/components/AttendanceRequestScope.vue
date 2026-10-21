@@ -1,11 +1,13 @@
 <script setup>
+import { attendanceRequestScope as copy } from '@/content/attendance.js'
+
 defineProps({ busy: Boolean })
 const inbox = defineModel({ type: Boolean, default: false })
 </script>
 
 <template>
-  <div class="attendance-request-scope" role="group" aria-label="Phạm vi yêu cầu">
-    <span class="muted small">Phạm vi yêu cầu</span>
+  <div class="attendance-request-scope" role="group" :aria-label="copy.label">
+    <span class="muted small">{{ copy.label }}</span>
     <div class="attendance-scope-options">
       <button
         type="button"
@@ -14,7 +16,7 @@ const inbox = defineModel({ type: Boolean, default: false })
         :disabled="busy"
         @click="inbox = false"
       >
-        Đơn của tôi
+        {{ copy.mine }}
       </button>
       <button
         type="button"
@@ -23,7 +25,7 @@ const inbox = defineModel({ type: Boolean, default: false })
         :disabled="busy"
         @click="inbox = true"
       >
-        Hàng chờ duyệt
+        {{ copy.inbox }}
       </button>
     </div>
   </div>

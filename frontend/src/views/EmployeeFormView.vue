@@ -1,11 +1,20 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { fieldLimits } from '@/config/validation.js'
+
+import { employeeForm as copy } from '@/content/hrm.js'
+import { common } from '@/content/common.js'
+
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { hrm, employeeStatuses, accountStatuses, fullName } from '@/hrm/api.js'
-import { serviceError } from '@/auth/api.js'
+import { hrm } from '@/hrm/api.js'
+import { employeeStatuses, accountStatuses } from '@/hrm/constants.js'
+import { fullName } from '@/hrm/utils.js'
+import { serviceError } from '@/api/errors.js'
 import { auth } from '@/auth/session.js'
 import { personnelManagementRoles } from '@/auth/roles.js'
-import { formatDate } from '@/auth/format.js'
+import { formatDate } from '@/shared/date.js'
 import ReferencePicker from '@/components/ReferencePicker.vue'
 import ProvisioningPanel from '@/components/ProvisioningPanel.vue'
 const props = defineProps({ id: { type: String, default: '' } })
@@ -30,8 +39,8 @@ const employee = ref(null)
 const loading = ref(!!props.id)
 const loaded = ref(!props.id)
 const busy = ref(false)
-const error = ref('')
-const success = ref('')
+const error = useLocalizedMessage()
+const success = useLocalizedMessage()
 const nextStatus = ref('')
 const yesterdayDate = new Date()
 yesterdayDate.setDate(yesterdayDate.getDate() - 1)
@@ -51,7 +60,7 @@ async function load() {
     populate(await hrm.get('employees', props.id))
     loaded.value = true
   } catch (cause) {
-    error.value = serviceError(cause)
+    error.value = () => serviceError(cause)
   } finally {
     loading.value = false
   }
@@ -61,7 +70,7 @@ async function save(statusOnly = false) {
   error.value = ''
   success.value = ''
   if (!statusOnly && form.dateOfBirth && form.dateOfBirth >= form.hireDate) {
-    error.value = 'Ngày sinh phải trước ngày vào làm.'
+    error.value = () => copy.invalidBirthDate
     return
   }
   busy.value = true
@@ -82,10 +91,10 @@ async function save(statusOnly = false) {
         form.status = result.status
         nextStatus.value = result.status
       } else populate(result)
-      success.value = statusOnly ? 'Đã cập nhật trạng thái công việc.' : 'Đã lưu hồ sơ nhân viên.'
+      success.value = () => (statusOnly ? copy.statusUpdated : copy.saved)
     }
   } catch (cause) {
-    error.value = serviceError(cause)
+    error.value = () => serviceError(cause)
   } finally {
     busy.value = false
   }
@@ -96,111 +105,113 @@ onMounted(() => {
 </script>
 <template>
   <div>
-    <RouterLink to="/employees" class="back-link">← Danh sách nhân viên</RouterLink>
+    <RouterLink to="/employees" class="back-link">{{ copy.back }}</RouterLink>
     <div class="page-heading">
       <div>
-        <p class="eyebrow">HỒ SƠ NHÂN SỰ</p>
-        <h1>{{ employee ? fullName(employee) : 'Thêm nhân viên' }}</h1>
+        <p class="eyebrow">{{ copy.eyebrow }}</p>
+        <h1>{{ employee ? fullName(employee) : copy.createTitle }}</h1>
         <p class="muted">
-          {{
-            employee
-              ? 'Thông tin cá nhân và công việc của nhân viên.'
-              : 'Tạo hồ sơ và phân công vị trí trong tổ chức.'
-          }}
+          {{ employee ? copy.editDescription : copy.createDescription }}
         </p>
       </div>
       <span v-if="employee" class="status-chip">{{ accountStatuses[employee.accountStatus] }}</span>
     </div>
     <div v-if="error" class="alert alert-error" role="alert">{{ error }}</div>
     <div v-if="success" class="alert alert-success" role="status">{{ success }}</div>
-    <p v-if="loading" role="status">Đang tải hồ sơ…</p>
-    <button v-else-if="!loaded" class="button button-secondary" @click="load">Thử lại</button>
+    <p v-if="loading" role="status">{{ copy.loading }}</p>
+    <button v-else-if="!loaded" class="button button-secondary" @click="load">
+      {{ common.retry }}
+    </button>
     <div v-if="loaded" class="employee-layout" :class="{ 'employee-layout-new': !id }">
       <form class="panel create-form" :aria-busy="busy" @submit.prevent="save()">
         <div class="panel-heading">
-          <h2>Thông tin nhân viên</h2>
-          <span class="small muted">* Bắt buộc</span>
+          <h2>{{ copy.formTitle }}</h2>
+          <span class="small muted">{{ copy.requiredHint }}</span>
         </div>
         <fieldset class="form-fields employee-form-sections" :disabled="busy">
           <section class="employee-form-section" aria-labelledby="personal-heading">
             <div class="employee-section-heading">
-              <h3 id="personal-heading">Thông tin cá nhân</h3>
-              <p class="muted small">Họ tên và thông tin cơ bản của nhân viên.</p>
+              <h3 id="personal-heading">{{ copy.personalTitle }}</h3>
+              <p class="muted small">{{ copy.personalDescription }}</p>
             </div>
             <div class="form-grid">
               <div class="field">
-                <label for="last-name">Họ và tên đệm *</label
+                <label for="last-name">{{ copy.lastName }}</label
                 ><input
                   id="last-name"
                   v-model="form.lastName"
                   required
-                  maxlength="100"
+                  :maxlength="fieldLimits.employeeName"
                   pattern=".*\S.*"
                 />
               </div>
               <div class="field">
-                <label for="first-name">Tên *</label
+                <label for="first-name">{{ copy.firstName }}</label
                 ><input
                   id="first-name"
                   v-model="form.firstName"
                   required
-                  maxlength="100"
+                  :maxlength="fieldLimits.employeeName"
                   pattern=".*\S.*"
                 />
               </div>
               <div class="field">
-                <label for="birth-date">Ngày sinh</label
+                <label for="birth-date">{{ copy.birthDate }}</label
                 ><input id="birth-date" v-model="form.dateOfBirth" type="date" :max="yesterday" />
               </div>
               <div class="field">
-                <label for="employee-gender">Giới tính *</label>
+                <label for="employee-gender">{{ copy.gender }}</label>
                 <select id="employee-gender" v-model="form.gender" required>
-                  <option disabled value="">Chọn giới tính</option>
-                  <option value="MALE">Nam</option>
-                  <option value="FEMALE">Nữ</option>
-                  <option value="OTHER">Khác</option>
+                  <option disabled value="">{{ copy.selectGender }}</option>
+                  <option value="MALE">{{ copy.male }}</option>
+                  <option value="FEMALE">{{ copy.female }}</option>
+                  <option value="OTHER">{{ copy.other }}</option>
                 </select>
               </div>
             </div>
           </section>
           <section class="employee-form-section" aria-labelledby="contact-heading">
             <div class="employee-section-heading">
-              <h3 id="contact-heading">Thông tin liên hệ</h3>
-              <p class="muted small">Email, số điện thoại và địa chỉ của nhân viên.</p>
+              <h3 id="contact-heading">{{ copy.contactTitle }}</h3>
+              <p class="muted small">{{ copy.contactDescription }}</p>
             </div>
             <div class="form-grid">
               <div class="field">
-                <label for="employee-email">Email cá nhân *</label
+                <label for="employee-email">{{ copy.personalEmail }}</label
                 ><input
                   id="employee-email"
                   v-model="form.personalEmail"
                   required
                   type="email"
-                  maxlength="255"
+                  :maxlength="fieldLimits.email"
                 />
               </div>
               <div class="field">
-                <label for="phone">Số điện thoại</label
-                ><input id="phone" v-model="form.phone" type="tel" maxlength="30" />
+                <label for="phone">{{ copy.phone }}</label
+                ><input id="phone" v-model="form.phone" type="tel" :maxlength="fieldLimits.phone" />
               </div>
               <div class="field span-all">
-                <label for="employee-address">Địa chỉ</label>
-                <input id="employee-address" v-model="form.address" maxlength="255" />
+                <label for="employee-address">{{ common.address }}</label>
+                <input
+                  id="employee-address"
+                  v-model="form.address"
+                  :maxlength="fieldLimits.address"
+                />
               </div>
             </div>
           </section>
           <section class="employee-form-section" aria-labelledby="work-heading">
             <div class="employee-section-heading">
-              <h3 id="work-heading">Thông tin công việc</h3>
-              <p class="muted small">Thời gian làm việc và phân công trong tổ chức.</p>
+              <h3 id="work-heading">{{ copy.workTitle }}</h3>
+              <p class="muted small">{{ copy.workDescription }}</p>
             </div>
             <div class="form-grid">
               <div class="field">
-                <label for="hire-date">Ngày vào làm *</label
+                <label for="hire-date">{{ copy.hireDate }}</label
                 ><input id="hire-date" v-model="form.hireDate" type="date" required />
               </div>
               <div class="field">
-                <label for="employee-status">Trạng thái công việc *</label
+                <label for="employee-status">{{ copy.employmentStatus }}</label
                 ><select id="employee-status" v-model="form.status" required>
                   <option v-for="(label, value) in employeeStatuses" :key="value" :value="value">
                     {{ label }}
@@ -210,19 +221,19 @@ onMounted(() => {
               <ReferencePicker
                 v-model="form.departmentId"
                 resource="departments"
-                label="Phòng ban"
+                :label="common.department"
                 :selected-label="employee?.department?.name"
               />
               <ReferencePicker
                 v-model="form.positionId"
                 resource="positions"
-                label="Chức danh"
+                :label="common.position"
                 :selected-label="employee?.position?.name"
               />
               <ReferencePicker
                 v-model="form.managerId"
                 resource="employees"
-                label="Người quản lý"
+                :label="copy.manager"
                 :exclude="id"
                 :selected-label="employee?.manager ? fullName(employee.manager) : ''"
               />
@@ -230,44 +241,46 @@ onMounted(() => {
           </section>
           <section class="employee-form-section" aria-labelledby="relative-heading">
             <div class="employee-section-heading">
-              <h3 id="relative-heading">Người thân liên hệ</h3>
-              <p class="muted small">
-                Thông tin người có thể liên hệ khi cần hỗ trợ nhân viên. Không bắt buộc.
-              </p>
+              <h3 id="relative-heading">{{ copy.emergencyContactTitle }}</h3>
+              <p class="muted small">{{ copy.emergencyContactDescription }}</p>
             </div>
             <div class="form-grid">
               <div class="field">
-                <label for="contact-relative">Người thân liên hệ</label>
-                <input id="contact-relative" v-model="form.contactRelative" maxlength="255" />
+                <label for="contact-relative">{{ copy.emergencyContactTitle }}</label>
+                <input
+                  id="contact-relative"
+                  v-model="form.contactRelative"
+                  :maxlength="fieldLimits.emergencyContact"
+                />
               </div>
               <div class="field">
-                <label for="contact-relative-phone">Điện thoại người thân</label>
+                <label for="contact-relative-phone">{{ copy.emergencyPhone }}</label>
                 <input
                   id="contact-relative-phone"
                   v-model="form.contactRelativePhone"
                   type="tel"
-                  maxlength="30"
+                  :maxlength="fieldLimits.phone"
                 />
               </div>
             </div>
           </section>
           <div class="form-footer">
-            <RouterLink to="/employees" class="button button-secondary">Quay lại</RouterLink
+            <RouterLink to="/employees" class="button button-secondary">{{
+              common.back
+            }}</RouterLink
             ><button type="submit" class="button button-primary">
-              {{ busy ? 'Đang lưu…' : id ? 'Lưu hồ sơ' : 'Tạo nhân viên' }}
+              {{ busy ? common.saving : id ? copy.save : copy.create }}
             </button>
           </div>
         </fieldset>
       </form>
       <aside v-if="employee" class="employee-aside">
         <section class="panel create-form">
-          <h2>Trạng thái công việc</h2>
-          <p class="muted small">
-            Cập nhật riêng trạng thái, không lưu các thay đổi khác trong biểu mẫu.
-          </p>
+          <h2>{{ copy.statusTitle }}</h2>
+          <p class="muted small">{{ copy.statusDescription }}</p>
           <form @submit.prevent="save(true)">
             <fieldset class="form-fields" :disabled="busy">
-              <label for="quick-status">Trạng thái mới</label
+              <label for="quick-status">{{ copy.newStatus }}</label
               ><select id="quick-status" v-model="nextStatus">
                 <option v-for="(label, value) in employeeStatuses" :key="value" :value="value">
                   {{ label }}
@@ -277,17 +290,17 @@ onMounted(() => {
                 class="button button-secondary full-width"
                 :disabled="nextStatus === employee.status"
               >
-                Cập nhật trạng thái
+                {{ copy.updateStatus }}
               </button>
             </fieldset>
           </form>
           <dl class="details-list">
             <div>
-              <dt>Ngày tạo</dt>
+              <dt>{{ copy.createdAt }}</dt>
               <dd>{{ formatDate(employee.createdAt) }}</dd>
             </div>
             <div>
-              <dt>Cập nhật</dt>
+              <dt>{{ copy.updatedAt }}</dt>
               <dd>{{ formatDate(employee.updatedAt) }}</dd>
             </div>
           </dl>

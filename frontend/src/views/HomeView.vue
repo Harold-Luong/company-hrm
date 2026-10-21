@@ -1,132 +1,136 @@
 <script setup>
+import { getDisplayLocale } from '@/i18n/index.js'
+import { COMPANY_TIMEZONE } from '@/config/presentation.js'
+
+import { home as copy } from '@/content/workspace.js'
+import { common } from '@/content/common.js'
+
 import { computed } from 'vue'
 import { auth } from '@/auth/session.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
 import { personnelManagementRoles } from '@/auth/roles.js'
-import { formatDate } from '@/auth/format.js'
+import { formatDate } from '@/shared/date.js'
 import AppIcon from '@/components/AppIcon.vue'
 import RoleBadge from '@/components/RoleBadge.vue'
 import QuickAttendance from '@/components/QuickAttendance.vue'
 const user = computed(() => auth.state.user)
-const today = new Intl.DateTimeFormat('vi-VN', {
-  dateStyle: 'full',
-  timeZone: 'Asia/Ho_Chi_Minh',
-}).format(new Date())
+const today = computed(() =>
+    new Intl.DateTimeFormat(getDisplayLocale(), {
+        dateStyle: 'full',
+        timeZone: COMPANY_TIMEZONE,
+    }).format(new Date()),
+)
 </script>
 
 <template>
-  <div v-if="user">
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">WORKSPACE</p>
-        <h1>Tổng quan</h1>
-        <p class="muted">Chào mừng bạn đến với không gian làm việc Company HRM.</p>
-      </div>
-      <span class="date-label"> <AppIcon name="clock" :size="16" />{{ today }} </span>
-    </div>
-    <section class="welcome-banner">
-      <div>
-        <span class="banner-label">SẴN SÀNG CHO NGÀY LÀM VIỆC</span>
-        <h2>Xin chào, {{ user.email.split('@')[0] }}.</h2>
-        <p>Quản lý tài khoản và truy cập các tiện ích được cấp cho bạn.</p>
-        <RouterLink to="/account" class="button button-white"
-          >Xem tài khoản
-          <AppIcon name="arrow" :size="17" />
-        </RouterLink>
-      </div>
-      <div class="welcome-art" aria-hidden="true">
-        <AppIcon name="shield" :size="78" />
-      </div>
-    </section>
-    <QuickAttendance />
-    <div class="summary-grid">
-      <article class="panel summary-card">
-        <span class="metric-icon green"> <AppIcon name="check" /> </span
-        ><span class="metric-label">Trạng thái tài khoản</span><strong>Đang hoạt động</strong
-        ><span class="muted small">Tài khoản đã được xác thực</span>
-      </article>
-      <article class="panel summary-card">
-        <span class="metric-icon violet"> <AppIcon name="shield" /> </span
-        ><span class="metric-label">Vai trò của bạn</span>
-        <div class="role-list">
-          <RoleBadge v-for="role in user.roles" :key="role" :role="role" />
+    <div v-if="user">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">{{ copy.eyebrow }}</p>
+                <h1>{{ copy.title }}</h1>
+                <p class="muted">{{ copy.description }}</p>
+            </div>
+            <span class="date-label">
+                <AppIcon name="clock" :size="16" />{{ today }}
+            </span>
         </div>
-        <span class="muted small">Quyền được cấp bởi doanh nghiệp</span>
-      </article>
-      <article class="panel summary-card">
-        <span class="metric-icon blue"> <AppIcon name="clock" /> </span
-        ><span class="metric-label">Lần đăng nhập gần nhất</span
-        ><strong class="date-value">{{ formatDate(user.lastLoginAt) }}</strong
-        ><span class="muted small">Múi giờ Việt Nam (GMT+7)</span>
-      </article>
+        <section class="welcome-banner">
+            <div>
+                <span class="banner-label">{{ copy.welcomeEyebrow }}</span>
+                <h2>{{ copy.greeting({ name: user.email.split('@')[0] }) }}</h2>
+                <p>{{ copy.welcomeDescription }}</p>
+                <RouterLink to="/account" class="button button-white">{{ copy.account }}
+                    <AppIcon name="arrow" :size="17" />
+                </RouterLink>
+            </div>
+            <div class="welcome-art" aria-hidden="true">
+                <AppIcon name="shield" :size="78" />
+            </div>
+        </section>
+        <QuickAttendance />
+        <div class="summary-grid">
+            <article class="panel summary-card">
+                <span class="metric-icon green">
+                    <AppIcon name="check" />
+                </span><span class="metric-label">{{ copy.accountStatus }}</span><strong>{{ copy.active }}</strong><span
+                    class="muted small">{{ copy.verified }}</span>
+            </article>
+            <article class="panel summary-card">
+                <span class="metric-icon violet">
+                    <AppIcon name="shield" />
+                </span><span class="metric-label">{{ copy.roles }}</span>
+                <div class="role-list">
+                    <RoleBadge v-for="role in user.roles" :key="role" :role="role" />
+                </div>
+                <span class="muted small">{{ copy.rolesHint }}</span>
+            </article>
+            <article class="panel summary-card">
+                <span class="metric-icon blue">
+                    <AppIcon name="clock" />
+                </span><span class="metric-label">{{ copy.lastLogin }}</span><strong class="date-value">{{
+                    formatDate(user.lastLoginAt) }}</strong><span class="muted small">{{ copy.timezoneHint }}</span>
+            </article>
+        </div>
+        <section class="section-block">
+            <div class="section-heading">
+                <h2>{{ copy.quickAccess }}</h2>
+                <span class="muted small">{{ copy.quickAccessHint }}</span>
+            </div>
+            <div class="quick-grid">
+                <RouterLink to="/calendar" class="panel quick-card">
+                    <span class="metric-icon green">
+                        <AppIcon name="calendar" />
+                    </span>
+                    <div>
+                        <h3>{{ copy.calendar }}</h3>
+                        <p>{{ copy.calendarDescription }}</p>
+                    </div>
+                    <AppIcon name="arrow" :size="19" />
+                </RouterLink>
+                <RouterLink v-if="auth.hasRole(personnelManagementRoles)" to="/employees" class="panel quick-card"><span
+                        class="metric-icon green">
+                        <AppIcon name="user" />
+                    </span>
+                    <div>
+                        <h3>{{ common.employee }}</h3>
+                        <p>{{ copy.personnelDescription }}</p>
+                    </div>
+                    <AppIcon name="arrow" :size="19" />
+                </RouterLink>
+                <RouterLink v-if="auth.hasRole(personnelManagementRoles)" to="/departments" class="panel quick-card">
+                    <span class="metric-icon blue">
+                        <AppIcon name="grid" />
+                    </span>
+                    <div>
+                        <h3>{{ copy.organization }}</h3>
+                        <p>{{ copy.organizationDescription }}</p>
+                    </div>
+                    <AppIcon name="arrow" :size="19" />
+                </RouterLink>
+                <RouterLink to="/account" class="panel quick-card"><span class="metric-icon blue">
+                        <AppIcon name="user" />
+                    </span>
+                    <div>
+                        <h3>{{ copy.profile }}</h3>
+                        <p>{{ copy.profileDescription }}</p>
+                    </div>
+                    <AppIcon name="arrow" :size="19" />
+                </RouterLink>
+                <RouterLink v-if="auth.hasRole(accountCreationRoles)" to="/accounts/new" class="panel quick-card"><span
+                        class="metric-icon violet">
+                        <AppIcon name="add" />
+                    </span>
+                    <div>
+                        <h3>{{ copy.createAccount }}</h3>
+                        <p>{{ copy.createAccountDescription }}</p>
+                    </div>
+                    <AppIcon name="arrow" :size="19" />
+                </RouterLink>
+            </div>
+        </section>
+        <div class="info-strip">
+            <AppIcon name="info" :size="19" />
+            <p>{{ copy.permissionsHint }}</p>
+        </div>
     </div>
-    <section class="section-block">
-      <div class="section-heading">
-        <h2>Truy cập nhanh</h2>
-        <span class="muted small">Dành cho vai trò của bạn</span>
-      </div>
-      <div class="quick-grid">
-        <RouterLink to="/calendar" class="panel quick-card">
-          <span class="metric-icon green"><AppIcon name="calendar" /></span>
-          <div>
-            <h3>Lịch nghỉ & sự kiện</h3>
-            <p>Xem lịch ngày lễ, nghỉ bù và các sự kiện trong năm.</p>
-          </div>
-          <AppIcon name="arrow" :size="19" />
-        </RouterLink>
-        <RouterLink
-          v-if="auth.hasRole(personnelManagementRoles)"
-          to="/employees"
-          class="panel quick-card"
-          ><span class="metric-icon green"><AppIcon name="user" /></span>
-          <div>
-            <h3>Nhân viên</h3>
-            <p>Quản lý hồ sơ, công việc và cấp tài khoản qua Kafka.</p>
-          </div>
-          <AppIcon name="arrow" :size="19"
-        /></RouterLink>
-        <RouterLink
-          v-if="auth.hasRole(personnelManagementRoles)"
-          to="/departments"
-          class="panel quick-card"
-          ><span class="metric-icon blue"><AppIcon name="grid" /></span>
-          <div>
-            <h3>Cơ cấu tổ chức</h3>
-            <p>Quản lý phòng ban và danh mục nhân sự.</p>
-          </div>
-          <AppIcon name="arrow" :size="19"
-        /></RouterLink>
-        <RouterLink to="/account" class="panel quick-card"
-          ><span class="metric-icon blue">
-            <AppIcon name="user" />
-          </span>
-          <div>
-            <h3>Hồ sơ của tôi</h3>
-            <p>Xem thông tin cá nhân, công việc và quản lý tài khoản.</p>
-          </div>
-          <AppIcon name="arrow" :size="19" />
-        </RouterLink>
-        <RouterLink
-          v-if="auth.hasRole(accountCreationRoles)"
-          to="/accounts/new"
-          class="panel quick-card"
-          ><span class="metric-icon violet">
-            <AppIcon name="add" />
-          </span>
-          <div>
-            <h3>Tạo tài khoản</h3>
-            <p>Cấp tài khoản nội bộ và chỉ định vai trò truy cập.</p>
-          </div>
-          <AppIcon name="arrow" :size="19" />
-        </RouterLink>
-      </div>
-    </section>
-    <div class="info-strip">
-      <AppIcon name="info" :size="19" />
-      <p>
-        Các trang và thao tác hiển thị theo quyền truy cập hiện tại của bạn. Liên hệ quản trị viên
-        nếu cần thay đổi quyền.
-      </p>
-    </div>
-  </div>
 </template>

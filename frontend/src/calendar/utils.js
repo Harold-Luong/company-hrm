@@ -1,18 +1,15 @@
+import { localizedDateFormatter } from '../shared/intl.js'
+import { dateLabel } from '../shared/date.js'
+import { calendarDate } from '../shared/date.js'
 import { CALENDAR_TIMEZONE } from './constants.js'
 
-const dateFormatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: CALENDAR_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-})
-const dateTimeFormatter = new Intl.DateTimeFormat('vi-VN', {
+const dateTimeFormatter = localizedDateFormatter({
     timeZone: CALENDAR_TIMEZONE,
     dateStyle: 'short',
     timeStyle: 'short',
 })
 
-export const calendarDate = (date = new Date()) => dateFormatter.format(date)
+export { calendarDate } from '../shared/date.js'
 export const isoDay = (year, month, day) =>
     `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
@@ -45,10 +42,7 @@ export function monthCells(year, month) {
     })
 }
 
-export function displayDate(value) {
-    const [year, month, day] = value.split('-')
-    return `${day}/${month}/${year}`
-}
+export const displayDate = dateLabel
 
 export function displayEventRange(event) {
     if (!event.allDay) {

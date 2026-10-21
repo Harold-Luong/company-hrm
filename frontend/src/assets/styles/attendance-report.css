@@ -1,348 +1,433 @@
 .report-page .report-tag {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: #edf4f2;
-  color: #346658;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0;
-  white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: #edf4f2;
+    color: #346658;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    white-space: nowrap;
 }
-.report-page h1 .report-tag {
-  vertical-align: middle;
-  margin-left: 8px;
+.report-page .report-heading {
+    align-items: flex-start;
+}
+.report-heading-copy {
+    min-width: 0;
+}
+.report-heading .eyebrow {
+    margin-bottom: 8px;
+}
+.report-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 8px;
+}
+.report-title-row h1 {
+    margin: 0;
+}
+.report-title-row .report-tag {
+    line-height: 1.5;
+}
+.report-heading > .button {
+    flex-shrink: 0;
+}
+.report-period-panel {
+    display: grid;
+    gap: 16px;
+}
+.report-period-intro {
+    display: grid;
+    gap: 8px;
+}
+.report-period-intro h2,
+.report-period-intro p,
+.report-period-panel > p {
+    margin: 0;
+}
+.report-period-intro .muted {
+    font-size: 13px;
+    line-height: 1.65;
+}
+.report-period-toolbar,
+.report-period-action {
+    display: grid;
+    align-items: end;
+    gap: 12px 16px;
+}
+.report-period-toolbar {
+    grid-template-columns: minmax(180px, 240px) max-content;
+}
+.report-period-action {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+.report-period-status {
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+}
+.report-period-check {
+    justify-self: start;
+    white-space: normal;
+}
+.report-period-history summary {
+    width: fit-content;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+.report-period-history ul {
+    margin: 12px 0 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 8px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
 }
 .report-page .report-tag-warning {
-  color: #885415;
-  background: #fff3dc;
+    color: #885415;
+    background: #fff3dc;
 }
 .report-page .report-warning {
-  color: #885415;
+    color: #885415;
 }
 .report-filters,
+.report-period-panel,
 .report-summary,
 .report-detail {
-  padding: 24px;
-  min-width: 0;
+    padding: 24px;
+    min-width: 0;
 }
 .report-filter-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 16px;
 }
 .report-filter-footer p {
-  margin: 0;
+    margin: 0;
 }
 .report-period {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
 }
 .report-period p {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
 }
 .report-period span {
-  color: #66758c;
+    color: #66758c;
 }
 .report-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 .report-stat strong {
-  font-size: clamp(21px, 2vw, 28px);
+    font-size: clamp(21px, 2vw, 28px);
 }
 .report-stat small {
-  line-height: 1.6;
+    line-height: 1.6;
 }
 .report-stat .text-button {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  margin-top: 10px;
-  font-size: 11px;
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    margin-top: 10px;
+    font-size: 11px;
 }
 .report-stat-attention {
-  border-color: #eed9b3;
-  background: #fffcf6;
+    border-color: #eed9b3;
+    background: #fffcf6;
 }
 .report-explanation {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  color: #596a7e;
-  font-size: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    color: #596a7e;
+    font-size: 12px;
 }
 .report-explanation svg {
-  flex-shrink: 0;
-  margin-top: 2px;
+    flex-shrink: 0;
+    margin-top: 2px;
 }
 .report-explanation p {
-  margin: 0;
+    margin: 0;
 }
 .report-toolbar {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
+    display: grid;
+    grid-template-columns: minmax(180px, 1.4fr) 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
 }
 .report-toolbar .field {
-  min-width: 0;
+    min-width: 0;
 }
 .report-table-wrap {
-  overflow-x: auto;
+    overflow-x: auto;
 }
 .report-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 12px;
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 12px;
 }
 .report-table th {
-  padding: 12px;
-  background: #f5f8fa;
-  color: #627188;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
+    padding: 12px;
+    background: #f5f8fa;
+    color: #627188;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
 }
 .report-table td {
-  padding: 16px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-  font-variant-numeric: tabular-nums;
+    padding: 16px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    font-variant-numeric: tabular-nums;
 }
 .report-table tbody tr:hover {
-  background: #fbfcfd;
+    background: #fbfcfd;
 }
 .report-table td:not(:first-child) {
-  white-space: nowrap;
+    white-space: nowrap;
 }
 .report-table small {
-  display: block;
-  color: #66758c;
-  font-size: 11px;
-  margin-top: 5px;
+    display: block;
+    color: #66758c;
+    font-size: 11px;
+    margin-top: 5px;
 }
 .report-person {
-  min-width: 170px;
+    min-width: 170px;
 }
 .report-person > strong {
-  display: block;
-  font-size: 13px;
+    display: block;
+    font-size: 13px;
 }
 .report-detail-button {
-  text-align: left;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 0;
-  font-size: 13px;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0;
+    font-size: 13px;
 }
 .report-count {
-  margin: 16px 0 0;
+    margin: 16px 0 0;
 }
 .report-back {
-  display: block;
-  margin-bottom: 24px;
+    display: block;
+    margin-bottom: 24px;
 }
 .report-detail-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  padding: 18px;
-  background: #f5f8fa;
-  border-radius: 8px;
-  margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    padding: 18px;
+    background: #f5f8fa;
+    border-radius: 8px;
+    margin-bottom: 16px;
 }
 .report-detail-metrics span,
 .report-detail-metrics small {
-  display: block;
-  color: #66758c;
-  font-size: 11px;
+    display: block;
+    color: #66758c;
+    font-size: 11px;
 }
 .report-detail-metrics strong {
-  display: block;
-  margin: 5px 0;
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
+    display: block;
+    margin: 5px 0;
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
 }
 .report-review-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: fit-content;
-  margin: 18px 0;
-  font-size: 13px;
-  cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin: 18px 0;
+    font-size: 13px;
+    cursor: pointer;
 }
 .report-review-toggle input {
-  width: auto;
-  accent-color: var(--primary);
+    width: auto;
+    accent-color: var(--primary);
 }
 #report-detail-title {
-  scroll-margin-top: 24px;
+    scroll-margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .report-page .attendance-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .report-detail-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+    .report-page .attendance-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .report-detail-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 @media (max-width: 700px) {
-  .report-filters,
-  .report-summary,
-  .report-detail {
-    padding: 16px;
-  }
-  .report-toolbar {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .report-toolbar > :first-child {
-    grid-column: 1 / -1;
-  }
-  .report-filter-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .report-page .attendance-section-heading {
-    flex-direction: column;
-    gap: 8px;
-  }
-  .report-table-wrap {
-    overflow: visible;
-  }
-  .report-table,
-  .report-table tbody {
-    display: block;
-  }
-  .report-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-  .report-table tr {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 12px;
-  }
-  .report-table td {
-    display: block;
-    min-width: 0;
-    padding: 12px;
-    border: 0;
-  }
-  .report-table td:not(:first-child) {
-    white-space: normal;
-  }
-  .report-table td::before {
-    content: attr(data-label);
-    display: block;
-    color: #627188;
-    font-size: 11px;
-    margin-bottom: 6px;
-  }
-  .report-table .report-person {
-    grid-column: 1 / -1;
-    background: #f5f8fa;
-    border-radius: 10px 10px 0 0;
-  }
-  .report-table .report-person::before {
-    display: none;
-  }
-  .report-table .report-empty-row {
-    display: block;
-  }
-  .report-page .report-tag {
-    white-space: normal;
-  }
-  .report-stat {
-    padding: 14px;
-  }
-  .report-stat strong {
-    font-size: 21px;
-  }
+    .report-period-toolbar,
+    .report-period-action {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .report-period-check {
+        justify-self: stretch;
+    }
+    .report-heading > .button {
+        width: 100%;
+    }
+    .report-filters,
+    .report-period-panel,
+    .report-summary,
+    .report-detail {
+        padding: 16px;
+    }
+    .report-toolbar {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    .report-toolbar > :first-child {
+        grid-column: 1 / -1;
+    }
+    .report-filter-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .report-page .attendance-section-heading {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .report-table-wrap {
+        overflow: visible;
+    }
+    .report-table,
+    .report-table tbody {
+        display: block;
+    }
+    .report-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .report-table tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        margin-bottom: 12px;
+    }
+    .report-table td {
+        display: block;
+        min-width: 0;
+        padding: 12px;
+        border: 0;
+    }
+    .report-table td:not(:first-child) {
+        white-space: normal;
+    }
+    .report-table td::before {
+        content: attr(data-label);
+        display: block;
+        color: #627188;
+        font-size: 11px;
+        margin-bottom: 6px;
+    }
+    .report-table .report-person {
+        grid-column: 1 / -1;
+        background: #f5f8fa;
+        border-radius: 10px 10px 0 0;
+    }
+    .report-table .report-person::before {
+        display: none;
+    }
+    .report-table .report-empty-row {
+        display: block;
+    }
+    .report-page .report-tag {
+        white-space: normal;
+    }
+    .report-stat {
+        padding: 14px;
+    }
+    .report-stat strong {
+        font-size: 21px;
+    }
 }
 
 /* Keep the first employee rows visible without a long introductory section. */
 .report-page {
-  gap: 20px;
+    gap: 20px;
 }
 .report-filters fieldset {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: end;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: end;
 }
 .report-filters .attendance-fields {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .report-page .report-filters fieldset > .attendance-fields {
-  margin-bottom: 0;
+    margin-bottom: 0;
 }
 .report-filter-footer {
-  margin-top: 0;
+    margin-top: 0;
 }
 .report-stat .attendance-stat-icon {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  width: 28px;
-  height: 28px;
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    width: 28px;
+    height: 28px;
 }
 .report-stat > p {
-  margin: 0 30px 10px 0;
-  min-height: 20px;
+    margin: 0 30px 10px 0;
+    min-height: 20px;
 }
 .report-page .report-table td {
-  padding: 14px 12px;
+    padding: 14px 12px;
 }
 @media (max-width: 1200px) {
-  .report-filters fieldset {
-    grid-template-columns: 1fr;
-  }
-  .report-filter-footer {
-    justify-content: flex-end;
-  }
+    .report-filters fieldset {
+        grid-template-columns: 1fr;
+    }
+    .report-filter-footer {
+        justify-content: flex-end;
+    }
 }
 @media (max-width: 900px) {
-  .report-filters .attendance-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+    .report-filters .attendance-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 @media (max-width: 700px) {
-  .report-filters .attendance-fields {
-    grid-template-columns: 1fr;
-  }
-  .report-stat > p {
-    margin-right: 24px;
-  }
-  .report-stat .attendance-stat-icon {
-    width: 22px;
-    height: 22px;
-    right: 12px;
-    top: 14px;
-  }
-  .report-page .report-table td {
-    padding: 12px;
-  }
+    .report-filters .attendance-fields {
+        grid-template-columns: 1fr;
+    }
+    .report-stat > p {
+        margin-right: 24px;
+    }
+    .report-stat .attendance-stat-icon {
+        width: 22px;
+        height: 22px;
+        right: 12px;
+        top: 14px;
+    }
+    .report-page .report-table td {
+        padding: 12px;
+    }
 }

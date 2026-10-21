@@ -1,4 +1,6 @@
 <script setup>
+import { featureReference as copy } from '@/content/workspace.js'
+
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { auth } from '@/auth/session.js'
@@ -23,7 +25,7 @@ const filtered = computed(() => {
   return features.filter((feature) => {
     const related = (feature.formulaIds ?? []).map((id) => formulaById[id])
     return (
-      (!group.value || feature.group === group.value) &&
+      (!group.value || feature.groupId === group.value) &&
       normalize(
         [
           feature.title,
@@ -49,17 +51,14 @@ function reset() {
 </script>
 
 <template>
-  <HelpLayout
-    title="Chức năng & công thức"
-    description="Tra cứu toàn bộ nhóm chức năng đang có trên web, quyền sử dụng và cách tính các chỉ số."
-  >
+  <HelpLayout :title="copy.title" :description="copy.descriptionText">
     <div class="help-reference-layout">
-      <nav class="panel help-index" aria-label="Mục lục công thức">
-        <p class="eyebrow">TRA CỨU NHANH</p>
+      <nav class="panel help-index" :aria-label="copy.contentsLabel">
+        <p class="eyebrow">{{ copy.eyebrow }}</p>
         <a
           href="#feature-catalog"
           :aria-current="!route.hash || route.hash === '#feature-catalog' ? 'location' : undefined"
-          >Danh mục chức năng</a
+          >{{ copy.featuresTitle }}</a
         >
         <a
           v-for="formula in formulas"
@@ -72,31 +71,30 @@ function reset() {
       <div class="help-reference-content">
         <section id="feature-catalog" aria-labelledby="catalog-title">
           <div class="panel help-card">
-            <h2 id="catalog-title">Danh mục chức năng</h2>
-            <p class="muted">
-              Có thể đọc tất cả nội dung. Liên kết thao tác chỉ hiển thị khi tài khoản có quyền mở
-              trang.
-            </p>
+            <h2 id="catalog-title">{{ copy.featuresTitle }}</h2>
+            <p class="muted">{{ copy.description }}</p>
             <div class="help-filters">
               <div class="field">
-                <label for="help-search">Tìm chức năng hoặc công thức</label>
+                <label for="help-search">{{ copy.searchLabel }}</label>
                 <input
                   id="help-search"
                   v-model="search"
                   type="search"
-                  placeholder="Ví dụ: tính công, nghỉ phép, OT…"
+                  :placeholder="copy.searchPlaceholder"
                 />
               </div>
               <div class="field">
-                <label for="help-group">Nhóm chức năng</label>
+                <label for="help-group">{{ copy.groupLabel }}</label>
                 <select id="help-group" v-model="group">
-                  <option value="">Tất cả nhóm</option>
-                  <option v-for="item in helpGroups" :key="item" :value="item">{{ item }}</option>
+                  <option value="">{{ copy.allGroups }}</option>
+                  <option v-for="item in helpGroups" :key="item.id" :value="item.id">
+                    {{ item.label }}
+                  </option>
                 </select>
               </div>
             </div>
             <p class="small muted help-result-count" role="status">
-              {{ filtered.length }} / {{ features.length }} chức năng
+              {{ copy.resultCount({ visible: filtered.length, total: features.length }) }}
             </p>
           </div>
           <div class="help-feature-list">
@@ -108,7 +106,7 @@ function reset() {
                 <li v-for="rule in feature.rules" :key="rule">{{ rule }}</li>
               </ul>
               <div v-if="feature.formulaIds?.length" class="help-formula-links">
-                <span class="small muted">Cách tính:</span>
+                <span class="small muted">{{ copy.formulaLabel }}</span>
                 <a v-for="id in feature.formulaIds" :key="id" :href="`#${id}`">{{
                   formulaById[id].title
                 }}</a>
@@ -119,29 +117,31 @@ function reset() {
                 "
                 :to="feature.path"
                 class="text-button help-open"
-                :aria-label="`Mở chức năng: ${feature.title}`"
-                >Mở chức năng <AppIcon name="arrow" :size="16"
+                :aria-label="copy.openFeatureLabel({ title: feature.title })"
+                >{{ copy.openFeature }} <AppIcon name="arrow" :size="16"
               /></RouterLink>
               <p v-else class="muted small">
-                Thao tác cần vai trò
-                {{ (feature.roles ?? personnelManagementRoles).join(' hoặc ') }}.
+                {{
+                  copy.roleRequired({
+                    roles: (feature.roles ?? personnelManagementRoles).join(copy.roleSeparator),
+                  })
+                }}
               </p>
             </article>
             <div v-if="!filtered.length" class="panel help-card help-empty">
-              <h3>Không tìm thấy chức năng phù hợp</h3>
-              <p>Thử từ khóa khác hoặc bỏ bộ lọc nhóm.</p>
-              <button class="button button-secondary" @click="reset">Xóa bộ lọc</button>
+              <h3>{{ copy.empty }}</h3>
+              <p>{{ copy.emptyHint }}</p>
+              <button class="button button-secondary" @click="reset">
+                {{ copy.clearFilters }}
+              </button>
             </div>
           </div>
         </section>
         <section class="help-formulas" aria-labelledby="formulas-title">
           <div class="help-section-heading">
-            <p class="eyebrow">CÁCH HỆ THỐNG TÍNH SỐ LIỆU</p>
-            <h2 id="formulas-title">Công thức & ví dụ</h2>
-            <p class="muted">
-              Các quy tắc đang áp dụng trong ứng dụng. Giờ làm việc theo múi giờ Việt Nam; bảng công
-              hiện là tạm tính.
-            </p>
+            <p class="eyebrow">{{ copy.formulasEyebrow }}</p>
+            <h2 id="formulas-title">{{ copy.formulasTitle }}</h2>
+            <p class="muted">{{ copy.formulasDescription }}</p>
           </div>
           <article
             v-for="formula in formulas"
@@ -153,13 +153,13 @@ function reset() {
             <p>{{ formula.explanation }}</p>
             <pre class="help-expression">{{ formula.expression }}</pre>
             <div class="help-example">
-              <strong>Ví dụ</strong>
+              <strong>{{ copy.example }}</strong>
               <p>{{ formula.example }}</p>
             </div>
             <ul class="help-rules">
               <li v-for="note in formula.notes" :key="note">{{ note }}</li>
             </ul>
-            <a class="text-button" href="#feature-catalog">↑ Về danh mục chức năng</a>
+            <a class="text-button" href="#feature-catalog">{{ copy.backToFeatures }}</a>
           </article>
         </section>
       </div>

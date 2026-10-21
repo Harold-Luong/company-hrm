@@ -1,7 +1,16 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { fieldLimits } from '@/config/validation.js'
+
+import { leaveAdjustment as copy } from '@/content/leave.js'
+import { common } from '@/content/common.js'
+
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { leave } from '@/leave/api.js'
-import { dateLabel, leaveError, leavePeriods, timeLabel } from '@/leave/helpers.js'
+import { dateLabel, dateTimeLabel as timeLabel } from '@/shared/date.js'
+import { leaveError } from '@/leave/errors.js'
+import { leavePeriods } from '@/leave/constants.js'
 
 const props = defineProps({
   request: { type: Object, required: true },
@@ -13,7 +22,7 @@ const entries = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const stale = ref(false)
-const error = ref('')
+const error = useLocalizedMessage()
 const note = ref('')
 const form = reactive({
   cancelAll: true,
@@ -24,10 +33,18 @@ const form = reactive({
 })
 const pending = computed(() => entries.value.find((entry) => entry.status === 'PENDING'))
 const statuses = {
-  PENDING: 'Chờ HR xác nhận',
-  APPROVED: 'Đã duyệt điều chỉnh',
-  REJECTED: 'Đã từ chối',
-  CANCELLED: 'Đã rút yêu cầu',
+  get PENDING() {
+    return copy.pending
+  },
+  get APPROVED() {
+    return copy.approved
+  },
+  get REJECTED() {
+    return copy.rejected
+  },
+  get CANCELLED() {
+    return copy.withdrawn
+  },
 }
 let generation = 0
 onBeforeUnmount(() => generation++)
@@ -47,7 +64,7 @@ watch(
       if (current === generation) entries.value = data
     } catch (cause) {
       if (current === generation) {
-        error.value = leaveError(cause)
+        error.value = () => leaveError(cause)
         stale.value = true
       }
     } finally {
@@ -60,11 +77,11 @@ async function save(action) {
   if (saving.value || loading.value || stale.value) return
   error.value = ''
   if (action === 'submit' && !form.reason.trim()) {
-    error.value = 'Vui lòng nhập lý do điều chỉnh.'
+    error.value = () => copy.reasonRequired
     return
   }
   if (action === 'reject' && !note.value.trim()) {
-    error.value = 'Vui lòng nhập lý do từ chối.'
+    error.value = () => copy.rejectionRequired
     return
   }
   saving.value = true
@@ -90,7 +107,7 @@ async function save(action) {
     if (current === generation) emit('updated')
   } catch (cause) {
     if (current !== generation) return
-    error.value = leaveError(cause)
+    error.value = () => leaveError(cause)
     if ([0, 409, 412, 428].includes(cause.status) || cause.status >= 500) stale.value = true
   } finally {
     if (current === generation) saving.value = false
@@ -100,34 +117,42 @@ async function save(action) {
 
 <template>
   <section class="panel create-form leave-section">
-    <h2>Điều chỉnh phép đã duyệt</h2>
-    <p class="muted">
-      Nếu không nghỉ hoặc nghỉ ít hơn dự kiến, gửi yêu cầu để HR xác nhận. Phép và lịch chỉ thay đổi
-      sau khi được duyệt. HR cần làm mới dữ liệu nghỉ phép trong bảng công nếu ngày đó đã ghi nhận
-      công.
-    </p>
-    <p v-if="loading" role="status">Đang tải điều chỉnh…</p>
+    <h2>{{ copy.title }}</h2>
+    <p class="muted">{{ copy.description }}</p>
+    <p v-if="loading" role="status">{{ copy.loading }}</p>
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
-    <p v-if="stale" class="muted">
-      Bấm “Tải lại” ở đầu trang để kiểm tra kết quả trước khi thao tác tiếp.
-    </p>
+    <p v-if="stale" class="muted">{{ copy.reloadHint }}</p>
     <ol v-if="entries.length" class="leave-history">
       <li v-for="entry in entries" :key="entry.id">
         <strong>{{ statuses[entry.status] }}</strong> · {{ timeLabel(entry.createdAt) }}
         <p>
-          Đã duyệt: {{ dateLabel(entry.originalStart) }} – {{ dateLabel(entry.originalEnd) }} ·
-          {{ leavePeriods[entry.originalPeriod] }} ({{ entry.originalUnits / 2 }} ngày).
+          {{
+            copy.approvedSummary({
+              start: dateLabel(entry.originalStart),
+              end: dateLabel(entry.originalEnd),
+              duration: leavePeriods[entry.originalPeriod],
+              days: entry.originalUnits / 2,
+            })
+          }}
         </p>
-        <p v-if="entry.cancelAll">Đề nghị hủy toàn bộ thời gian nghỉ.</p>
+        <p v-if="entry.cancelAll">{{ copy.cancelSummary }}</p>
         <p v-else>
-          Còn nghỉ: {{ dateLabel(entry.startDate) }} – {{ dateLabel(entry.endDate) }} ·
-          {{ leavePeriods[entry.period] }} ({{ entry.totalUnits / 2 }} ngày).
+          {{
+            copy.remainingSummary({
+              start: dateLabel(entry.startDate),
+              end: dateLabel(entry.endDate),
+              duration: leavePeriods[entry.period],
+              days: entry.totalUnits / 2,
+            })
+          }}
         </p>
         <p v-if="request.leaveType === 'ANNUAL'">
-          Phép đề nghị hoàn: {{ (entry.originalUnits - entry.totalUnits) / 2 }} ngày.
+          {{ copy.refundSummary({ days: (entry.originalUnits - entry.totalUnits) / 2 }) }}
         </p>
-        <p class="leave-text">Lý do: {{ entry.reason }}</p>
-        <p v-if="entry.reviewNote" class="leave-text">Phản hồi: {{ entry.reviewNote }}</p>
+        <p class="leave-text">{{ copy.reasonSummary({ reason: entry.reason }) }}</p>
+        <p v-if="entry.reviewNote" class="leave-text">
+          {{ copy.reviewSummary({ reviewNote: entry.reviewNote }) }}
+        </p>
       </li>
     </ol>
     <form
@@ -136,18 +161,16 @@ async function save(action) {
     >
       <fieldset class="form-fields" :disabled="saving || stale">
         <div class="field">
-          <label for="adjust-kind">Nội dung điều chỉnh</label>
+          <label for="adjust-kind">{{ copy.adjustmentType }}</label>
           <select id="adjust-kind" v-model="form.cancelAll">
-            <option :value="true">Không nghỉ — hủy toàn bộ</option>
-            <option :value="false">Nghỉ ít hơn — giảm thời gian nghỉ</option>
+            <option :value="true">{{ copy.cancelAll }}</option>
+            <option :value="false">{{ copy.reducePeriod }}</option>
           </select>
         </div>
         <template v-if="!form.cancelAll">
-          <p class="muted">
-            Chọn khoảng thời gian vẫn nghỉ (một khoảng liên tục, nằm trong đơn đã duyệt).
-          </p>
+          <p class="muted">{{ copy.periodHint }}</p>
           <div class="field">
-            <label for="adjust-period">Thời lượng còn nghỉ</label
+            <label for="adjust-period">{{ copy.remainingDuration }}</label
             ><select id="adjust-period" v-model="form.period">
               <option v-for="(label, value) in leavePeriods" :key="value" :value="value">
                 {{ label }}
@@ -155,7 +178,7 @@ async function save(action) {
             </select>
           </div>
           <div class="field">
-            <label for="adjust-start">Còn nghỉ từ ngày</label
+            <label for="adjust-start">{{ copy.remainingFrom }}</label
             ><input
               id="adjust-start"
               v-model="form.startDate"
@@ -166,7 +189,7 @@ async function save(action) {
             />
           </div>
           <div class="field">
-            <label for="adjust-end">Còn nghỉ đến ngày</label
+            <label for="adjust-end">{{ copy.remainingTo }}</label
             ><input
               id="adjust-end"
               v-model="form.endDate"
@@ -179,24 +202,22 @@ async function save(action) {
           </div>
         </template>
         <div class="field">
-          <label for="adjust-reason">Lý do điều chỉnh</label
+          <label for="adjust-reason">{{ copy.reasonLabel }}</label
           ><textarea
             id="adjust-reason"
             v-model="form.reason"
             rows="3"
-            maxlength="2000"
+            :maxlength="fieldLimits.leaveReason"
             required
           ></textarea>
         </div>
         <button type="submit" class="button button-primary">
-          {{ saving ? 'Đang gửi…' : 'Gửi yêu cầu điều chỉnh' }}
+          {{ saving ? common.submitting : copy.submit }}
         </button>
       </fieldset>
     </form>
     <template v-if="!loading && pending">
-      <p v-if="own" class="muted">
-        Yêu cầu đang chờ HR/ADMIN khác xác nhận. Đơn nghỉ hiện tại vẫn có hiệu lực.
-      </p>
+      <p v-if="own" class="muted">{{ copy.pendingHint }}</p>
       <button
         v-if="own"
         type="button"
@@ -204,18 +225,23 @@ async function save(action) {
         :disabled="saving || stale"
         @click="save('cancel')"
       >
-        Rút yêu cầu điều chỉnh
+        {{ copy.withdraw }}
       </button>
       <form v-else-if="reviewer" @submit.prevent="save('approve')">
         <fieldset class="form-fields" :disabled="saving || stale">
           <div class="field">
-            <label for="adjust-note">Phản hồi điều chỉnh (bắt buộc khi từ chối)</label
-            ><textarea id="adjust-note" v-model="note" rows="3" maxlength="2000"></textarea>
+            <label for="adjust-note">{{ copy.reviewNote }}</label
+            ><textarea
+              id="adjust-note"
+              v-model="note"
+              rows="3"
+              :maxlength="fieldLimits.leaveReason"
+            ></textarea>
           </div>
           <div class="button-row">
-            <button type="submit" class="button button-primary">Duyệt điều chỉnh</button
+            <button type="submit" class="button button-primary">{{ copy.approve }}</button
             ><button type="button" class="button button-secondary" @click="save('reject')">
-              Từ chối điều chỉnh
+              {{ copy.reject }}
             </button>
           </div>
         </fieldset>

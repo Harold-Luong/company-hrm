@@ -1,8 +1,17 @@
 <script setup>
+import { dateLabel } from '@/shared/date.js'
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { attendanceReports as copy } from '@/content/attendance.js'
+import { common } from '@/content/common.js'
+
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { attendance } from '@/attendance/api.js'
-import { today, attendanceError, minutesLabel } from '@/attendance/helpers.js'
+import { today } from '@/shared/date.js'
+import { attendanceError } from '@/attendance/errors.js'
+import { minutesLabel } from '@/shared/duration.js'
 import { attendanceOverview, reviewReasons, summarizeAttendance } from '@/attendance/report.js'
+import AttendancePeriodPanel from '@/components/AttendancePeriodPanel.vue'
 import AttendanceTable from '@/components/AttendanceTable.vue'
 import AttendanceReportSummary from '@/components/AttendanceReportSummary.vue'
 import ReferencePicker from '@/components/ReferencePicker.vue'
@@ -15,95 +24,19 @@ const filters = reactive({
   employeeId: '',
   departmentId: '',
 })
-const periodMonth = ref(today().slice(0, 7))
-const period = ref(null)
-const periodHistory = ref([])
-const periodReason = ref('')
-const periodBusy = ref(false)
-const periodError = ref('')
-const periodNotice = ref('')
-function resetPeriod() {
-  period.value = null
-  periodHistory.value = []
-  periodNotice.value = ''
-}
-async function loadPeriod() {
-  if (periodBusy.value) return
-  periodBusy.value = true
-  period.value = null
-  periodError.value = ''
-  periodHistory.value = []
-  const month = periodMonth.value
-  try {
-    const [status, history] = await Promise.all([
-      attendance.period(month),
-      attendance.periodHistory(month),
-    ])
-    if (month !== periodMonth.value) return
-    period.value = status
-    periodHistory.value = history
-  } catch (cause) {
-    periodError.value = attendanceError(cause)
-  } finally {
-    periodBusy.value = false
-  }
-}
-async function checkPeriodSources() {
-  if (!period.value?.closed || periodBusy.value) return
-  periodBusy.value = true
-  periodError.value = ''
-  periodNotice.value = ''
-  try {
-    const result = await attendance.checkPeriodSources(period.value.month)
-    periodNotice.value = result.changed
-      ? 'Phép hoặc ngày nghỉ đã thay đổi sau chốt. Hãy mở lại kỳ, kiểm tra và chốt lại nếu cần cập nhật công.'
-      : 'Phép và ngày nghỉ hiện khớp với dữ liệu lúc chốt.'
-  } catch (cause) {
-    periodError.value = attendanceError(cause)
-  } finally {
-    periodBusy.value = false
-  }
-}
-async function changePeriod() {
-  if (!period.value || periodBusy.value || !periodReason.value.trim() || busy.value) return
-  const current = period.value
-  periodBusy.value = true
-  periodError.value = ''
-  periodNotice.value = ''
-  try {
-    await attendance.changePeriod(
-      current.month,
-      current.closed ? 'reopen' : 'close',
-      current.version,
-      periodReason.value.trim(),
-    )
-    periodNotice.value = current.closed
-      ? 'Đã mở lại kỳ công. Tải bảng công để lấy dữ liệu mới nhất.'
-      : 'Đã chốt kỳ công cho toàn công ty.'
-    periodReason.value = ''
-  } catch (cause) {
-    periodError.value = attendanceError(cause)
-  } finally {
-    periodBusy.value = false
-  }
-  const failure = periodError.value
-  await loadPeriod()
-  if (failure) periodError.value = failure
-  await load()
-}
 const reportStateLabel = computed(() =>
   rows.value.length && rows.value.every((row) => row.reportState === 'FINAL')
-    ? 'Đã chốt'
+    ? copy.closed
     : rows.value.some((row) => row.reportState === 'FINAL')
-      ? 'Có kỳ đã chốt'
-      : 'Tạm tính',
+      ? copy.partiallyClosed
+      : copy.provisional,
 )
 const rows = ref([])
 const loading = ref(false)
 const exporting = ref(false)
 const refreshing = ref(false)
-const error = ref('')
-const actionError = ref('')
+const error = useLocalizedMessage()
+const actionError = useLocalizedMessage()
 const notice = ref('')
 const loaded = ref(null)
 const selectedId = ref(null)
@@ -123,37 +56,49 @@ const detailRows = computed(
 const dirty = computed(
   () => loaded.value && Object.keys(filters).some((key) => filters[key] !== loaded.value[key]),
 )
-const time = (value) => (value == null ? '—' : minutesLabel(value))
-const dateLabel = (value) => value?.split('-').reverse().join('/')
+const time = (value) => (value == null ? common.missingValue : minutesLabel(value))
 const cards = computed(() => [
   {
-    label: 'Nhân viên trong kỳ',
+    get label() {
+      return copy.employeeCount
+    },
     value: overview.value.employees,
-    note: 'Có dữ liệu trong phạm vi đã chọn',
+    get note() {
+      return copy.employeeCountHint
+    },
     icon: 'user',
     tone: 'blue',
   },
   {
-    label: 'Nhân viên cần kiểm tra',
+    get label() {
+      return copy.reviewEmployeeCount
+    },
     value: overview.value.reviewEmployees,
-    note: `${overview.value.reviewDays} ngày · ${overview.value.pendingRequests} đơn chờ duyệt`,
+    note: copy.reviewSummary({
+      reviewDays: overview.value.reviewDays,
+      pendingRequests: overview.value.pendingRequests,
+    }),
     icon: 'info',
     tone: 'amber',
     review: true,
   },
   {
-    label: 'Giờ tính công đã xác định',
+    get label() {
+      return copy.creditedHours
+    },
     value: time(overview.value.workMinutes),
     note: overview.value.incompleteDays
-      ? `Chưa đầy đủ · ${overview.value.incompleteDays} ngày chưa tính được công`
-      : 'Giờ công thường, tách riêng tăng ca',
+      ? copy.incompleteHours({ incompleteDays: overview.value.incompleteDays })
+      : copy.creditedHoursHint,
     icon: 'clock',
     tone: 'green',
   },
   {
-    label: 'Tăng ca ghi nhận',
+    get label() {
+      return copy.recordedOvertime
+    },
     value: time(overview.value.otCountedMinutes),
-    note: `${time(overview.value.otApprovedMinutes)} đã được duyệt trong kỳ`,
+    note: copy.approvedOvertime({ duration: time(overview.value.otApprovedMinutes) }),
     icon: 'check',
     tone: 'purple',
   },
@@ -172,7 +117,7 @@ async function load() {
     rows.value = await attendance.report(request)
     loaded.value = request
   } catch (cause) {
-    error.value = attendanceError(cause)
+    error.value = () => attendanceError(cause)
   } finally {
     loading.value = false
   }
@@ -192,7 +137,7 @@ async function download() {
     anchor.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch (cause) {
-    actionError.value = attendanceError(cause)
+    actionError.value = () => attendanceError(cause)
   } finally {
     exporting.value = false
   }
@@ -209,9 +154,9 @@ async function refresh(row) {
         ? updated
         : value,
     )
-    notice.value = `Đã cập nhật phép/lịch ngày ${dateLabel(row.workDate)} và số liệu tổng hợp.`
+    notice.value = copy.sourcesUpdated({ date: dateLabel(row.workDate) })
   } catch (cause) {
-    actionError.value = attendanceError(cause)
+    actionError.value = () => attendanceError(cause)
   } finally {
     refreshing.value = false
   }
@@ -240,101 +185,38 @@ async function showReview() {
 }
 onMounted(() => {
   load()
-  loadPeriod()
 })
 </script>
 <template>
   <div class="attendance-page report-page">
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">QUẢN LÝ CHẤM CÔNG</p>
-        <h1>
-          Bảng công <span class="report-tag">{{ reportStateLabel }}</span>
-        </h1>
-        <p class="muted">
-          Nắm tổng công từng nhân viên, kiểm tra bất thường và xem chi tiết khi cần.
-        </p>
+    <div class="page-heading report-heading">
+      <div class="report-heading-copy">
+        <p class="eyebrow">{{ copy.eyebrow }}</p>
+        <div class="report-title-row">
+          <h1>{{ copy.title }}</h1>
+          <span class="report-tag">{{ reportStateLabel }}</span>
+        </div>
+        <p class="muted">{{ copy.description }}</p>
       </div>
       <button
         class="button button-primary"
         :disabled="busy || !loaded || !rows.length"
         @click="download"
       >
-        {{ exporting ? 'Đang xuất…' : 'Xuất CSV theo ngày' }}
+        {{ exporting ? copy.exporting : copy.exportCsv }}
       </button>
     </div>
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
-    <section class="panel" aria-label="Chốt kỳ công">
-      <h2>Chốt công theo tháng</h2>
-      <p class="muted">
-        Áp dụng cho toàn công ty, không phụ thuộc bộ lọc bên dưới. Chỉ chốt tháng đã kết thúc, khi
-        không còn đơn chờ duyệt hoặc công chưa đầy đủ.
-      </p>
-      <p class="muted">
-        Kỳ đã chốt giữ nguyên số liệu. Nếu phép hoặc ngày nghỉ thay đổi sau chốt, cần mở lại kỳ,
-        kiểm tra bảng công rồi chốt lại.
-      </p>
-      <form class="list-toolbar" @submit.prevent="loadPeriod">
-        <label
-          >Tháng
-          <input
-            v-model="periodMonth"
-            type="month"
-            required
-            :disabled="periodBusy"
-            @change="resetPeriod"
-        /></label>
-        <button class="button button-secondary" :disabled="periodBusy">Xem trạng thái kỳ</button>
-      </form>
-      <p v-if="period">
-        <strong>{{ period.month }} · {{ period.closed ? 'Đã chốt' : 'Đang mở' }}</strong>
-      </p>
-      <button
-        v-if="period?.closed"
-        class="button button-secondary"
-        :disabled="periodBusy"
-        @click="checkPeriodSources"
-      >
-        Kiểm tra thay đổi phép/ngày nghỉ
-      </button>
-      <form v-if="period" @submit.prevent="changePeriod">
-        <label
-          >Lý do {{ period.closed ? 'mở lại' : 'chốt' }} kỳ
-          <input v-model="periodReason" required maxlength="2000" :disabled="periodBusy" />
-        </label>
-        <button
-          class="button button-primary"
-          :disabled="periodBusy || busy || !periodReason.trim()"
-        >
-          {{
-            periodBusy
-              ? 'Đang xử lý…'
-              : period.closed
-                ? 'Mở lại kỳ công toàn công ty'
-                : 'Chốt kỳ công toàn công ty'
-          }}
-        </button>
-      </form>
-      <p v-if="periodError" role="alert">{{ periodError }}</p>
-      <p v-if="periodNotice" role="status">{{ periodNotice }}</p>
-      <details v-if="periodHistory.length">
-        <summary>Lịch sử chốt/mở kỳ</summary>
-        <ul>
-          <li v-for="item in periodHistory" :key="item.version">
-            {{ item.closed ? 'Chốt' : 'Mở lại' }} · {{ item.changedAt }} · {{ item.reason }}
-          </li>
-        </ul>
-      </details>
-    </section>
+    <AttendancePeriodPanel :busy="busy" @updated="load" />
     <form class="panel report-filters" @submit.prevent="load">
       <fieldset :disabled="busy">
         <div class="attendance-fields">
           <div class="field">
-            <label for="report-from">Từ ngày</label
+            <label for="report-from">{{ common.fromDate }}</label
             ><input id="report-from" v-model="filters.from" type="date" :max="today()" required />
           </div>
           <div class="field">
-            <label for="report-until">Đến ngày</label
+            <label for="report-until">{{ common.toDate }}</label
             ><input
               id="report-until"
               v-model="filters.until"
@@ -347,17 +229,17 @@ onMounted(() => {
           <ReferencePicker
             v-model="filters.employeeId"
             resource="employees"
-            label="Nhân viên (tất cả nếu bỏ trống)"
+            :label="copy.employeeFilter"
           />
           <ReferencePicker
             v-model="filters.departmentId"
             resource="departments"
-            label="Phòng ban (tất cả nếu bỏ trống)"
+            :label="copy.departmentFilter"
           />
         </div>
         <div class="report-filter-footer">
           <button class="button button-secondary">
-            {{ loading ? 'Đang tải…' : 'Xem bảng công' }}
+            {{ loading ? common.loading : copy.load }}
           </button>
         </div>
       </fieldset>
@@ -366,14 +248,12 @@ onMounted(() => {
       <p v-if="loaded">
         <AppIcon name="calendar" :size="17" />
         <strong>{{ dateLabel(loaded.from) }} – {{ dateLabel(loaded.until) }}</strong
-        ><span>· {{ employees.length }} nhân viên</span>
+        ><span>{{ copy.employeeCountSuffix({ count: employees.length }) }}</span>
       </p>
-      <p v-else>{{ loading ? 'Đang tải kỳ báo cáo…' : 'Chưa có kỳ báo cáo được tải' }}</p>
-      <span v-if="dirty" class="report-warning"
-        >Bộ lọc đã đổi. Bấm “Xem bảng công” để áp dụng.</span
-      >
+      <p v-else>{{ loading ? copy.loading : copy.empty }}</p>
+      <span v-if="dirty" class="report-warning">{{ copy.filtersChanged }}</span>
     </div>
-    <div class="attendance-stats" aria-label="Tổng hợp kỳ đang xem" :aria-busy="loading">
+    <div class="attendance-stats" :aria-label="copy.summaryLabel" :aria-busy="loading">
       <article
         v-for="card in cards"
         :key="card.label"
@@ -384,28 +264,25 @@ onMounted(() => {
           <AppIcon :name="card.icon" />
         </span>
         <p>{{ card.label }}</p>
-        <strong>{{ loading || !loaded ? '—' : card.value }}</strong>
-        <small>{{ loading || !loaded ? 'Chờ dữ liệu báo cáo' : card.note }}</small>
+        <strong>{{ loading || !loaded ? common.missingValue : card.value }}</strong>
+        <small>{{ loading || !loaded ? copy.pendingData : card.note }}</small>
         <button
           v-if="card.review"
           class="text-button"
           :disabled="busy || !overview.reviewEmployees"
           @click="showReview"
         >
-          Xem người cần kiểm tra
-          <AppIcon name="arrow" :size="14" />
+          {{ copy.showReview }} <AppIcon name="arrow" :size="14" />
         </button>
       </article>
     </div>
     <div class="report-explanation">
       <AppIcon name="info" :size="18" />
       <p>
-        Công chưa chốt kỳ. Tổng giờ chỉ cộng các ngày đã xác định; ngày thiếu dữ liệu không được coi
-        là 0 giờ. Ngày không có ca được ghi riêng. CSV xuất chi tiết theo ngày của toàn bộ phạm vi
-        đã tải.
-        <RouterLink class="text-button" to="/help/features#work-time"
-          >Xem công thức tính công →</RouterLink
-        >
+        {{ copy.calculationHint }}
+        <RouterLink class="text-button" to="/help/features#work-time">{{
+          copy.formulaLink
+        }}</RouterLink>
       </p>
     </div>
     <p v-if="actionError" class="alert alert-error" role="alert">{{ actionError }}</p>
@@ -426,56 +303,69 @@ onMounted(() => {
       :aria-busy="refreshing"
     >
       <button class="text-button report-back" :disabled="refreshing" @click="closeDetails">
-        ← Quay lại tổng hợp nhân viên
+        {{ copy.backToSummary }}
       </button>
       <div class="attendance-section-heading">
         <div>
-          <p class="eyebrow">CHI TIẾT CÔNG THEO NGÀY · {{ selected.employeeCode }}</p>
+          <p class="eyebrow">{{ copy.detailEyebrow({ employeeCode: selected.employeeCode }) }}</p>
           <h2 id="report-detail-title" ref="detailHeading" tabindex="-1">
             {{ selected.employeeName }}
           </h2>
           <p class="muted">
-            {{ dateLabel(loaded.from) }} – {{ dateLabel(loaded.until) }} ·
-            {{ selected.days.length }} ngày trong kỳ
+            {{
+              copy.detailPeriod({
+                start: dateLabel(loaded.from),
+                end: dateLabel(loaded.until),
+                days: selected.days.length,
+              })
+            }}
           </p>
         </div>
-        <span class="report-tag" :class="{ 'report-tag-warning': selected.reviewDays }"
-          >{{ selected.reviewDays }} ngày cần kiểm tra</span
-        >
+        <span class="report-tag" :class="{ 'report-tag-warning': selected.reviewDays }">{{
+          copy.reviewDays({ reviewDays: selected.reviewDays })
+        }}</span>
       </div>
       <div class="report-detail-metrics">
         <div>
-          <span>Giờ tính công</span><strong>{{ time(selected.workMinutes) }}</strong
-          ><small v-if="selected.incompleteDays" class="report-warning"
-            >Chưa đủ · {{ selected.incompleteDays }} ngày</small
-          >
+          <span>{{ copy.creditedHoursLabel }}</span
+          ><strong>{{ time(selected.workMinutes) }}</strong
+          ><small v-if="selected.incompleteDays" class="report-warning">{{
+            copy.incompleteDays({ incompleteDays: selected.incompleteDays })
+          }}</small>
         </div>
         <div>
-          <span>Phép năm / Không lương</span
+          <span>{{ copy.leaveDays }}</span
           ><strong>{{ time(selected.annualMinutes) }} / {{ time(selected.unpaidMinutes) }}</strong>
         </div>
         <div>
-          <span>Trễ / Sớm đã làm tròn</span
+          <span>{{ copy.lateEarly }}</span
           ><strong
-            >{{ selected.lateMinutes == null ? '—' : `${selected.lateMinutes}p` }} /
-            {{ selected.earlyMinutes == null ? '—' : `${selected.earlyMinutes}p` }}</strong
-          ><small>{{ selected.lateEarlyDays }} ngày có phát sinh</small>
+            >{{ selected.lateMinutes == null ? common.missingValue : `${selected.lateMinutes}p` }} /
+            {{
+              selected.earlyMinutes == null ? common.missingValue : `${selected.earlyMinutes}p`
+            }}</strong
+          ><small>{{ copy.lateEarlyDays({ lateEarlyDays: selected.lateEarlyDays }) }}</small>
         </div>
         <div>
-          <span>OT ghi nhận / Được duyệt</span
+          <span>{{ copy.overtime }}</span
           ><strong
             >{{ time(selected.otCountedMinutes) }} / {{ time(selected.otApprovedMinutes) }}</strong
           >
         </div>
       </div>
       <p class="muted small">
-        {{ selected.ongoingDays }} ca chưa kết thúc · {{ selected.noScheduleDays }} ngày không có ca
-        · {{ selected.pendingRequests }} đơn chờ duyệt. Trễ/sớm gồm cả phần đã xin phép. Dùng “Cập
-        nhật phép/lịch” nếu nguồn thay đổi sau khi chấm công.
+        {{
+          copy.ongoingSummary({
+            ongoingDays: selected.ongoingDays,
+            noScheduleDays: selected.noScheduleDays,
+            pendingRequests: selected.pendingRequests,
+          })
+        }}
       </p>
       <label class="report-review-toggle"
-        ><input v-model="onlyReviewDays" type="checkbox" :disabled="refreshing" />Chỉ xem ngày cần
-        kiểm tra</label
+        ><input v-model="onlyReviewDays" type="checkbox" :disabled="refreshing" />{{
+          copy.reviewOnly
+        }}</label
       >
       <AttendanceTable
         :key="selected.employeeId"

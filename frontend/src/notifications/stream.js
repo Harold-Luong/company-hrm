@@ -1,3 +1,5 @@
+import { refreshIntervals } from '../config/runtime.js'
+import { openNotificationStream as requestStream } from './api.js'
 import { auth } from '../auth/session.js'
 
 // Fetch keeps the Bearer token in headers and shares the normal 401 refresh flow.
@@ -46,12 +48,7 @@ function openNotificationStream(onChange, onAccounts) {
   }
   async function connect() {
     try {
-      const query = accountCursor === undefined ? '' : `?accountAfter=${accountCursor}`
-      const body = await auth.request(`/api/v1/notifications/stream${query}`, {
-        responseType: 'stream',
-        headers: { Accept: 'text/event-stream' },
-        signal: controller.signal,
-      })
+      const body = await requestStream(accountCursor, controller.signal)
       const reader = body.getReader()
       const decoder = new TextDecoder()
       let buffer = '',
@@ -106,7 +103,8 @@ function openNotificationStream(onChange, onAccounts) {
     } catch {
       // Counts retain their polling fallback if notifications are unavailable.
     } finally {
-      if (!controller.signal.aborted) retryTimer = window.setTimeout(connect, 3000)
+      if (!controller.signal.aborted)
+        retryTimer = window.setTimeout(connect, refreshIntervals.notificationReconnect)
     }
   }
   connect()

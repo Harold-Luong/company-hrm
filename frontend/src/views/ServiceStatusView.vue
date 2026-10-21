@@ -1,95 +1,64 @@
 <script setup>
+import { getDisplayLocale } from '@/i18n/index.js'
+
+import { serviceNames, serviceStatus as copy } from '@/content/services.js'
+import { common } from '@/content/common.js'
+
 import { onMounted, ref } from 'vue'
-import { serviceError } from '@/auth/api.js'
-import { auth } from '@/auth/session.js'
-import { getCalendarHealth } from '@/calendar/api.js'
+import { serviceError } from '@/api/errors.js'
+import { getServiceHealth, serviceDefinitions } from '@/services/api.js'
 const busy = ref(false)
 const checkedAt = ref('')
-const services = ref([
-  {
-    name: 'Xác thực',
-    request: () => auth.request('/api/v1/auth/health-check'),
-    requiresDatabaseStatus: true,
-    status: '',
-    error: '',
-  },
-  {
-    name: 'Nhân sự',
-    request: () => auth.request('/api/v1/employees/health-check'),
-    requiresDatabaseStatus: true,
-    status: '',
-    error: '',
-  },
-  { name: 'Lịch nghỉ & sự kiện', request: getCalendarHealth, status: '', error: '' },
-  {
-    name: 'Chấm công',
-    request: () => auth.request('/api/v1/attendance/health-check'),
-    requiresDatabaseStatus: true,
-    status: '',
-    error: '',
-  },
-  {
-    name: 'Nghỉ phép',
-    request: () => auth.request('/api/v1/leave/health-check'),
-    status: '',
-    error: '',
-  },
-  {
-    name: 'Thông báo',
-    request: () => auth.request('/api/v1/notifications/health-check'),
-    status: '',
-    error: '',
-  },
-])
+const services = ref(serviceDefinitions.map((service) => ({ ...service, status: '', error: '' })))
 async function check() {
-  if (busy.value) return
-  busy.value = true
-  await Promise.all(
-    services.value.map(async (service) => {
-      service.error = ''
-      service.status = ''
-      try {
-        const data = await service.request()
-        service.status =
-          data.status === 'UP' && (!service.requiresDatabaseStatus || data.database === 'UP')
-            ? 'Hoạt động bình thường'
-            : 'Dịch vụ chưa sẵn sàng'
-      } catch (cause) {
-        service.error = serviceError(cause)
-      }
-    }),
-  )
-  checkedAt.value = new Date().toLocaleString('vi-VN')
-  busy.value = false
+    if (busy.value) return
+    busy.value = true
+    await Promise.all(
+        services.value.map(async (service) => {
+            service.error = ''
+            service.status = ''
+            try {
+                const data = await getServiceHealth(service.id)
+                service.status =
+                    data.status === 'UP' && (!service.requiresDatabaseStatus || data.database === 'UP')
+                        ? 'healthy'
+                        : 'unavailable'
+            } catch (cause) {
+                service.error = cause
+            }
+        }),
+    )
+    checkedAt.value = new Date()
+    busy.value = false
 }
 onMounted(check)
 </script>
 <template>
-  <div>
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">HỆ THỐNG</p>
-        <h1>Kết nối dịch vụ</h1>
-        <p class="muted">Kiểm tra khả năng phản hồi và kết nối cơ sở dữ liệu.</p>
-      </div>
-      <button class="button button-secondary" :disabled="busy" @click="check">
-        {{ busy ? 'Đang kiểm tra…' : 'Kiểm tra lại' }}
-      </button>
+    <div>
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">{{ copy.eyebrow }}</p>
+                <h1>{{ copy.title }}</h1>
+                <p class="muted">{{ copy.description }}</p>
+            </div>
+            <button class="button button-secondary" :disabled="busy" @click="check">
+                {{ busy ? common.checking : copy.retry }}
+            </button>
+        </div>
+        <div class="quick-grid" :aria-busy="busy">
+            <section v-for="service in services" :key="service.id" class="panel create-form">
+                <h2>{{ serviceNames[service.id] }}</h2>
+                <p v-if="service.error" class="alert alert-error" role="alert">
+                    {{ serviceError(service.error) }}
+                </p>
+                <p v-else role="status">{{ service.status ? copy[service.status] : common.checking }}</p>
+            </section>
+        </div>
+        <p v-if="checkedAt" class="muted small section-block">
+            {{ copy.checkedAt({ checkedAt: checkedAt.toLocaleString(getDisplayLocale()) }) }}
+        </p>
+        <div class="info-strip">
+            <p>{{ copy.coverageHint }}</p>
+        </div>
     </div>
-    <div class="quick-grid" :aria-busy="busy">
-      <section v-for="service in services" :key="service.name" class="panel create-form">
-        <h2>{{ service.name }}</h2>
-        <p v-if="service.error" class="alert alert-error" role="alert">{{ service.error }}</p>
-        <p v-else role="status">{{ service.status || 'Đang kiểm tra…' }}</p>
-      </section>
-    </div>
-    <p v-if="checkedAt" class="muted small section-block">Kiểm tra lúc {{ checkedAt }}</p>
-    <div class="info-strip">
-      <p>
-        Kết quả này kiểm tra Auth, Employee, Calendar, Leave, Attendance và Notification. Tiến độ
-        cấp tài khoản qua Kafka được theo dõi trong hồ sơ nhân viên. Hệ thống chưa có API kiểm tra
-        riêng kết nối Kafka.
-      </p>
-    </div>
-  </div>
 </template>

@@ -1,167 +1,153 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { getDisplayLocale } from '@/i18n/index.js'
+
+import { dateLimits } from '@/config/validation.js'
+
+import { profileLeave as copy } from '@/content/leave.js'
+import { common } from '@/content/common.js'
+
+import { computed, ref } from 'vue'
+import { useAsyncResource } from '@/composables/useAsyncResource.js'
 import { auth } from '@/auth/session.js'
 import { leave } from '@/leave/api.js'
-import { dateLabel, leaveTypes, leaveStatuses, leavePeriods, today } from '@/leave/helpers.js'
+import { dateLabel, today } from '@/shared/date.js'
+import { leaveTypes, leaveStatuses, leavePeriods } from '@/leave/constants.js'
 import PageControls from '@/components/PageControls.vue'
 
 const employeeId = computed(() => auth.state.user?.employeeId)
 const year = ref(Number(today().slice(0, 4)))
 const status = ref('')
 const page = ref(0)
-const balanceRetry = ref(0)
-const requestsRetry = ref(0)
-const balance = ref(null)
-const result = ref(null)
-const balanceLoading = ref(false)
-const requestsLoading = ref(false)
-const balanceError = ref('')
-const requestsError = ref('')
-const daysLabel = (value) => (value == null ? '—' : Number(value).toLocaleString('vi-VN'))
+const daysLabel = (value) =>
+  value == null ? common.missingValue : Number(value).toLocaleString(getDisplayLocale())
 
-watch(
-  [employeeId, year, balanceRetry],
-  async ([id, selectedYear], _, onCleanup) => {
-    let cancelled = false
-    onCleanup(() => {
-      cancelled = true
-    })
-    balance.value = null
-    balanceError.value = ''
-    balanceLoading.value = false
-    if (!id) return
-    if (!Number.isInteger(selectedYear) || selectedYear < 2000 || selectedYear > 9999) {
-      balanceError.value = 'Chọn năm hợp lệ từ 2000 đến 9999.'
-      return
+const {
+  data: balance,
+  loading: balanceLoading,
+  error: balanceError,
+  load: balanceRetry,
+} = useAsyncResource(
+  () => {
+    if (
+      !Number.isInteger(year.value) ||
+      year.value < dateLimits.minYear ||
+      year.value > dateLimits.maxYear
+    ) {
+      throw new RangeError(copy.invalidYear)
     }
-    balanceLoading.value = true
-    try {
-      const data = await leave.balance(selectedYear)
-      if (!cancelled) balance.value = data
-    } catch {
-      if (!cancelled) balanceError.value = 'Chưa tải được số dư phép năm. Vui lòng thử lại.'
-    } finally {
-      if (!cancelled) balanceLoading.value = false
-    }
+    return leave.balance(year.value)
   },
-  { immediate: true },
-)
-
-watch(
-  [employeeId, status, page, requestsRetry],
-  async ([id, selectedStatus, selectedPage], _, onCleanup) => {
-    let cancelled = false
-    onCleanup(() => {
-      cancelled = true
-    })
-    result.value = null
-    requestsError.value = ''
-    requestsLoading.value = false
-    if (!id) return
-    requestsLoading.value = true
-    try {
-      const data = await leave.list(false, selectedStatus, selectedPage, 5)
-      if (!cancelled) result.value = data
-    } catch {
-      if (!cancelled) requestsError.value = 'Chưa tải được đơn nghỉ phép. Vui lòng thử lại.'
-    } finally {
-      if (!cancelled) requestsLoading.value = false
-    }
+  {
+    source: [employeeId, year],
+    enabled: () => !!employeeId.value,
+    errorMessage: (cause) => (cause instanceof RangeError ? cause.message : copy.balanceFailed),
   },
-  { immediate: true },
 )
-
+const {
+  data: result,
+  loading: requestsLoading,
+  error: requestsError,
+  load: requestsRetry,
+} = useAsyncResource(() => leave.list(false, status.value, page.value, 5), {
+  source: [employeeId, status, page],
+  enabled: () => !!employeeId.value,
+  errorMessage: () => copy.historyFailed,
+})
 function refresh() {
-  balanceRetry.value++
-  requestsRetry.value++
+  balanceRetry()
+  requestsRetry()
 }
 </script>
 
 <template>
-  <section class="profile-module profile-leave" aria-label="Thông tin nghỉ phép">
+  <section class="profile-module profile-leave" :aria-label="copy.sectionLabel">
     <div class="profile-module-heading">
-      <h3>Thông tin nghỉ phép</h3>
+      <h3>{{ copy.sectionLabel }}</h3>
       <div v-if="employeeId" class="button-row">
         <button
           class="button button-secondary"
           :disabled="balanceLoading || requestsLoading"
           @click="refresh"
         >
-          Tải lại
+          {{ common.reload }}
         </button>
-        <RouterLink class="button button-primary" to="/leave">Tạo đơn xin nghỉ</RouterLink>
+        <RouterLink class="button button-primary" to="/leave">{{ copy.create }}</RouterLink>
       </div>
     </div>
-    <p v-if="!employeeId" class="muted" role="status">
-      Tài khoản chưa được liên kết với hồ sơ nhân viên. Liên hệ bộ phận nhân sự để xem thông tin
-      nghỉ phép.
-    </p>
+    <p v-if="!employeeId" class="muted" role="status">{{ copy.unlinked }}</p>
     <template v-else>
-      <section aria-label="Số dư phép năm" :aria-busy="balanceLoading">
+      <section :aria-label="copy.balanceTitle" :aria-busy="balanceLoading">
         <div class="profile-module-heading">
-          <h4>Phép năm {{ year }}</h4>
+          <h4>{{ copy.balanceYear({ year: year }) }}</h4>
           <div class="field">
-            <label for="profile-leave-year">Năm phép</label>
+            <label for="profile-leave-year">{{ copy.yearLabel }}</label>
             <input
               id="profile-leave-year"
               v-model.number="year"
               type="number"
-              min="2000"
-              max="9999"
+              :min="dateLimits.minYear"
+              :max="dateLimits.maxYear"
               step="1"
               required
             />
           </div>
         </div>
-        <p v-if="balanceLoading" class="muted" role="status">Đang tải số dư phép năm…</p>
+        <p v-if="balanceLoading" class="muted" role="status">{{ copy.balanceLoading }}</p>
         <div v-else-if="balanceError" class="alert alert-error" role="alert">
           <p>{{ balanceError }}</p>
-          <button class="button button-secondary" @click="balanceRetry++">Thử lại</button>
+          <button class="button button-secondary" @click="balanceRetry()">
+            {{ common.retry }}
+          </button>
         </div>
         <dl v-else-if="balance" class="profile-module-stats">
           <div>
-            <dt>Được hưởng</dt>
-            <dd>{{ daysLabel(balance.entitledDays) }} <small>ngày</small></dd>
+            <dt>{{ copy.entitlement }}</dt>
+            <dd>
+              {{ daysLabel(balance.entitledDays) }} <small>{{ copy.dayUnit }}</small>
+            </dd>
           </div>
           <div>
-            <dt>Đã dùng</dt>
-            <dd>{{ daysLabel(balance.usedDays) }} <small>ngày</small></dd>
+            <dt>{{ copy.used }}</dt>
+            <dd>
+              {{ daysLabel(balance.usedDays) }} <small>{{ copy.dayUnit }}</small>
+            </dd>
           </div>
           <div>
-            <dt>Còn lại</dt>
-            <dd>{{ daysLabel(balance.remainingDays) }} <small>ngày</small></dd>
+            <dt>{{ copy.remaining }}</dt>
+            <dd>
+              {{ daysLabel(balance.remainingDays) }} <small>{{ copy.dayUnit }}</small>
+            </dd>
           </div>
         </dl>
-        <p class="muted small">
-          Phép năm được trừ khi đơn được duyệt, bao gồm cả ngày nghỉ sắp tới. Đơn chờ duyệt và nghỉ
-          không lương không trừ số dư phép năm.
-        </p>
+        <p class="muted small">{{ copy.balanceHint }}</p>
       </section>
 
       <section
         class="profile-leave-history"
-        aria-label="Lịch sử nghỉ phép"
+        :aria-label="copy.historyTitle"
         :aria-busy="requestsLoading"
       >
         <div class="profile-module-heading">
           <div>
-            <h4>Lịch sử nghỉ phép</h4>
-            <p class="muted small">Đơn của bạn trong tất cả các năm, mới nhất trước.</p>
+            <h4>{{ copy.historyTitle }}</h4>
+            <p class="muted small">{{ copy.historyDescription }}</p>
           </div>
           <div class="field">
-            <label for="profile-leave-status">Trạng thái đơn</label>
+            <label for="profile-leave-status">{{ copy.statusLabel }}</label>
             <select id="profile-leave-status" v-model="status" @change="page = 0">
-              <option value="">Tất cả</option>
+              <option value="">{{ common.all }}</option>
               <option v-for="(label, value) in leaveStatuses" :key="value" :value="value">
                 {{ label }}
               </option>
             </select>
           </div>
         </div>
-        <p v-if="requestsLoading" class="muted" role="status">Đang tải đơn nghỉ phép…</p>
+        <p v-if="requestsLoading" class="muted" role="status">{{ copy.historyLoading }}</p>
         <div v-else-if="requestsError" class="alert alert-error" role="alert">
           <p>{{ requestsError }}</p>
-          <button class="button button-secondary" @click="requestsRetry++">Thử lại</button>
+          <button class="button button-secondary" @click="requestsRetry()">
+            {{ common.retry }}
+          </button>
         </div>
         <template v-else-if="result">
           <ul v-if="result.content.length" class="profile-module-requests">
@@ -170,9 +156,9 @@ function refresh() {
                 <strong>{{ leaveTypes[request.leaveType] || request.leaveType }}</strong>
                 <p class="muted small">
                   {{ dateLabel(request.startDate) }} – {{ dateLabel(request.endDate) }} ·
-                  {{ leavePeriods[request.period] || 'Cả ngày' }}
+                  {{ leavePeriods[request.period] || copy.fullDay }}
                   <template v-if="request.totalUnits != null">
-                    · {{ daysLabel(request.totalUnits / 2) }} ngày</template
+                    {{ copy.durationDays({ days: daysLabel(request.totalUnits / 2) }) }}</template
                   >
                 </p>
               </div>
@@ -186,13 +172,13 @@ function refresh() {
                 }"
                 >{{ leaveStatuses[request.status] || request.status }}</span
               >
-              <RouterLink class="text-button" :to="`/leave/requests/${request.id}`"
-                >Xem đơn và lịch sử</RouterLink
-              >
+              <RouterLink class="text-button" :to="`/leave/requests/${request.id}`">{{
+                copy.viewHistory
+              }}</RouterLink>
             </li>
           </ul>
           <p v-else class="muted" role="status">
-            {{ status ? 'Không có đơn nghỉ phép ở trạng thái này.' : 'Bạn chưa có đơn nghỉ phép.' }}
+            {{ status ? copy.filteredEmpty : copy.empty }}
           </p>
           <PageControls
             v-if="result.totalPages > 1"
@@ -204,9 +190,9 @@ function refresh() {
           />
         </template>
       </section>
-      <RouterLink class="text-button profile-module-more" to="/leave"
-        >Quản lý nghỉ phép →</RouterLink
-      >
+      <RouterLink class="text-button profile-module-more" to="/leave">{{
+        copy.managementLink
+      }}</RouterLink>
     </template>
   </section>
 </template>

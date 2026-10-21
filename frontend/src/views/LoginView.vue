@@ -1,8 +1,15 @@
 <script setup>
+import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+import { fieldLimits } from '@/config/validation.js'
+
+import { login as copy } from '@/content/auth.js'
+import { common } from '@/content/common.js'
+
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from '@/auth/session.js'
-import { errorMessage } from '@/auth/api.js'
+import { errorMessage } from '@/api/errors.js'
 import { safeDestination } from '@/auth/navigation.js'
 import AppIcon from '@/components/AppIcon.vue'
 const route = useRoute()
@@ -11,7 +18,7 @@ const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
 const busy = ref(false)
-const error = ref('')
+const error = useLocalizedMessage()
 async function submit() {
     if (busy.value) return
     error.value = ''
@@ -21,7 +28,7 @@ async function submit() {
         password.value = ''
         await router.replace(safeDestination(route.query.redirect))
     } catch (cause) {
-        error.value = errorMessage(cause)
+        error.value = () => errorMessage(cause)
     } finally {
         busy.value = false
     }
@@ -30,92 +37,109 @@ async function submit() {
 
 <template>
     <div class="login-page">
-        <section class="login-story" aria-label="Company HRM">
+        <section class="login-story" :aria-label="common.appName">
             <div class="brand brand-inverse">
-                <span class="brand-icon">C<span>h</span></span><span>company<span class="brand-light">hrm</span></span>
+                <span class="brand-icon">{{ common.monogramFirst }}<span>{{ common.monogramSecond
+                        }}</span></span><span>{{ common.wordmarkPrefix
+                        }}<span class="brand-light">{{ common.wordmarkSuffix }}</span></span>
             </div>
             <div class="login-story-content">
-                <span class="story-eyebrow">PEOPLE. CONNECTED.</span>
-                <h1>Một không gian.<br />Kết nối cả đội ngũ.</h1>
-                <p>
-                    Nền tảng quản lý nhân sự tập trung, đồng hành cùng doanh nghiệp và những người tạo nên giá
-                    trị.
-                </p>
+                <span class="story-eyebrow">{{ common.tagline }}</span>
+                <h1>{{ copy.welcomeFirstLine }}<br />{{ copy.welcomeSecondLine }}</h1>
+                <p>{{ copy.welcomeDescription }}</p>
                 <div class="story-art" aria-hidden="true">
                     <div class="art-orbit"></div>
                     <div class="art-card">
                         <span class="art-icon">
                             <AppIcon name="shield" :size="32" />
                         </span>
+
                         <div>
-                            <strong>Company workspace</strong><span>Kết nối an toàn. Làm việc hiệu quả.</span>
+                            <strong>{{ common.workspaceName }}</strong><span>{{ copy.securityTagline }}</span>
                         </div>
                         <span class="art-check">
                             <AppIcon name="check" :size="16" />
                         </span>
                     </div>
-                    <div class="art-caption">
-                        <span class="status-dot"></span>Đúng người · Đúng quyền truy cập
-                    </div>
+                    <div class="art-caption"><span class="status-dot"></span>{{ copy.accessTagline }}</div>
                 </div>
             </div>
-            <div class="story-footer"><span>Company HRM</span><span>Built around people.</span></div>
+            <div class="story-footer">
+                <span>{{ common.appName }}</span><span>{{ common.brandFooter }}</span>
+            </div>
         </section>
         <main class="login-main">
+            <div class="auth-language">
+                <LanguageSwitcher />
+            </div>
+
             <div class="login-mobile-brand brand">
-                <span class="brand-icon">C<span>h</span></span><span>Company HRM</span>
+                <span class="brand-icon">{{ common.monogramFirst }}<span>{{ common.monogramSecond
+                        }}</span></span><span>{{ common.appName }}</span>
             </div>
             <div class="login-form-wrap">
                 <span class="login-lock">
                     <AppIcon name="lock" :size="24" />
+
                 </span>
-                <p class="eyebrow">CHÀO MỪNG TRỞ LẠI</p>
-                <h2>Đăng nhập workspace</h2>
-                <p class="muted login-description">
-                    Sử dụng tài khoản được cấp để truy cập không gian làm việc của bạn.
-                </p>
+
+                <p class="eyebrow">{{ copy.eyebrow }}</p>
+                <h2>{{ copy.title }}</h2>
+                <p class="muted login-description">{{ copy.description }}</p>
                 <div v-if="route.query.logout === 'local'" class="alert alert-warning" role="status">
-                    Đã đăng xuất trên trình duyệt này. Không thể xác nhận thu hồi phiên trên máy chủ do lỗi
-                    kết nối.
+                    {{ copy.localLogout }}
                 </div>
                 <div v-else-if="route.query.logout === 'success'" class="alert alert-success" role="status">
-                    Bạn đã đăng xuất thành công.
+                    {{ copy.signedOut }}
+                </div>
+                <div v-else-if="auth.state.sessionEnded" class="alert alert-warning" role="status">
+                    {{ copy.sessionEnded }}
                 </div>
                 <div v-if="error" id="login-error" class="alert alert-error" role="alert">{{ error }}</div>
                 <form :aria-busy="busy" @submit.prevent="submit">
                     <fieldset :disabled="busy" class="form-fields">
-                        <label for="email">Email công việc</label>
+                        <label for="email">{{ common.workEmail }}</label>
                         <div class="input-icon">
-                            <AppIcon name="mail" :size="18" /><input id="email" v-model="email" type="email"
-                                autocomplete="username" placeholder="ten@congty.com" maxlength="255" required
+                            <AppIcon name="mail" :size="18" /><input
+id="email" v-model="email" type="email"
+                                autocomplete="username" :placeholder="common.emailPlaceholder"
+                                :maxlength="fieldLimits.email" required
                                 :aria-describedby="error ? 'login-error' : undefined" />
                         </div>
-                        <label for="password">Mật khẩu</label>
+                        <label for="password">{{ common.password }}</label>
                         <div class="input-icon">
-                            <AppIcon name="lock" :size="18" /><input id="password" v-model="password"
+                            <AppIcon name="lock" :size="18" /><input
+id="password" v-model="password"
                                 :type="showPassword ? 'text' : 'password'" autocomplete="current-password"
-                                placeholder="Nhập mật khẩu của bạn" required /><button type="button"
-                                class="password-toggle" :aria-label="showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                                :placeholder="copy.passwordPlaceholder" required /><button
+type="button"
+                                class="password-toggle"
+                                :aria-label="showPassword ? common.hidePassword : common.showPassword"
                                 :aria-pressed="showPassword" @click="showPassword = !showPassword">
                                 <AppIcon name="eye" :size="18" />
                             </button>
                         </div>
                         <button type="submit" class="button button-primary login-submit">
-                            <span>{{ busy ? 'Đang đăng nhập…' : 'Đăng nhập' }}</span>
+                            <span>{{ busy ? copy.submitting : copy.submit }}</span>
                             <AppIcon v-if="!busy" name="arrow" :size="18" />
                         </button>
                     </fieldset>
                 </form>
                 <p class="login-help">
-                    Chưa có tài khoản hoặc quên mật khẩu?<br /><strong>Vui lòng liên hệ HR hoặc quản trị viên.</strong>
+                    {{ copy.accountHelp }}<br /><strong>{{ copy.contactHelp }}</strong>
                 </p>
                 <div class="login-security">
-                    <AppIcon name="shield" :size="16" /><span>Chỉ dành cho tài khoản nội bộ doanh nghiệp</span>
+                    <AppIcon name="shield" :size="16" /><span>{{ copy.internalOnly }}</span>
                 </div>
             </div>
-            <footer class="login-footer">
-                © {{ new Date().getFullYear() }} Company HRM. All rights reserved.
-            </footer>
+            <footer class="login-footer">{{ copy.copyright({ year: new Date().getFullYear() }) }}</footer>
         </main>
     </div>
 </template>
+<style>
+.auth-language {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+}
+</style>

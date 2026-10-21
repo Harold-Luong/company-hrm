@@ -1,7 +1,15 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { pagination } from '@/config/presentation.js'
+
+import { referencePicker as copy } from '@/content/workspace.js'
+import { common } from '@/content/common.js'
+
 import { onMounted, ref } from 'vue'
-import { hrm, fullName } from '@/hrm/api.js'
-import { serviceError } from '@/auth/api.js'
+import { hrm } from '@/hrm/api.js'
+import { fullName } from '@/hrm/utils.js'
+import { serviceError } from '@/api/errors.js'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   resource: { type: String, required: true },
@@ -14,18 +22,18 @@ const rows = ref([])
 const page = ref(-1)
 const pages = ref(1)
 const busy = ref(false)
-const error = ref('')
+const error = useLocalizedMessage()
 async function more() {
   if (busy.value) return
   busy.value = true
   error.value = ''
   try {
-    const data = await hrm.list(props.resource, page.value + 1, 100)
+    const data = await hrm.list(props.resource, page.value + 1, pagination.referencePageSize)
     rows.value.push(...data.content)
     page.value = data.page
     pages.value = data.totalPages
   } catch (cause) {
-    error.value = serviceError(cause)
+    error.value = () => serviceError(cause)
   } finally {
     busy.value = false
   }
@@ -40,7 +48,7 @@ onMounted(more)
       :value="modelValue"
       @change="$emit('update:modelValue', $event.target.value)"
     >
-      <option value="">Không chọn</option>
+      <option value="">{{ common.noSelection }}</option>
       <option v-if="modelValue && !rows.some((row) => row.id === modelValue)" :value="modelValue">
         {{ selectedLabel || modelValue }}
       </option>
@@ -60,7 +68,7 @@ onMounted(more)
       :disabled="busy"
       @click="more"
     >
-      {{ busy ? 'Đang tải…' : error ? 'Thử tải lại lựa chọn' : 'Tải thêm lựa chọn' }}
+      {{ busy ? common.loading : error ? copy.retryOptions : copy.moreOptions }}
     </button>
   </div>
 </template>

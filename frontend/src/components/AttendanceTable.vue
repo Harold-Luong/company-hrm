@@ -1,6 +1,14 @@
 <script setup>
+import { getDisplayLocale } from '@/i18n/index.js'
+import { COMPANY_TIMEZONE } from '@/config/presentation.js'
+
+import { attendanceTable as copy } from '@/content/attendance.js'
+import { common } from '@/content/common.js'
+
 import { computed, ref, watch } from 'vue'
-import { statuses, minutesLabel, secondsLabel, timeLabel } from '@/attendance/helpers.js'
+import { statuses } from '@/attendance/constants.js'
+import { minutesLabel, secondsLabel } from '@/shared/duration.js'
+import { timeLabel } from '@/shared/date.js'
 import AppIcon from './AppIcon.vue'
 import PageControls from './PageControls.vue'
 const props = defineProps({
@@ -35,7 +43,7 @@ watch([status, search, () => props.rows], () => {
   page.value = 0
 })
 function dateLabel(value) {
-  return new Intl.DateTimeFormat('vi-VN', {
+  return new Intl.DateTimeFormat(getDisplayLocale(), {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -45,43 +53,43 @@ function dateLabel(value) {
 <template>
   <div class="attendance-table-tools">
     <div v-if="management && !singleEmployee" class="field attendance-search">
-      <label for="attendance-search">Tìm nhân viên trong bảng</label>
+      <label for="attendance-search">{{ copy.searchLabel }}</label>
       <input
         id="attendance-search"
         v-model="search"
         type="search"
-        placeholder="Tên hoặc mã nhân viên…"
+        :placeholder="copy.searchPlaceholder"
         :disabled="busy"
       />
     </div>
     <div class="field">
-      <label for="attendance-status">Trạng thái công</label>
+      <label for="attendance-status">{{ copy.statusLabel }}</label>
       <select id="attendance-status" v-model="status" :disabled="busy">
-        <option value="">Tất cả trạng thái</option>
+        <option value="">{{ copy.allStatuses }}</option>
         <option v-for="(label, value) in statuses" :key="value" :value="value">{{ label }}</option>
       </select>
     </div>
-    <span class="muted small">{{ filtered.length }} bản ghi phù hợp</span>
+    <span class="muted small">{{ copy.resultCount({ count: filtered.length }) }}</span>
   </div>
   <div
     class="table-wrap attendance-table"
     tabindex="0"
-    aria-label="Chi tiết công theo ngày"
+    :aria-label="copy.caption"
     :aria-busy="busy"
   >
     <table>
       <thead>
         <tr>
-          <th v-if="management && !singleEmployee">Nhân viên</th>
-          <th>Ngày</th>
-          <th>Vào / Ra</th>
-          <th>Giờ thực tế</th>
-          <th>Giờ tính công</th>
-          <th>OT thực tế / Đã duyệt</th>
-          <th>Phép</th>
-          <th>Trễ / Sớm quy đổi</th>
-          <th>Trạng thái</th>
-          <th v-if="management">Đối soát</th>
+          <th v-if="management && !singleEmployee">{{ common.employee }}</th>
+          <th>{{ common.date }}</th>
+          <th>{{ copy.punches }}</th>
+          <th>{{ copy.actualHours }}</th>
+          <th>{{ copy.creditedHours }}</th>
+          <th>{{ copy.overtime }}</th>
+          <th>{{ copy.leave }}</th>
+          <th>{{ copy.lateEarly }}</th>
+          <th>{{ common.status }}</th>
+          <th v-if="management">{{ copy.review }}</th>
         </tr>
       </thead>
       <tbody>
@@ -92,56 +100,69 @@ function dateLabel(value) {
           <td class="attendance-date">{{ dateLabel(row.workDate) }}</td>
           <td>
             {{ timeLabel(row.checkIn) }}<small>{{ timeLabel(row.checkOut) }}</small>
-            <small v-if="row.correctionId"
-              >Đã điều chỉnh · Gốc: {{ timeLabel(row.originalCheckIn) }} /
-              {{ timeLabel(row.originalCheckOut) }}</small
-            >
+            <small v-if="row.correctionId">{{
+              copy.correctedTimes({
+                checkIn: timeLabel(row.originalCheckIn),
+                checkOut: timeLabel(row.originalCheckOut),
+              })
+            }}</small>
             <RouterLink
               v-if="!management"
               :to="{ path: '/attendance/corrections', query: { date: row.workDate } }"
               class="text-button"
-              >Bổ sung / Điều chỉnh</RouterLink
+              >{{ copy.correctionAction }}</RouterLink
             >
           </td>
           <td>{{ secondsLabel(row.workedActualSeconds) }}</td>
           <td>{{ minutesLabel(row.workMinutesCounted) }}</td>
           <td>
             {{ minutesLabel(row.overtime?.countedMinutes ?? 0)
-            }}<small>Đã duyệt {{ minutesLabel(row.overtime?.approvedMinutes ?? 0) }}</small>
+            }}<small>{{
+              copy.approvedOvertime({ duration: minutesLabel(row.overtime?.approvedMinutes ?? 0) })
+            }}</small>
           </td>
           <td>
-            {{ row.leaveDays }} ngày<small v-if="row.annualLeaveMinutes"
-              >Phép năm {{ minutesLabel(row.annualLeaveMinutes) }}</small
-            ><small v-if="row.unpaidLeaveMinutes"
-              >Không lương {{ minutesLabel(row.unpaidLeaveMinutes) }}</small
-            >
+            {{ copy.leaveDays({ leaveDays: row.leaveDays })
+            }}<small v-if="row.annualLeaveMinutes">{{
+              copy.annualLeave({ days: minutesLabel(row.annualLeaveMinutes) })
+            }}</small
+            ><small v-if="row.unpaidLeaveMinutes">{{
+              copy.unpaidLeave({ days: minutesLabel(row.unpaidLeaveMinutes) })
+            }}</small>
           </td>
-          <td>{{ row.roundedLateMinutes ?? '—' }} / {{ row.roundedEarlyMinutes ?? '—' }} phút</td>
+          <td>
+            {{
+              copy.roundedMinutes({
+                late: row.roundedLateMinutes ?? common.missingValue,
+                early: row.roundedEarlyMinutes ?? common.missingValue,
+              })
+            }}
+          </td>
           <td>
             <span class="attendance-badge" :class="`status-${row.status.toLowerCase()}`">{{
               statuses[row.status] || row.status
             }}</span
-            ><small v-if="row.pendingLeaveIds?.length"
-              >{{ row.pendingLeaveIds.length }} đơn chờ duyệt</small
-            >
-            <small v-if="row.overtime?.pendingIds?.length"
-              >{{ row.overtime.pendingIds.length }} đơn tăng ca chờ duyệt</small
-            >
-            <small v-if="row.permissionCoverage?.approvedRequestIds?.length"
-              >Có phép đi trễ/về sớm ·
-              {{ row.permissionCoverage.approvedRequestIds.length }} đơn</small
-            >
-            <small v-if="row.permissionCoverage?.pendingRequestIds?.length"
-              >{{ row.permissionCoverage.pendingRequestIds.length }} đơn đi trễ/về sớm chờ
-              duyệt</small
-            >
-            <small v-if="row.permissionCoverage?.conflictingRequestIds?.length"
-              >Cần đối soát đơn đi trễ/về sớm với phép/ca</small
-            >
-            <small v-if="row.permissionCoverage?.unapprovedRoundedLateMinutes != null"
-              >Chưa có phép: trễ {{ row.permissionCoverage.unapprovedRoundedLateMinutes }}p / sớm
-              {{ row.permissionCoverage.unapprovedRoundedEarlyMinutes }}p</small
-            >
+            ><small v-if="row.pendingLeaveIds?.length">{{
+              copy.pendingCorrections({ count: row.pendingLeaveIds.length })
+            }}</small>
+            <small v-if="row.overtime?.pendingIds?.length">{{
+              copy.pendingOvertime({ count: row.overtime.pendingIds.length })
+            }}</small>
+            <small v-if="row.permissionCoverage?.approvedRequestIds?.length">{{
+              copy.approvedRequests({ count: row.permissionCoverage.approvedRequestIds.length })
+            }}</small>
+            <small v-if="row.permissionCoverage?.pendingRequestIds?.length">{{
+              copy.pendingRequests({ count: row.permissionCoverage.pendingRequestIds.length })
+            }}</small>
+            <small v-if="row.permissionCoverage?.conflictingRequestIds?.length">{{
+              copy.requestConflict
+            }}</small>
+            <small v-if="row.permissionCoverage?.unapprovedRoundedLateMinutes != null">{{
+              copy.unapprovedMinutes({
+                unapprovedRoundedLateMinutes: row.permissionCoverage.unapprovedRoundedLateMinutes,
+                unapprovedRoundedEarlyMinutes: row.permissionCoverage.unapprovedRoundedEarlyMinutes,
+              })
+            }}</small>
           </td>
           <td v-if="management">
             <button
@@ -151,37 +172,24 @@ function dateLabel(value) {
               :disabled="busy"
               @click="$emit('refresh', row)"
             >
-              Cập nhật phép/lịch</button
-            ><small v-if="row.sourceObservedAt"
-              >Nguồn lúc
-              {{
-                new Date(row.sourceObservedAt).toLocaleString('vi-VN', {
-                  timeZone: 'Asia/Ho_Chi_Minh',
-                })
-              }}</small
-            >
+              {{ copy.refreshSources }}</button
+            ><small v-if="row.sourceObservedAt">{{
+              copy.sourcesAt({
+                date: new Date(row.sourceObservedAt).toLocaleString(getDisplayLocale(), {
+                  timeZone: COMPANY_TIMEZONE,
+                }),
+              })
+            }}</small>
           </td>
         </tr>
         <tr v-if="busy || !filtered.length">
           <td :colspan="management ? (singleEmployee ? 9 : 10) : 8">
             <div class="attendance-empty">
               <AppIcon :name="busy ? 'clock' : failed ? 'info' : 'calendar'" :size="30" />
-              <strong>{{
-                busy
-                  ? 'Đang tải bảng công…'
-                  : failed
-                    ? 'Chưa tải được bảng công'
-                    : 'Không có bản ghi phù hợp'
-              }}</strong>
-              <span>{{
-                busy
-                  ? 'Vui lòng chờ trong giây lát.'
-                  : failed
-                    ? 'Dùng nút tải lại để thử kết nối lại.'
-                    : 'Thử đổi khoảng ngày hoặc bộ lọc trạng thái để xem dữ liệu.'
-              }}</span>
+              <strong>{{ busy ? copy.loading : failed ? copy.loadFailed : copy.empty }}</strong>
+              <span>{{ busy ? copy.loadingHint : failed ? copy.retryHint : copy.emptyHint }}</span>
               <button v-if="!busy && (status || search)" class="text-button" @click="clearFilters">
-                Xóa bộ lọc bảng
+                {{ copy.clearFilters }}
               </button>
             </div>
           </td>

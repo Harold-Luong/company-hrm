@@ -1,4 +1,14 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { calendarWeekdays } from '@/shared/intl.js'
+import { refreshIntervals } from '@/config/runtime.js'
+
+import { dateLimits } from '@/config/validation.js'
+
+import { eventCalendar as copy } from '@/content/calendar.js'
+import { common } from '@/content/common.js'
+
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { auth } from '@/auth/session.js'
 import AppIcon from '@/components/AppIcon.vue'
@@ -7,7 +17,7 @@ import { leave } from '@/leave/api.js'
 import { personalLeaveEvents } from '@/calendar/leave.js'
 import { subscribeNotifications } from '@/notifications/stream.js'
 import { requestChangedEvent } from '@/notifications/changes.js'
-import { leavePeriods, leaveStatuses } from '@/leave/helpers.js'
+import { leavePeriods, leaveStatuses } from '@/leave/constants.js'
 import {
   eventTypes,
   holidayKinds,
@@ -27,20 +37,22 @@ import {
 const today = calendarDate()
 const calendar = ref(null)
 const personalLeaves = ref([])
-const leaveError = ref('')
+const leaveError = useLocalizedMessage()
 const leaveLoading = ref(false)
-const visibleTypes = { ...eventTypes, PERSONAL_LEAVE: 'Nghỉ phép của tôi' }
+const visibleTypes = computed(() => ({ ...eventTypes, PERSONAL_LEAVE: copy.myLeave }))
 const typeLabel = (type) =>
-  type === 'PERSONAL_LEAVE' ? visibleTypes.PERSONAL_LEAVE : companyTypeLabel(type)
+  type === 'PERSONAL_LEAVE' ? visibleTypes.value.PERSONAL_LEAVE : companyTypeLabel(type)
 const loading = ref(true)
-const error = ref('')
+const error = useLocalizedMessage()
 const year = ref(Number(today.slice(0, 4)))
 const availableYears = computed(() =>
   [
     ...new Set([
       ...(calendar.value?.availableYears || []),
       year.value,
-      ...[year.value - 1, year.value + 1].filter((value) => value >= 2000 && value <= 2100),
+      ...[year.value - 1, year.value + 1].filter(
+        (value) => value >= dateLimits.minYear && value <= dateLimits.calendarMaxYear,
+      ),
     ]),
   ].sort((a, b) => a - b),
 )
@@ -83,7 +95,7 @@ const legendTypes = computed(() => [
   ...new Set(yearEvents.value.map((event) => event.holidayKind || event.type)),
 ])
 function kind(type) {
-  return Object.hasOwn(visibleTypes, type) || Object.hasOwn(holidayKinds, type)
+  return Object.hasOwn(visibleTypes.value, type) || Object.hasOwn(holidayKinds, type)
     ? `kind-${type}`
     : 'kind-OTHER'
 }
@@ -131,7 +143,7 @@ async function loadPersonalLeaves() {
     }
   } catch {
     if (!stopped && ticket === leaveLoadId) {
-      leaveError.value = 'Không thể cập nhật nghỉ phép cá nhân. Dữ liệu có thể chưa mới nhất.'
+      leaveError.value = () => copy.personalLeaveFailed
     }
   } finally {
     if (!stopped && ticket === leaveLoadId) leaveLoading.value = false
@@ -139,7 +151,7 @@ async function loadPersonalLeaves() {
 }
 async function pollPersonalLeaves() {
   await loadPersonalLeaves()
-  if (!stopped) leaveTimer = window.setTimeout(pollPersonalLeaves, 30_000)
+  if (!stopped) leaveTimer = window.setTimeout(pollPersonalLeaves, refreshIntervals.personalLeave)
 }
 watch(
   year,
@@ -162,7 +174,7 @@ watch(
 onMounted(() => {
   stopNotifications = subscribeNotifications(loadPersonalLeaves)
   window.addEventListener(requestChangedEvent, loadPersonalLeaves)
-  leaveTimer = window.setTimeout(pollPersonalLeaves, 30_000)
+  leaveTimer = window.setTimeout(pollPersonalLeaves, refreshIntervals.personalLeave)
 })
 onBeforeUnmount(() => {
   stopped = true
@@ -182,7 +194,7 @@ async function load() {
   } catch (err) {
     if (currentLoad === loadId) {
       console.error(err)
-      error.value = 'Không thể tải lịch. Vui lòng thử lại.'
+      error.value = () => copy.loadFailed
     }
   } finally {
     if (currentLoad === loadId) loading.value = false
@@ -195,23 +207,23 @@ watch(year, load, { immediate: true })
   <div class="event-calendar">
     <div class="page-heading">
       <div>
-        <p class="eyebrow">LỊCH NỘI BỘ</p>
-        <h1>Lịch nghỉ & sự kiện</h1>
-        <p class="muted">Lịch chung của công ty và đơn nghỉ phép cá nhân của bạn.</p>
+        <p class="eyebrow">{{ copy.eyebrow }}</p>
+        <h1>{{ copy.title }}</h1>
+        <p class="muted">{{ copy.description }}</p>
       </div>
       <RouterLink
         v-if="auth.hasRole(calendarManagementRoles)"
         to="/calendar-events"
         class="button button-primary"
-        >Quản lý lịch</RouterLink
+        >{{ copy.manage }}</RouterLink
       >
       <span v-else class="calendar-readonly">
-        <AppIcon name="eye" :size="16" /> Nghỉ phép cá nhân chỉ hiển thị cho bạn
+        <AppIcon name="eye" :size="16" /> {{ copy.privacyHint }}
       </span>
     </div>
-    <p v-if="loading" role="status" class="panel calendar-loading">Đang tải lịch…</p>
+    <p v-if="loading" role="status" class="panel calendar-loading">{{ copy.loading }}</p>
     <div v-else-if="error" class="alert alert-error" role="alert">
-      {{ error }} <button class="button button-secondary" @click="load">Thử lại</button>
+      {{ error }} <button class="button button-secondary" @click="load">{{ common.retry }}</button>
     </div>
     <template v-else-if="calendar">
       <div v-if="leaveError" class="alert alert-error" role="alert">
@@ -221,16 +233,16 @@ watch(year, load, { immediate: true })
           :disabled="leaveLoading"
           @click="loadPersonalLeaves"
         >
-          Tải lại nghỉ phép
+          {{ copy.reloadLeave }}
         </button>
       </div>
       <header class="calendar-banner">
         <div>
-          <h2>Lịch nghỉ & sự kiện {{ calendar.year }}</h2>
-          <p>{{ yearEvents.length }} kỳ nghỉ & sự kiện · Lịch tham khảo nội bộ</p>
+          <h2>{{ copy.yearTitle({ year: calendar.year }) }}</h2>
+          <p>{{ copy.yearCount({ count: yearEvents.length }) }}</p>
         </div>
         <div class="calendar-year-control">
-          <label for="calendar-year">Năm</label>
+          <label for="calendar-year">{{ common.year }}</label>
           <select id="calendar-year" v-model.number="year">
             <option
               v-for="availableYear in availableYears"
@@ -246,23 +258,25 @@ watch(year, load, { immediate: true })
         <div class="calendar-month-controls">
           <button
             class="icon-button"
-            aria-label="Tháng trước"
+            :aria-label="copy.previousMonth"
             :disabled="month === 1"
             @click="changeMonth(month - 1)"
           >
             ‹
           </button>
-          <label class="sr-only" for="calendar-month">Tháng</label>
+          <label class="sr-only" for="calendar-month">{{ common.month }}</label>
           <select
             id="calendar-month"
             :value="month"
             @change="changeMonth(Number($event.target.value))"
           >
-            <option v-for="value in 12" :key="value" :value="value">Tháng {{ value }}</option>
+            <option v-for="value in 12" :key="value" :value="value">
+              {{ copy.monthLabel({ month: value }) }}
+            </option>
           </select>
           <button
             class="icon-button"
-            aria-label="Tháng sau"
+            :aria-label="copy.nextMonth"
             :disabled="month === 12"
             @click="changeMonth(month + 1)"
           >
@@ -273,37 +287,37 @@ watch(year, load, { immediate: true })
             class="button button-secondary"
             @click="goToday"
           >
-            Hôm nay
+            {{ copy.today }}
           </button>
         </div>
         <div class="calendar-filter">
-          <label for="calendar-category">Loại sự kiện</label>
+          <label for="calendar-category">{{ copy.type }}</label>
           <select id="calendar-category" v-model="category">
-            <option value="all">Tất cả loại</option>
+            <option value="all">{{ copy.allTypes }}</option>
             <option v-for="(label, value) in visibleTypes" :key="value" :value="value">
               {{ label }}
             </option>
           </select>
         </div>
       </div>
-      <ul class="calendar-legend" aria-label="Chú thích màu lịch">
+      <ul class="calendar-legend" :aria-label="copy.legend">
         <li v-for="type in legendTypes" :key="type" :class="kind(type)">
           <span class="calendar-dot" aria-hidden="true"></span>{{ typeLabel(type) }}
         </li>
-        <li><span class="calendar-weekend-swatch" aria-hidden="true"></span>Cuối tuần</li>
+        <li><span class="calendar-weekend-swatch" aria-hidden="true"></span>{{ copy.weekend }}</li>
       </ul>
       <div class="calendar-layout">
         <section class="panel calendar-board" aria-labelledby="month-title">
           <div class="calendar-board-heading">
             <h2 id="month-title">
-              Tháng {{ month }} <span class="muted">/ {{ year }}</span>
+              {{ copy.monthTitle({ month: month }) }} <span class="muted">/ {{ year }}</span>
             </h2>
-            <span class="small muted">{{ monthEventCount }} kỳ nghỉ & sự kiện</span>
+            <span class="small muted">{{
+              copy.monthCount({ monthEventCount: monthEventCount })
+            }}</span>
           </div>
           <div class="calendar-weekdays" aria-hidden="true">
-            <span v-for="day in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="day">{{
-              day
-            }}</span>
+            <span v-for="day in calendarWeekdays" :key="day">{{ day }}</span>
           </div>
           <div class="calendar-days">
             <template v-for="(cell, index) in cells" :key="index">
@@ -322,7 +336,7 @@ watch(year, load, { immediate: true })
                 :data-date="cell.date"
                 :aria-pressed="cell.date === selectedDate"
                 :aria-current="cell.date === today ? 'date' : undefined"
-                :aria-label="`${displayDate(cell.date)}${cell.weekend ? ', cuối tuần' : ''}${cell.entries.map((entry) => `, ${entry.event.title}, ${typeLabel(entry.type)}`).join('')}`"
+                :aria-label="`${displayDate(cell.date)}${cell.weekend ? copy.weekendSuffix : ''}${cell.entries.map((entry) => `, ${entry.event.title}, ${typeLabel(entry.type)}`).join('')}`"
                 @click="chooseDay(cell.date)"
               >
                 <span class="calendar-day-number">{{ cell.day }}</span>
@@ -334,7 +348,7 @@ watch(year, load, { immediate: true })
                   ><span class="calendar-dot" aria-hidden="true"></span
                   ><span class="calendar-day-name"
                     >{{ entry.event.title
-                    }}{{ entry.event.status === 'CANCELLED' ? ' · Đã hủy' : '' }}</span
+                    }}{{ entry.event.status === 'CANCELLED' ? copy.cancelledSuffix : '' }}</span
                   ></span
                 >
                 <span v-if="cell.entries[0]?.event.holidayKind" class="calendar-day-type">{{
@@ -344,9 +358,7 @@ watch(year, load, { immediate: true })
               <div v-else class="calendar-day-empty" aria-hidden="true"></div>
             </template>
           </div>
-          <p class="calendar-board-footnote">
-            Chọn một ngày để xem chi tiết. Màu sắc thể hiện loại ngày trong dữ liệu lịch.
-          </p>
+          <p class="calendar-board-footnote">{{ copy.calendarHint }}</p>
         </section>
         <aside
           ref="detailPanel"
@@ -355,7 +367,7 @@ watch(year, load, { immediate: true })
           aria-labelledby="day-title"
           aria-live="polite"
         >
-          <p class="eyebrow">CHI TIẾT NGÀY</p>
+          <p class="eyebrow">{{ copy.dayDetail }}</p>
           <h2 id="day-title">{{ displayDate(selectedDate) }}</h2>
           <template v-if="selectedEvent">
             <div v-if="selectedEntries.length > 1" class="calendar-event-switch">
@@ -378,14 +390,14 @@ watch(year, load, { immediate: true })
               <AppIcon name="calendar" :size="17" />{{ displayEventRange(selectedEvent) }}
             </p>
             <p v-if="selectedEvent.status === 'CANCELLED'" class="alert alert-error">
-              Đã hủy · Sự kiện không còn hiệu lực.
+              {{ copy.cancelledHint }}
             </p>
             <p v-if="selectedEvent.type === 'PERSONAL_LEAVE'">
               {{ leaveStatuses[selectedEvent.status] }} · {{ leavePeriods[selectedEvent.period] }}
               <RouterLink
                 :to="`/leave/requests/${selectedEvent.requestId}`"
                 class="button button-secondary"
-                >Xem đơn nghỉ phép</RouterLink
+                >{{ copy.viewLeave }}</RouterLink
               >
             </p>
             <p v-if="selectedEvent.holidayKind">
@@ -394,30 +406,30 @@ watch(year, load, { immediate: true })
               }}</span>
             </p>
             <p v-if="selectedEvent.location">
-              <strong>Địa điểm:</strong> {{ selectedEvent.location }}
+              <strong>{{ copy.location }}</strong> {{ selectedEvent.location }}
             </p>
             <p v-if="selectedEvent.description" class="calendar-description">
               {{ selectedEvent.description }}
             </p>
-            <p v-else class="muted small">Không có ghi chú bổ sung cho sự kiện này.</p>
+            <p v-else class="muted small">{{ copy.noEventNote }}</p>
           </template>
           <div v-else class="calendar-no-event">
             <AppIcon name="calendar" :size="36" />
-            <p>Không có sự kiện phù hợp vào ngày này.</p>
-            <span class="small muted">Chọn ngày được đánh dấu hoặc một sự kiện bên dưới.</span>
+            <p>{{ copy.emptyDay }}</p>
+            <span class="small muted">{{ copy.selectDayHint }}</span>
           </div>
         </aside>
       </div>
       <section class="section-block" aria-labelledby="year-events-title">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">KẾ HOẠCH CẢ NĂM</p>
-            <h2 id="year-events-title">Kỳ nghỉ & sự kiện {{ year }}</h2>
+            <p class="eyebrow">{{ copy.yearPlan }}</p>
+            <h2 id="year-events-title">{{ copy.yearPlanTitle({ year: year }) }}</h2>
           </div>
-          <span class="muted small">{{ visibleEvents.length }} sự kiện</span>
+          <span class="muted small">{{ copy.eventCount({ count: visibleEvents.length }) }}</span>
         </div>
         <p v-if="!visibleEvents.length" class="panel calendar-loading" role="status">
-          Chưa có sự kiện thuộc loại này trong năm {{ year }}.
+          {{ copy.emptyYear({ year: year }) }}
         </p>
         <div v-else class="calendar-event-list">
           <button
@@ -430,14 +442,17 @@ watch(year, load, { immediate: true })
           >
             <span class="calendar-event-date"
               ><strong>{{ Number(event.startDay.slice(8, 10)) }}</strong
-              ><small>THÁNG {{ Number(event.startDay.slice(5, 7)) }}</small></span
+              ><small>{{
+                copy.monthHeading({ month: Number(event.startDay.slice(5, 7)) })
+              }}</small></span
             >
             <span
               ><span class="calendar-badge" :class="kind(event.type)">{{
                 typeLabel(event.type)
               }}</span
               ><strong class="calendar-event-title"
-                >{{ event.title }}{{ event.status === 'CANCELLED' ? ' · Đã hủy' : '' }}</strong
+                >{{ event.title
+                }}{{ event.status === 'CANCELLED' ? copy.cancelledSuffix : '' }}</strong
               ><span class="small muted">{{ displayEventRange(event) }}</span></span
             >
           </button>

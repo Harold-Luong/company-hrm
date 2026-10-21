@@ -1,23 +1,35 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { activationInvitation as copy } from '@/content/hrm.js'
+
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { hrm } from '@/hrm/api.js'
-import { serviceError } from '@/auth/api.js'
-import { formatDate } from '@/auth/format.js'
+import { serviceError } from '@/api/errors.js'
+import { formatDate } from '@/shared/date.js'
 
 const props = defineProps({ employee: { type: Object, required: true } })
 const invitation = ref(null)
 const operation = ref('')
-const error = ref('')
-const message = ref('')
+const error = useLocalizedMessage()
+const message = useLocalizedMessage()
 const remaining = ref(0)
 const canResend = computed(() => props.employee.accountStatus === 'PENDING_ACTIVATION')
 let cooldownTimer
 let disposed = false
 const statuses = {
-    PENDING: 'Email đang chờ gửi',
-    SENT: 'Dịch vụ email đã chấp nhận gửi',
-    FAILED: 'Gửi email thất bại',
-    CANCELLED: 'Lời mời đã bị hủy',
+    get PENDING() {
+        return copy.queued
+    },
+    get SENT() {
+        return copy.accepted
+    },
+    get FAILED() {
+        return copy.failed
+    },
+    get CANCELLED() {
+        return copy.cancelled
+    },
 }
 function cooldown(seconds) {
     clearInterval(cooldownTimer)
@@ -29,21 +41,11 @@ function cooldown(seconds) {
     }, 1000)
 }
 function failure(cause, sending) {
-    if (cause.status === 429) {
-        const seconds = Number(cause.retryAfter)
-        cooldown(Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60)
-        return 'Vui lòng chờ hết thời gian chờ trước khi thử lại.'
-    }
-    if (cause.status === 404)
-        return sending
-            ? 'Chưa tìm thấy tài khoản Auth của nhân viên này.'
-            : 'Chưa có lời mời kích hoạt cho nhân viên này.'
-    if (cause.status === 409)
-        return 'Tài khoản không còn ở trạng thái chờ kích hoạt. Hãy tải lại hồ sơ.'
+    if (cause.status === 429) return copy.cooldown
+    if (cause.status === 404) return sending ? copy.accountNotFound : copy.invitationNotFound
+    if (cause.status === 409) return copy.noLongerPending
     if (cause.status === 503)
-        return cause.message === 'Account activation is disabled'
-            ? 'Tính năng email kích hoạt chưa được bật. Vui lòng liên hệ quản trị viên.'
-            : serviceError(cause)
+        return cause.message === 'Account activation is disabled' ? copy.disabled : serviceError(cause)
     return serviceError(cause)
 }
 async function request(sending = false) {
@@ -59,20 +61,22 @@ async function request(sending = false) {
         invitation.value = data
         if (sending) {
             cooldown(60)
-            message.value =
-                'Đã xếp hàng email kích hoạt mới và thu hồi liên kết cũ. Email chưa được xác nhận gửi thành công.'
+            message.value = () => copy.queuedNotice
         }
     } catch (cause) {
         if (disposed) return
         invitation.value = null
-        error.value = failure(cause, sending)
+        if (cause.status === 429) {
+            const seconds = Number(cause.retryAfter)
+            cooldown(Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60)
+        }
+        error.value = () => failure(cause, sending)
         if (
             sending &&
             (cause.status === 0 || cause.status >= 500) &&
             cause.message !== 'Account activation is disabled'
         ) {
-            message.value =
-                'Chưa xác nhận được kết quả gửi. Hãy kiểm tra email trước khi gửi lại để tránh thu hồi một liên kết vừa tạo.'
+            message.value = () => copy.uncertainResult
         }
     } finally {
         operation.value = ''
@@ -86,49 +90,42 @@ onBeforeUnmount(() => {
 
 <template>
     <section class="activation-invitation request-lookup" :aria-busy="!!operation">
-        <h3>Email kích hoạt tài khoản</h3>
-        <p class="small muted">
-            Email được gửi tới địa chỉ đăng nhập của tài khoản trong Auth, có thể khác email hồ sơ nhân
-            viên. Gửi lại sẽ vô hiệu hóa liên kết cũ. Mặc định cần chờ 60 giây giữa các lần gửi.
-        </p>
-        <button class="button button-secondary full-width" type="button"
+        <h3>{{ copy.title }}</h3>
+        <p class="small muted">{{ copy.description }}</p>
+        <button
+class="button button-secondary full-width" type="button"
             :disabled="!!operation || !canResend || remaining > 0" @click="request(true)">
             {{
                 operation === 'send'
-                    ? 'Đang xếp hàng email…'
+                    ? copy.queueing
                     : remaining > 0
-                        ? `Gửi lại sau ${remaining} giây`
-                        : 'Gửi lại email kích hoạt'
+                        ? copy.resendCountdown({ remaining: remaining })
+                        : copy.resend
             }}
         </button>
-        <p v-if="!canResend" class="field-help">Chỉ gửi lại email khi tài khoản đang chờ kích hoạt.</p>
+        <p v-if="!canResend" class="field-help">{{ copy.pendingOnly }}</p>
         <button class="button button-secondary full-width" type="button" :disabled="!!operation" @click="request()">
-            {{ operation === 'check' ? 'Đang kiểm tra email…' : 'Kiểm tra email kích hoạt' }}
+            {{ operation === 'check' ? copy.checking : copy.check }}
         </button>
         <div v-if="error" class="alert alert-error" role="alert">{{ error }}</div>
         <p v-if="message" class="info-strip" role="status">{{ message }}</p>
         <div v-if="invitation" class="small" role="status" aria-live="polite">
             <strong>{{ statuses[invitation.deliveryStatus] || invitation.deliveryStatus }}</strong>
-            <p v-if="invitation.deliveryStatus === 'PENDING'">
-                Bấm kiểm tra email để cập nhật kết quả gửi.
-            </p>
-            <p v-if="invitation.deliveryStatus === 'SENT'">
-                Resend đã chấp nhận email; điều này chưa xác nhận email đã vào hộp thư hoặc tài khoản đã
-                kích hoạt.
-            </p>
-            <p v-if="invitation.deliveryStatus === 'FAILED'">
-                Vui lòng liên hệ quản trị viên hoặc gửi lại khi hết thời gian chờ.
-            </p>
+            <p v-if="invitation.deliveryStatus === 'PENDING'">{{ copy.checkHint }}</p>
+            <p v-if="invitation.deliveryStatus === 'SENT'">{{ copy.acceptedHint }}</p>
+            <p v-if="invitation.deliveryStatus === 'FAILED'">{{ copy.failureHint }}</p>
             <p>
-                Mã lời mời: <code>{{ invitation.invitationId }}</code>
+                {{ copy.invitationId }} <code>{{ invitation.invitationId }}</code>
             </p>
-            <p v-if="invitation.expiresAt">Liên kết hết hạn: {{ formatDate(invitation.expiresAt) }}</p>
-            <p v-if="invitation.sentAt">
-                Dịch vụ email chấp nhận lúc: {{ formatDate(invitation.sentAt) }}
+            <p v-if="invitation.expiresAt">
+                {{ copy.expiresAt({ date: formatDate(invitation.expiresAt) }) }}
             </p>
-            <p v-if="invitation.attempts != null">Số lần thử gửi: {{ invitation.attempts }}</p>
+            <p v-if="invitation.sentAt">{{ copy.acceptedAt({ date: formatDate(invitation.sentAt) }) }}</p>
+            <p v-if="invitation.attempts != null">
+                {{ copy.attempts({ attempts: invitation.attempts }) }}
+            </p>
             <p v-if="invitation.errorCode" class="field-error">
-                Mã lỗi gửi email: {{ invitation.errorCode }}
+                {{ copy.errorCode({ errorCode: invitation.errorCode }) }}
             </p>
         </div>
     </section>

@@ -1,5 +1,5 @@
 import { authRequest } from './api.js'
-import { ApiError } from './api.js'
+import { ApiError } from '../api/errors.js'
 
 // Read a masked CSRF token from JSON; both cookies remain HttpOnly.
 // Call inside the shared session lock so first-time CSRF cookies cannot race.

@@ -1,24 +1,33 @@
 <script setup>
+import { dateLabel } from '@/shared/date.js'
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { quickAttendance as copy } from '@/content/attendance.js'
+import { common } from '@/content/common.js'
+
 import { computed, onMounted, ref } from 'vue'
 import { auth } from '@/auth/session.js'
 import { currentAttendance, recordAttendance } from '@/attendance/current.js'
-import { attendanceError, shiftLabel, statuses, timeLabel, today } from '@/attendance/helpers.js'
+import { attendanceError } from '@/attendance/errors.js'
+import { shiftLabel } from '@/attendance/shifts.js'
+import { statuses } from '@/attendance/constants.js'
+import { timeLabel, today } from '@/shared/date.js'
 import AppIcon from './AppIcon.vue'
 
 const current = ref(null)
 const busy = ref(true)
-const error = ref('')
-const message = ref('')
+const error = useLocalizedMessage()
+const message = useLocalizedMessage()
 const linked = computed(() => !!auth.state.user?.employeeId)
 const canEnter = computed(
   () => current.value?.row?.status === 'NOT_STARTED' && !!current.value?.schedule?.definition,
 )
 const canLeave = computed(() => current.value?.row?.status === 'OPEN')
 const status = computed(() => {
-  if (!linked.value) return 'Chưa liên kết hồ sơ'
-  if (busy.value) return 'Đang cập nhật…'
-  if (error.value && !current.value) return 'Chưa tải được dữ liệu'
-  return statuses[current.value?.row?.status] || 'Chưa có dữ liệu'
+  if (!linked.value) return copy.unlinkedStatus
+  if (busy.value) return copy.updating
+  if (error.value && !current.value) return copy.failed
+  return statuses[current.value?.row?.status] || copy.empty
 })
 
 async function load() {
@@ -33,7 +42,7 @@ async function refresh() {
   try {
     await load()
   } catch (cause) {
-    error.value = attendanceError(cause)
+    error.value = () => attendanceError(cause)
   } finally {
     busy.value = false
   }
@@ -46,10 +55,10 @@ async function punch(action) {
   message.value = ''
   try {
     await recordAttendance(action, current.value.currentDate)
-    message.value = action === 'check-in' ? 'Đã ghi nhận giờ vào.' : 'Đã ghi nhận giờ ra.'
+    message.value = () => (action === 'check-in' ? copy.checkedIn : copy.checkedOut)
     await load()
   } catch (cause) {
-    error.value = attendanceError(cause)
+    error.value = () => attendanceError(cause)
   } finally {
     busy.value = false
   }
@@ -70,36 +79,34 @@ onMounted(() => {
       <div class="quick-attendance-title">
         <span class="metric-icon green"><AppIcon name="clock" :size="24" /></span>
         <div>
-          <p class="eyebrow">BẮT ĐẦU NGÀY LÀM VIỆC</p>
-          <h2 id="quick-attendance-title">Chấm công nhanh</h2>
+          <p class="eyebrow">{{ copy.eyebrow }}</p>
+          <h2 id="quick-attendance-title">{{ copy.title }}</h2>
         </div>
       </div>
       <button class="button button-secondary" :disabled="busy || !linked" @click="refresh">
-        Tải lại
+        {{ common.reload }}
       </button>
     </div>
-    <p v-if="!linked" class="muted">Liên hệ HR để liên kết hồ sơ nhân viên trước khi chấm công.</p>
+    <p v-if="!linked" class="muted">{{ copy.unlinkedHint }}</p>
     <p v-else-if="current?.schedule?.definition" class="muted">
       {{ current.schedule.definition.name }} · {{ shiftLabel(current.schedule.definition) }}
       <span v-if="current.currentDate !== today()">
-        · Ngày công {{ current.currentDate.split('-').reverse().join('/') }}
+        {{ copy.workDate({ date: dateLabel(current.currentDate) }) }}
       </span>
     </p>
-    <p v-else-if="!busy && !error" class="muted">
-      Chưa có lịch làm việc. Liên hệ HR để được phân ca.
-    </p>
+    <p v-else-if="!busy && !error" class="muted">{{ copy.noSchedule }}</p>
     <div class="quick-attendance-body">
       <dl class="quick-attendance-status">
         <div>
-          <dt>Trạng thái</dt>
+          <dt>{{ common.status }}</dt>
           <dd>{{ status }}</dd>
         </div>
         <div>
-          <dt>Giờ vào</dt>
+          <dt>{{ copy.checkInTime }}</dt>
           <dd>{{ timeLabel(current?.row?.checkIn) }}</dd>
         </div>
         <div>
-          <dt>Giờ ra</dt>
+          <dt>{{ copy.checkOutTime }}</dt>
           <dd>{{ timeLabel(current?.row?.checkOut) }}</dd>
         </div>
       </dl>
@@ -109,23 +116,23 @@ onMounted(() => {
           :disabled="busy || !linked || !canEnter"
           @click="punch('check-in')"
         >
-          <AppIcon name="arrow" :size="18" />Ghi nhận giờ vào
+          <AppIcon name="arrow" :size="18" />{{ copy.checkIn }}
         </button>
         <button
           :class="['button', canLeave ? 'button-primary' : 'button-secondary']"
           :disabled="busy || !linked || !canLeave"
           @click="punch('check-out')"
         >
-          <AppIcon name="logout" :size="18" />Ghi nhận giờ ra
+          <AppIcon name="logout" :size="18" />{{ copy.checkOut }}
         </button>
       </div>
     </div>
     <p v-if="error" class="alert alert-error" role="alert">{{ error }}</p>
     <p v-if="message" class="info-strip" role="status">{{ message }}</p>
     <div class="quick-attendance-footer">
-      <span class="muted small">Chấm công qua mạng công ty · Giờ Việt Nam</span>
+      <span class="muted small">{{ copy.timezoneHint }}</span>
       <RouterLink to="/attendance" class="text-button"
-        >Xem chi tiết chấm công <AppIcon name="arrow" :size="16"
+        >{{ copy.details }} <AppIcon name="arrow" :size="16"
       /></RouterLink>
     </div>
   </section>

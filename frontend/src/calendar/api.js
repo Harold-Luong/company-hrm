@@ -1,50 +1,49 @@
-import { auth } from '../auth/session.js'
+import { requestJson } from '../api/client.js'
+import { versionHeader } from '../api/headers.js'
+import { calendarEndpoints as endpoints } from './endpoints.js'
 
 export function getCalendar(year) {
-  return auth.request(`/api/v1/calendar?year=${encodeURIComponent(year)}`)
+    return requestJson(endpoints.calendar, { query: { year } })
 }
 
 export function getCalendarHealth() {
-  return auth.request('/api/v1/calendar/health-check')
+    return requestJson(endpoints.health)
 }
 
-const eventsPath = '/api/v1/calendar-events'
-const versionHeader = (version) => ({ 'If-Match': `"${version}"` })
-
 export const calendarManagement = {
-  list(filters, page = 0) {
-    const query = new URLSearchParams({
-      from: filters.from,
-      to: filters.to,
-      page,
-      size: filters.size,
-    })
-    if (filters.type) query.set('type', filters.type)
-    if (filters.status) query.set('status', filters.status)
-    return auth.request(`${eventsPath}?${query}`)
-  },
-  get: (id) => auth.request(`${eventsPath}/${encodeURIComponent(id)}`),
-  create: (body) => auth.request(eventsPath, { method: 'POST', body: JSON.stringify(body) }),
-  update: (id, version, body) =>
-    auth.request(`${eventsPath}/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: versionHeader(version),
-      body: JSON.stringify(body),
-    }),
-  publish: (id, version) =>
-    auth.request(`${eventsPath}/${encodeURIComponent(id)}/publish`, {
-      method: 'PATCH',
-      headers: versionHeader(version),
-    }),
-  cancel: (id, version, reason) =>
-    auth.request(`${eventsPath}/${encodeURIComponent(id)}/cancel`, {
-      method: 'PATCH',
-      headers: versionHeader(version),
-      body: JSON.stringify({ reason }),
-    }),
-  remove: (id, version) =>
-    auth.request(`${eventsPath}/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: versionHeader(version),
-    }),
+    list: (filters, page = 0) =>
+        requestJson(endpoints.events, {
+            query: {
+                from: filters.from,
+                to: filters.to,
+                page,
+                size: filters.size,
+                type: filters.type,
+                status: filters.status,
+            },
+        }),
+    get: (id) => requestJson(endpoints.event(id)),
+    create: (body) => requestJson(endpoints.events, { method: 'POST', body }),
+    update: (id, version, body) =>
+        requestJson(endpoints.event(id), {
+            method: 'PUT',
+            headers: versionHeader(version),
+            body,
+        }),
+    publish: (id, version) =>
+        requestJson(endpoints.eventAction(id, 'publish'), {
+            method: 'PATCH',
+            headers: versionHeader(version),
+        }),
+    cancel: (id, version, reason) =>
+        requestJson(endpoints.eventAction(id, 'cancel'), {
+            method: 'PATCH',
+            headers: versionHeader(version),
+            body: { reason },
+        }),
+    remove: (id, version) =>
+        requestJson(endpoints.event(id), {
+            method: 'DELETE',
+            headers: versionHeader(version),
+        }),
 }

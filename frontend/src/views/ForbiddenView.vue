@@ -1,4 +1,6 @@
 <script setup>
+import { forbidden as copy } from '@/content/workspace.js'
+
 import AppIcon from '@/components/AppIcon.vue'
 </script>
 <template>
@@ -6,15 +8,11 @@ import AppIcon from '@/components/AppIcon.vue'
     <span class="empty-icon">
       <AppIcon name="lock" :size="34" />
     </span>
-    <p class="eyebrow">403 · QUYỀN TRUY CẬP</p>
-    <h1>Bạn chưa có quyền truy cập</h1>
-    <p>
-      Trang này yêu cầu quyền được cấp phù hợp. Vui lòng liên hệ quản trị viên nếu bạn cần sử dụng
-      chức năng này.
-    </p>
+    <p class="eyebrow">{{ copy.eyebrow }}</p>
+    <h1>{{ copy.title }}</h1>
+    <p>{{ copy.description }}</p>
     <RouterLink to="/" class="button button-primary"
-      >Về tổng quan
-      <AppIcon name="arrow" :size="17" />
+      >{{ copy.home }} <AppIcon name="arrow" :size="17" />
     </RouterLink>
   </section>
 </template>

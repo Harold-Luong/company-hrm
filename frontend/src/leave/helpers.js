@@ -1,61 +1,37 @@
-import { ApiError, serviceError } from '../auth/api.js'
+import { dateLimits } from '../config/validation.js'
+import { fieldLimits } from '../config/validation.js'
+import { leaveRules as copy } from '../content/leave.js'
+import { today } from '../shared/date.js'
+import { leaveTypes, leavePeriods } from './constants.js'
 
-export const leaveReviewRoles = ['HR', 'ADMIN']
-export const leaveTypes = {
-  ANNUAL: 'Nghỉ phép năm',
-  UNPAID: 'Nghỉ không lương',
-}
-export const leaveStatuses = {
-  PENDING: 'Chờ duyệt',
-  APPROVED: 'Đã duyệt',
-  REJECTED: 'Từ chối',
-  CANCELLED: 'Đã rút đơn',
-}
-export const leavePeriods = {
-  FULL_DAY: 'Cả ngày',
-  MORNING: 'Buổi sáng',
-  AFTERNOON: 'Buổi chiều',
-}
-export const historyActions = {
-  ADJUSTMENT_SUBMITTED: 'Yêu cầu điều chỉnh phép đã duyệt',
-  ADJUSTMENT_APPROVED: 'Duyệt điều chỉnh',
-  ADJUSTMENT_REJECTED: 'Từ chối điều chỉnh',
-  ADJUSTMENT_CANCELLED: 'Rút yêu cầu điều chỉnh',
-  SUBMITTED: 'Gửi đơn',
-  APPROVED: 'Duyệt đơn',
-  REJECTED: 'Từ chối đơn',
-  CANCELLED: 'Rút đơn',
-}
-export function today() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-}
-export function dateLabel(value) {
-  if (!value) return '—'
-  return value.split('-').reverse().join('/')
-}
-export function timeLabel(value) {
-  return value ? new Date(value).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : '—'
-}
+export { today, dateLabel, dateTimeLabel as timeLabel } from '../shared/date.js'
+export {
+  leaveReviewRoles,
+  leaveTypes,
+  leaveStatuses,
+  leavePeriods,
+  historyActions,
+} from './constants.js'
+export { leaveError } from './errors.js'
+
 export function submission(form) {
   const days =
     (Date.parse(`${form.endDate}T00:00:00Z`) - Date.parse(`${form.startDate}T00:00:00Z`)) / 86400000
-  if (!Object.hasOwn(leaveTypes, form.leaveType)) throw new Error('Chọn loại nghỉ hợp lệ.')
-  if (!leavePeriods[form.period]) throw new Error('Chọn thời lượng nghỉ hợp lệ.')
-  if (!Number.isFinite(days) || days < 0 || days >= 366 || form.startDate < today())
-    throw new Error(
-      'Chọn ngày bắt đầu từ hôm nay, ngày kết thúc không trước ngày bắt đầu và tối đa 366 ngày.',
-    )
-  if (!form.reason.trim() || form.reason.trim().length > 2000)
-    throw new Error('Nhập lý do nghỉ, tối đa 2.000 ký tự.')
+  if (!Object.hasOwn(leaveTypes, form.leaveType)) throw new Error(copy.invalidType)
+  if (!leavePeriods[form.period]) throw new Error(copy.invalidDuration)
+  if (
+    !Number.isFinite(days) ||
+    days < 0 ||
+    days >= dateLimits.maxRangeDays ||
+    form.startDate < today()
+  )
+    throw new Error(copy.invalidDateRange)
+  if (!form.reason.trim() || form.reason.trim().length > fieldLimits.leaveReason)
+    throw new Error(copy.invalidReason)
   if (form.period !== 'FULL_DAY' && form.startDate !== form.endDate)
-    throw new Error('Nghỉ buổi sáng hoặc buổi chiều chỉ áp dụng trong một ngày.')
+    throw new Error(copy.halfDayRange)
   if (form.leaveType === 'ANNUAL' && form.startDate.slice(0, 4) !== form.endDate.slice(0, 4))
-    throw new Error('Phép năm không được kéo dài qua hai năm. Hãy tách thành hai đơn.')
+    throw new Error(copy.crossYearAnnualLeave)
   return {
     leaveType: form.leaveType,
     startDate: form.startDate,
@@ -63,42 +39,4 @@ export function submission(form) {
     period: form.period,
     reason: form.reason.trim(),
   }
-}
-export function leaveError(error) {
-  if (!(error instanceof ApiError)) return 'Không thể xử lý yêu cầu. Vui lòng thử lại.'
-  const messages = {
-    'No working time in the requested leave period':
-      'Khoảng nghỉ không có ca làm việc tương ứng; không cần tạo đơn phép.',
-    'Working calendar changed; withdraw and resubmit leave before approval':
-      'Lịch làm việc đã thay đổi. Cần rút và gửi lại đơn để tính đúng số ngày trước khi duyệt.',
-    'Legacy request has no working calendar; withdraw and resubmit before approval':
-      'Đơn cũ chưa có lịch tính phép. Cần rút và gửi lại trước khi duyệt.',
-    'Working calendar is unavailable or incomplete':
-      'Chưa lấy đủ lịch làm việc/ngày nghỉ. Hãy thử lại sau.',
-    'Use full cancellation when no working leave remains':
-      'Không còn ngày làm việc trong khoảng nghỉ. Hãy chọn hủy toàn bộ đơn.',
-    'Invalid leave dates or period':
-      'Kiểm tra ngày nghỉ: từ hôm nay, đúng thứ tự, tối đa 366 ngày; nghỉ nửa ngày chỉ chọn một ngày.',
-
-    'Adjustment must reduce approved leave': 'Số ngày còn nghỉ phải ít hơn số ngày đã duyệt.',
-    'Remaining leave must be within the approved dates and period':
-      'Thời gian còn nghỉ phải nằm trong khoảng đã duyệt; nghỉ nửa ngày chỉ chọn một ngày.',
-    'An adjustment is already pending': 'Đã có yêu cầu điều chỉnh đang chờ HR xử lý.',
-    'Leave balance requires reconciliation before refund':
-      'Số dư phép cần HR đối soát trước khi hoàn phép.',
-    'A pending or approved leave request overlaps these dates':
-      'Bạn đã có đơn chờ duyệt hoặc đã duyệt trùng khoảng ngày này.',
-    'You cannot review your own leave request':
-      'Bạn không thể duyệt hoặc từ chối đơn của chính mình. Cần HR/ADMIN khác xử lý.',
-    'A rejection reason is required': 'Vui lòng nhập lý do từ chối.',
-    'Only pending requests can be processed': 'Đơn này đã được xử lý. Vui lòng tải lại.',
-    'Dates must start today or later, in order, and span at most 366 calendar days':
-      'Khoảng nghỉ phải bắt đầu từ hôm nay và không quá 366 ngày.',
-  }
-  if (messages[error.message]) return messages[error.message]
-  if ([412, 428].includes(error.status))
-    return 'Đơn đã thay đổi. Hãy tải lại và kiểm tra trước khi thao tác tiếp.'
-  if (error.status === 0 || error.status >= 500)
-    return 'Chưa xác nhận được kết quả từ dịch vụ nghỉ phép. Hãy tải lại danh sách trước khi gửi lại.'
-  return serviceError(error)
 }

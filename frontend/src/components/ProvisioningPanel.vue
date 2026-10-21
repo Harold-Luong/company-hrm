@@ -1,9 +1,22 @@
 <script setup>
+import { useLocalizedMessage } from '@/composables/useLocalizedMessage.js'
+
+import { provisioningLookup } from '@/config/runtime.js'
+
+import { getDisplayLocale } from '@/i18n/index.js'
+
+import { fieldLimits } from '@/config/validation.js'
+
+import { provisioning as copy } from '@/content/hrm.js'
+import { common } from '@/content/common.js'
+
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { hrm, uuidPattern, requestStatuses, accountStatuses } from '@/hrm/api.js'
+import { hrm } from '@/hrm/api.js'
+import { uuidPattern } from '@/hrm/utils.js'
+import { requestStatuses, accountStatuses } from '@/hrm/constants.js'
 import { auth } from '@/auth/session.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
-import { serviceError } from '@/auth/api.js'
+import { serviceError } from '@/api/errors.js'
 import ActivationInvitationPanel from '@/components/ActivationInvitationPanel.vue'
 import {
   trackAccountRequest,
@@ -21,7 +34,7 @@ const result = ref(null)
 const busy = ref(false)
 const operation = ref('')
 const checkedAt = ref('')
-const error = ref('')
+const error = useLocalizedMessage()
 const note = ref('')
 let timer
 let disposed = false
@@ -31,7 +44,7 @@ function persist() {
   try {
     sessionStorage.setItem(storageKey, JSON.stringify(attempt.value))
   } catch {
-    note.value = 'Không thể lưu mã yêu cầu trong tab. Hãy ghi lại mã để tra cứu sau.'
+    note.value = copy.storageUnavailable
   }
 }
 function accept(data, submitted = false) {
@@ -60,13 +73,13 @@ function accept(data, submitted = false) {
   emit('updated', data.accountStatus)
   const owned = submitted || attempt.value?.requestId === data.requestId
   if (owned) trackAccountRequest(props.employee.id, data)
-  if (!owned && data.provisioningStatus === 'PENDING' && polls < 30) {
+  if (!owned && data.provisioningStatus === 'PENDING' && polls < provisioningLookup.maxAttempts) {
     timer = setTimeout(() => {
       polls++
       check(true)
-    }, 3000)
+    }, provisioningLookup.intervalMs)
   } else if (!owned && data.provisioningStatus === 'PENDING') {
-    note.value = 'Yêu cầu vẫn đang xử lý. Bạn có thể kiểm tra lại sau; không cần gửi yêu cầu mới.'
+    note.value = copy.stillPending
   }
 }
 async function send() {
@@ -93,13 +106,11 @@ async function send() {
     }
     accept(await hrm.provision(props.employee.id, attempt.value.email, attempt.value.key), true)
   } catch (cause) {
-    error.value = serviceError(cause)
+    error.value = () => serviceError(cause)
     if ([400, 403, 404, 409].includes(cause.status)) {
       attempt.value = null
       sessionStorage.removeItem(storageKey)
-    } else
-      note.value =
-        'Chưa xác nhận được kết quả gửi. Thử lại sẽ dùng cùng mã gửi để tránh tạo yêu cầu trùng.'
+    } else note.value = copy.uncertainResult
   } finally {
     busy.value = false
     operation.value = ''
@@ -115,7 +126,7 @@ async function check(automatic = false) {
     checkedAt.value = ''
   }
   if (!uuidPattern.test(lookupId.value.trim())) {
-    error.value = 'Mã yêu cầu phải là UUID hợp lệ.'
+    error.value = () => copy.invalidRequestId
     return
   }
   error.value = ''
@@ -123,12 +134,9 @@ async function check(automatic = false) {
   operation.value = 'lookup'
   try {
     accept(await hrm.request(props.employee.id, lookupId.value.trim()))
-    checkedAt.value = new Date().toLocaleTimeString('vi-VN')
+    checkedAt.value = new Date()
   } catch (cause) {
-    error.value =
-      cause.status === 404
-        ? 'Không tìm thấy yêu cầu cấp tài khoản của nhân viên này. Hãy kiểm tra lại mã yêu cầu.'
-        : serviceError(cause)
+    error.value = () => (cause.status === 404 ? copy.requestNotFound : serviceError(cause))
   } finally {
     busy.value = false
     operation.value = ''
@@ -159,9 +167,7 @@ onMounted(() => {
       if (saved.requestId && uuidPattern.test(saved.requestId)) {
         lookupId.value = saved.requestId
         check()
-      } else
-        note.value =
-          'Có lần gửi chưa xác nhận kết quả trong tab này. Thử lại để lấy kết quả với cùng mã gửi.'
+      } else note.value = copy.retryPending
     }
   } catch {
     sessionStorage.removeItem(storageKey)
@@ -175,24 +181,20 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="panel create-form provisioning-panel" :aria-busy="busy">
-    <p class="eyebrow">CẤP TÀI KHOẢN QUA KAFKA</p>
-    <h2>Tài khoản nhân viên</h2>
-    <p class="muted small">
-      Yêu cầu được xử lý bất đồng bộ. Tài khoản mới có vai trò Nhân viên và chờ kích hoạt.
-    </p>
+    <p class="eyebrow">{{ copy.eyebrow }}</p>
+    <h2>{{ copy.title }}</h2>
+    <p class="muted small">{{ copy.description }}</p>
     <p v-if="note" class="info-strip" role="status">{{ note }}</p>
-    <p v-if="!auth.hasRole(accountCreationRoles)" class="muted small">
-      Chỉ Admin được tạo tài khoản. Bạn có thể tra cứu kết quả và hỗ trợ kích hoạt tài khoản.
-    </p>
+    <p v-if="!auth.hasRole(accountCreationRoles)" class="muted small">{{ copy.adminOnly }}</p>
     <form v-if="auth.hasRole(accountCreationRoles) && !result" @submit.prevent="send">
       <fieldset class="form-fields" :disabled="busy">
-        <label for="provision-email">Email cấp tài khoản *</label
+        <label for="provision-email">{{ copy.emailLabel }}</label
         ><input
           id="provision-email"
           v-model="email"
           type="email"
           required
-          maxlength="255"
+          :maxlength="fieldLimits.email"
           :readonly="!!attempt"
         />
         <button
@@ -200,46 +202,41 @@ onBeforeUnmount(() => {
           class="button button-primary full-width"
           :disabled="employee.accountStatus !== 'NOT_CREATED' && !attempt"
         >
-          {{
-            operation === 'send'
-              ? 'Đang gửi…'
-              : attempt
-                ? 'Thử gửi lại'
-                : 'Gửi yêu cầu cấp tài khoản'
-          }}
+          {{ operation === 'send' ? common.submitting : attempt ? copy.retry : copy.submit }}
         </button>
       </fieldset>
     </form>
     <form class="request-lookup" @submit.prevent="check()">
       <fieldset class="form-fields" :disabled="busy">
-        <label for="request-id">Tra cứu mã yêu cầu</label
+        <label for="request-id">{{ copy.lookupLabel }}</label
         ><input
           id="request-id"
           v-model="lookupId"
           required
-          placeholder="UUID của yêu cầu đã gửi"
+          :placeholder="copy.lookupPlaceholder"
           :readonly="result?.provisioningStatus === 'PENDING'"
         />
         <button class="button button-secondary full-width" type="submit">
-          {{ operation === 'lookup' ? 'Đang kiểm tra…' : 'Kiểm tra kết quả' }}
+          {{ operation === 'lookup' ? common.checking : copy.lookup }}
         </button>
       </fieldset>
     </form>
     <div v-if="error" class="alert alert-error" role="alert">{{ error }}</div>
-    <p v-if="operation === 'lookup'" class="info-strip" role="status">Đang tra cứu yêu cầu…</p>
+    <p v-if="operation === 'lookup'" class="info-strip" role="status">{{ copy.lookupLoading }}</p>
     <div v-if="result" class="request-result" role="status" aria-live="polite" aria-atomic="true">
-      <p v-if="checkedAt" class="small muted">Đã nhận kết quả lúc {{ checkedAt }}.</p>
+      <p v-if="checkedAt" class="small muted">
+        {{ copy.checkedAt({ checkedAt: checkedAt.toLocaleTimeString(getDisplayLocale()) }) }}
+      </p>
       <strong>{{ requestStatuses[result.provisioningStatus] || result.provisioningStatus }}</strong>
       <p class="small muted">{{ accountStatuses[result.accountStatus] || result.accountStatus }}</p>
       <p
         v-if="result.provisioningStatus === 'PENDING' && attempt?.requestId === result.requestId"
         class="small"
       >
-        Yêu cầu đã được ghi nhận và đang chờ xử lý. Kết quả sẽ tự cập nhật; bạn có thể chuyển trang
-        trong khi chờ.
+        {{ copy.pendingNotice }}
       </p>
       <p v-else-if="result.provisioningStatus === 'PENDING'" class="small">
-        Yêu cầu đã được ghi nhận và đang chờ xử lý. Kết quả tự cập nhật mỗi 3 giây, tối đa 30 lần.
+        {{ copy.pollingNotice }}
       </p>
       <p
         v-if="
@@ -247,13 +244,13 @@ onBeforeUnmount(() => {
         "
         class="small"
       >
-        Tài khoản đã được tạo. Nhân viên cần mở email mời để đặt mật khẩu và kích hoạt.
+        {{ copy.successNotice }}
       </p>
       <p v-if="result.errorCode" class="field-error">
         {{ failures[result.errorCode] || result.errorCode }}
       </p>
       <p class="small">
-        Mã yêu cầu: <code>{{ result.requestId }}</code>
+        {{ copy.requestId }} <code>{{ result.requestId }}</code>
       </p>
       <button
         v-if="auth.hasRole(accountCreationRoles) && result.provisioningStatus === 'FAILED'"
@@ -261,13 +258,10 @@ onBeforeUnmount(() => {
         :disabled="busy"
         @click="newRequest"
       >
-        Chuẩn bị yêu cầu mới
+        {{ copy.newRequest }}
       </button>
     </div>
-    <p class="field-help">
-      Dùng mã yêu cầu cấp tài khoản đã trả về khi gửi yêu cầu, không phải mã nhân viên hoặc mã lời
-      mời kích hoạt.
-    </p>
+    <p class="field-help">{{ copy.lookupHint }}</p>
     <ActivationInvitationPanel :key="employee.id" :employee="employee" />
   </section>
 </template>
