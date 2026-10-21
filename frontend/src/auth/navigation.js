@@ -6,12 +6,14 @@ export function safeDestination(value) {
       '/',
       '/account',
       '/accounts/new',
+      '/accounts',
       '/forbidden',
       '/services',
       '/calendar',
       '/help/guide',
       '/help/features',
     ].includes(value) ||
+      /^\/accounts\/\d+$/.test(value) ||
       /^\/calendar-events(\/(new|\d+))?$/.test(value) ||
       /^\/attendance(\/(shifts|schedules|reports|requests(\/inbox)?|corrections|overtime))?$/.test(
         value,

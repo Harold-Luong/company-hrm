@@ -442,6 +442,31 @@ export const features = [
     },
   },
   {
+    id: 'account-management',
+    groupId: 'system',
+    get group() {
+      return translate('help.groups.system')
+    },
+    get title() {
+      return translate('help.features.accountManagement.title')
+    },
+    path: '/accounts',
+    get access() {
+      return translate('help.features.accounts.access')
+    },
+    roles: ['ADMIN'],
+    restricted: true,
+    get description() {
+      return translate('help.features.accountManagement.description')
+    },
+    get rules() {
+      return [
+        translate('help.features.accountManagement.rules.0'),
+        translate('help.features.accountManagement.rules.1'),
+      ]
+    },
+  },
+  {
     id: 'accounts',
     groupId: 'personal',
     get group() {

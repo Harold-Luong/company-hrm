@@ -72,7 +72,7 @@ public class SecurityConfig {
                         .requestMatchers("/openapi.yaml", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs",
                                 "/v3/api-docs/**", "/v3/api-docs.yaml")
                         .permitAll()
-                        .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/accounts/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/activate").permitAll()
                         .requestMatchers("/api/v1/auth/activation-invitations/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/api/v1/auth/login").permitAll()

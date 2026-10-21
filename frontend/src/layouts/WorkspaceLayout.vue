@@ -6,6 +6,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from '@/auth/session.js'
+import { accountManagementRoles } from '@/accounts/constants.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
 import { personnelManagementRoles } from '@/auth/roles.js'
 import { calendarManagementRoles } from '@/calendar/constants.js'
@@ -243,6 +244,9 @@ v-if="auth.hasRole(calendarManagementRoles)" to="/calendar-events" class="nav-it
                                 route.path === '/calendar-events' || route.path.startsWith('/calendar-events/'),
                         }">
                         <AppIcon name="calendar" />{{ t('workspaceLayout.manageCalendar') }}
+                    </RouterLink>
+                    <RouterLink v-if="auth.hasRole(accountManagementRoles)" to="/accounts" class="nav-item" active-class="is-active">
+                        <AppIcon name="shield" />{{ t('workspaceLayout.manageAccounts') }}
                     </RouterLink>
                     <RouterLink to="/services" class="nav-item" active-class="is-active">
                         <AppIcon name="info" />{{ t('workspaceLayout.services') }}

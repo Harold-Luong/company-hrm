@@ -102,7 +102,8 @@
     "vietnamese": "Tiếng Việt",
     "english": "English",
     "switchToEnglish": "Chuyển sang tiếng Anh",
-    "switchToVietnamese": "Chuyển sang tiếng Việt"
+    "switchToVietnamese": "Chuyển sang tiếng Việt",
+    "manageAccounts": "Quản trị tài khoản"
   },
   "correctionRules": {
     "invalidDate": "Chọn ngày công không ở tương lai.",
@@ -722,7 +723,7 @@
     "employeeRole": "Truy cập không gian cá nhân.",
     "managerRole": "Chưa có chức năng quản lý riêng; chờ thiết kế sau.",
     "hrRole": "Quản lý nghiệp vụ nhân sự.",
-    "adminRole": "Cùng quyền nghiệp vụ với HR, thêm quyền tạo và yêu cầu cấp tài khoản.",
+    "adminRole": "Cùng quyền nghiệp vụ với HR, thêm quyền cấp tài khoản, quản trị vai trò, khóa/mở khóa và thu hồi phiên.",
     "roleRequired": "Vui lòng chọn ít nhất một vai trò.",
     "blankPassword": "Mật khẩu không được chỉ chứa khoảng trắng.",
     "invalidEmployeeId": "UUID liên kết phải đúng định dạng, ví dụ 550e8400-e29b-41d4-a716-446655440000.",
@@ -1294,7 +1295,9 @@
     "resourceDetail": "Chi tiết {resource}",
     "services": "Kết nối dịch vụ",
     "forbidden": "Quyền truy cập",
-    "notFound": "Không tìm thấy trang"
+    "notFound": "Không tìm thấy trang",
+    "manageAccounts": "Quản trị tài khoản",
+    "accountManagementDetail": "Chi tiết tài khoản"
   },
   "featureReference": {
     "descriptionText": "Tra cứu toàn bộ nhóm chức năng đang có trên web, quyền sử dụng và cách tính các chỉ số.",
@@ -1624,7 +1627,7 @@
         "description": "Tạo tài khoản cho hồ sơ nhân viên hiện có, chỉ định vai trò; hoặc cấp tài khoản từ hồ sơ nhân viên và theo dõi kết quả, email kích hoạt/gửi lại.",
         "rules": {
           "0": "Tài khoản phải gắn với hồ sơ nhân viên. Màn hình tạo tài khoản không tự tạo hồ sơ nhân viên.",
-          "1": "Chưa có màn hình danh sách tài khoản, sửa vai trò hoặc khóa tài khoản."
+          "1": "ADMIN có thể tra cứu, đổi vai trò, khóa/mở khóa và buộc đăng xuất tại Quản trị tài khoản. Mọi thay đổi yêu cầu lý do và lưu lịch sử."
         }
       },
       "calendar": {
@@ -1656,6 +1659,14 @@
         "description": "Kiểm tra trạng thái Tài khoản, Nhân viên, Lịch, Chấm công, Nghỉ phép và Thông báo; bấm Kiểm tra lại khi kết nối gián đoạn.",
         "rules": {
           "0": "Trạng thái phản ánh lần kiểm tra gần nhất. Không có công thức nghiệp vụ ở trang này."
+        }
+      },
+      "accountManagement": {
+        "title": "Quản trị tài khoản",
+        "description": "Tra cứu tài khoản, quản lý quyền truy cập và thu hồi phiên đăng nhập.",
+        "rules": {
+          "0": "Thao tác này sẽ thu hồi toàn bộ phiên của tài khoản. Người dùng cần đăng nhập lại; các yêu cầu đã được chấp nhận trước đó có thể vẫn hoàn tất.",
+          "1": "Bạn không thể khóa hoặc thay đổi quyền của chính mình tại đây. Nhờ một ADMIN khác thực hiện; quản lý phiên của bạn tại Hồ sơ của tôi."
         }
       }
     },
@@ -1859,6 +1870,49 @@
         "0": "Không thấy mục quản lý hoặc không có quyền truy cập?",
         "1": "Các mục quản lý yêu cầu HR hoặc ADMIN. Liên hệ quản trị viên kiểm tra quyền; vai trò MANAGER không tự được quyền xét duyệt."
       }
+    }
+  },
+  "accountManagement": {
+    "eyebrow": "QUẢN TRỊ",
+    "title": "Quản trị tài khoản",
+    "description": "Tra cứu tài khoản, quản lý quyền truy cập và thu hồi phiên đăng nhập.",
+    "create": "Tạo tài khoản",
+    "search": "Tìm theo email",
+    "roles": "Vai trò",
+    "apply": "Áp dụng bộ lọc",
+    "list": "Danh sách tài khoản",
+    "empty": "Không có tài khoản phù hợp.",
+    "lastLogin": "Đăng nhập gần nhất",
+    "detail": "Chi tiết tài khoản",
+    "back": "Về danh sách tài khoản",
+    "employeeProfile": "Xem hồ sơ nhân viên",
+    "pendingHint": "Tài khoản chưa hoàn tất kích hoạt. Mở khóa không tự kích hoạt tài khoản; sau khi mở khóa, hãy gửi lại lời mời từ hồ sơ nhân viên.",
+    "selfHint": "Bạn không thể khóa hoặc thay đổi quyền của chính mình tại đây. Nhờ một ADMIN khác thực hiện; quản lý phiên của bạn tại Hồ sơ của tôi.",
+    "revokeHint": "Thao tác này sẽ thu hồi toàn bộ phiên của tài khoản. Người dùng cần đăng nhập lại; các yêu cầu đã được chấp nhận trước đó có thể vẫn hoàn tất.",
+    "reason": "Lý do thay đổi",
+    "confirm": "Tôi đã kiểm tra tài khoản, thao tác và xác nhận thu hồi các phiên đăng nhập.",
+    "submit": "Xác nhận thực hiện",
+    "saved": "Đã cập nhật tài khoản và thu hồi các phiên đăng nhập.",
+    "reloadHint": "Tải lại tài khoản và kiểm tra lịch sử trước khi thực hiện tiếp. Thao tác chưa xác định kết quả sẽ không tự gửi lại.",
+    "history": "Lịch sử quản trị",
+    "noHistory": "Chưa có thao tác quản trị nào.",
+    "statuses": {
+      "ACTIVE": "Đang hoạt động",
+      "DISABLED": "Đã khóa",
+      "PENDING_ACTIVATION": "Chờ kích hoạt"
+    },
+    "actions": {
+      "DISABLE": "Khóa tài khoản",
+      "ENABLE": "Mở khóa tài khoản",
+      "CHANGE_ROLES": "Thay đổi vai trò",
+      "REVOKE_SESSIONS": "Buộc đăng xuất"
+    },
+    "errors": {
+      "stale": "Tài khoản đã thay đổi. Tải lại và kiểm tra dữ liệu mới trước khi xác nhận.",
+      "rolesRequired": "Chọn ít nhất một vai trò.",
+      "rolesUnchanged": "Vai trò chưa thay đổi.",
+      "reasonRequired": "Nhập lý do thay đổi.",
+      "conflict": "Trạng thái tài khoản đã thay đổi hoặc không phù hợp với thao tác. Hãy tải lại."
     }
   }
 }

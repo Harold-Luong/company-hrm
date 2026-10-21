@@ -50,6 +50,28 @@ class AuthSchemaTests {
     }
 
     @Test
+    void accountManagementMigrationPreservesAccountsAndCanBeReplayed() throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection(
+                "jdbc:h2:mem:management-migration-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "");
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, email VARCHAR(255), is_active BOOLEAN)");
+            statement.execute("INSERT INTO users VALUES (1, 'existing@example.com', FALSE)");
+            var migration = new FileSystemResource("docs/sql/004_account_management.sql");
+            ScriptUtils.executeSqlScript(connection, migration);
+            statement.execute("UPDATE users SET management_version = 7, administratively_locked = TRUE WHERE id = 1");
+            ScriptUtils.executeSqlScript(connection, migration);
+            try (var result = statement.executeQuery("SELECT email, is_active, management_version, administratively_locked FROM users WHERE id = 1")) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString(1)).isEqualTo("existing@example.com");
+                assertThat(result.getBoolean(2)).isFalse();
+                assertThat(result.getLong(3)).isEqualTo(7);
+                assertThat(result.getBoolean(4)).isTrue();
+            }
+            statement.executeQuery("SELECT COUNT(*) FROM account_management_audit").close();
+        }
+    }
+
+    @Test
     void completeSchemaHasAllTablesAndCanBeReplayedWithoutLosingAccounts() throws Exception {
         var id = UUID.randomUUID();
         jdbc.update("INSERT INTO users (employee_id, email, password_hash) VALUES (?, ?, ?)", id, id + "@example.com", "hash");
@@ -57,7 +79,7 @@ class AuthSchemaTests {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource("docs/sql/001_auth_schema.sql"));
         }
         for (String table : new String[]{"users", "user_roles", "refresh_sessions", "account_provisioning_results",
-                "account_link_versions", "event_outbox", "account_activation_tokens", "activation_mail_outbox"}) {
+                "account_link_versions", "event_outbox", "account_activation_tokens", "activation_mail_outbox", "account_management_audit"}) {
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class)).isNotNull();
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE employee_id = ?", Integer.class, id)).isEqualTo(1);

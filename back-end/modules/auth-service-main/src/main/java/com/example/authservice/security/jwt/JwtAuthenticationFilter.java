@@ -58,7 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (sid == null || !UUID.fromString(sid).equals(user.getActiveSessionId())) {
                 throw new IllegalArgumentException("Session replaced or signed out");
             }
-            if (!user.isActive() || user.isActivationPending()) {
+            if (!user.isActive() || user.isActivationPending() || user.isAdministrativelyLocked()) {
                 SecurityContextHolder.clearContext();
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");

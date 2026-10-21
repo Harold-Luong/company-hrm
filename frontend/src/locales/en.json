@@ -102,7 +102,8 @@
     "switchToEnglish": "Switch to English",
     "switchToVietnamese": "Switch to Vietnamese",
     "copyright": "© {year} Company HRM",
-    "footer": "Internal workspace"
+    "footer": "Internal workspace",
+    "manageAccounts": "Account administration"
   },
   "roleNames": {
     "manager": "Manager",
@@ -167,7 +168,7 @@
     "employeeRole": "Access to the personal workspace.",
     "managerRole": "Dedicated management features have not been implemented yet.",
     "hrRole": "Manage HR operations.",
-    "adminRole": "The same operational permissions as HR, plus account creation and provisioning.",
+    "adminRole": "The same operational permissions as HR, plus account provisioning, role administration, locking/unlocking and session revocation.",
     "roleRequired": "Select at least one role.",
     "blankPassword": "The password cannot contain only spaces.",
     "invalidEmployeeId": "Enter a valid employee UUID, such as 550e8400-e29b-41d4-a716-446655440000.",
@@ -609,7 +610,9 @@
     "resourceDetail": "{resource} details",
     "services": "Service integrations",
     "forbidden": "Access permissions",
-    "notFound": "Page not found"
+    "notFound": "Page not found",
+    "manageAccounts": "Account administration",
+    "accountManagementDetail": "Account details"
   },
   "featureReference": {
     "descriptionText": "Browse all web features, access requirements and metric calculations.",
@@ -1624,7 +1627,7 @@
         "description": "Create an account for an existing employee profile and assign roles, or provision it from the profile and track results, activation emails and resends.",
         "rules": {
           "0": "Accounts must be linked to an employee profile. Creating an account does not create the employee profile.",
-          "1": "Account listing, role editing and account locking screens are not available yet."
+          "1": "ADMIN can list accounts, change roles, lock/unlock and force sign-out in Account administration. Every change requires a reason and is audited."
         }
       },
       "calendar": {
@@ -1656,6 +1659,14 @@
         "description": "Check Authentication, Employee, Calendar, Attendance, Leave and Notification status. Check again after a connection interruption.",
         "rules": {
           "0": "Status reflects the most recent check. This page has no business calculation formulas."
+        }
+      },
+      "accountManagement": {
+        "title": "Account administration",
+        "description": "Find accounts, manage access roles and revoke login sessions.",
+        "rules": {
+          "0": "This action revokes all sessions for the account. The user must sign in again; requests already accepted may still complete.",
+          "1": "You cannot lock or change your own permissions here. Ask another ADMIN; manage your own sessions from My profile."
         }
       }
     },
@@ -1859,6 +1870,49 @@
         "0": "Why are management pages missing or access denied?",
         "1": "Management features require HR or ADMIN. Ask an administrator to check your roles; MANAGER does not automatically grant review permissions."
       }
+    }
+  },
+  "accountManagement": {
+    "eyebrow": "ADMINISTRATION",
+    "title": "Account administration",
+    "description": "Find accounts, manage access roles and revoke login sessions.",
+    "create": "Create account",
+    "search": "Search by email",
+    "roles": "Roles",
+    "apply": "Apply filters",
+    "list": "Accounts",
+    "empty": "No matching accounts.",
+    "lastLogin": "Last sign-in",
+    "detail": "Account details",
+    "back": "Back to accounts",
+    "employeeProfile": "View employee profile",
+    "pendingHint": "This account has not completed activation. Unlocking does not activate it; resend the invitation from the employee profile after unlocking.",
+    "selfHint": "You cannot lock or change your own permissions here. Ask another ADMIN; manage your own sessions from My profile.",
+    "revokeHint": "This action revokes all sessions for the account. The user must sign in again; requests already accepted may still complete.",
+    "reason": "Reason for change",
+    "confirm": "I have checked the account and action and confirm revoking its login sessions.",
+    "submit": "Confirm action",
+    "saved": "Account updated and login sessions revoked.",
+    "reloadHint": "Reload the account and check its history before continuing. An action with an uncertain outcome is never retried automatically.",
+    "history": "Administration history",
+    "noHistory": "No administration actions yet.",
+    "statuses": {
+      "ACTIVE": "Active",
+      "DISABLED": "Locked",
+      "PENDING_ACTIVATION": "Pending activation"
+    },
+    "actions": {
+      "DISABLE": "Lock account",
+      "ENABLE": "Unlock account",
+      "CHANGE_ROLES": "Change roles",
+      "REVOKE_SESSIONS": "Force sign-out"
+    },
+    "errors": {
+      "stale": "The account has changed. Reload and review the latest data before confirming.",
+      "rolesRequired": "Select at least one role.",
+      "rolesUnchanged": "The roles have not changed.",
+      "reasonRequired": "Enter a reason for the change.",
+      "conflict": "The account status has changed or does not allow this action. Please reload."
     }
   }
 }

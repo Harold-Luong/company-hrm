@@ -45,7 +45,9 @@ test('help supports discovery, search, formulas and mobile reading for employees
     page.getByRole('heading', { name: 'Không tìm thấy chức năng phù hợp' }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Xóa bộ lọc' }).click()
-  await expect(page.locator('.help-feature-list article')).toHaveCount(22)
+  await expect(page.locator('.help-feature-list article')).toHaveCount(23)
+  await expect(page.locator('.help-feature-list')).toContainText('Quản trị tài khoản')
+  await expect(page.getByRole('link', { name: 'Mở chức năng: Quản trị tài khoản' })).toHaveCount(0)
   await page
     .getByRole('navigation', { name: 'Mục lục công thức' })
     .getByRole('link', { name: 'Giờ tính công đã xác định', exact: true })

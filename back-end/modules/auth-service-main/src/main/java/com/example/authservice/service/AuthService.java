@@ -84,7 +84,7 @@ public class AuthService {
             throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
 
-        if (!user.get().isActive() || user.get().isActivationPending()) {
+        if (!user.get().isActive() || user.get().isActivationPending() || user.get().isAdministrativelyLocked()) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.INACTIVE_ACCOUNT);
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
@@ -157,7 +157,7 @@ public class AuthService {
 
         User user = sessionsService.validateRefreshSession(sessionId, userId, hashToken(refreshToken));
         sessionsService.requireCurrentSession(userId, activeSessionId);
-        if (!user.isActive() || user.isActivationPending()) {
+        if (!user.isActive() || user.isActivationPending() || user.isAdministrativelyLocked()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
         sessionsService.revokeRefreshSession(sessionId);
@@ -175,7 +175,7 @@ public class AuthService {
         if (user.isEmpty()) {
             throw new GlobalException("User not found", HttpStatus.NOT_FOUND);
         }
-        if (!user.get().isActive() || user.get().isActivationPending()) {
+        if (!user.get().isActive() || user.get().isActivationPending() || user.get().isAdministrativelyLocked()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
         return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(),

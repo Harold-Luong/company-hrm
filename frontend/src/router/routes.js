@@ -4,6 +4,7 @@ import { calendarManagementRoles } from '@/calendar/constants.js'
 import { leaveReviewRoles } from '@/leave/constants.js'
 import { attendanceRoles } from '@/attendance/constants.js'
 import { personnelManagementRoles } from '@/auth/roles.js'
+import { accountManagementRoles } from '@/accounts/constants.js'
 import { accountCreationRoles } from '@/auth/navigation.js'
 
 export const routes = [
@@ -149,6 +150,19 @@ export const routes = [
         name: 'account',
         component: () => import('@/views/AccountView.vue'),
         meta: { title: () => copy.account },
+      },
+      {
+        path: 'accounts',
+        name: 'accounts',
+        component: () => import('@/views/AccountsView.vue'),
+        meta: { title: () => copy.manageAccounts, roles: accountManagementRoles },
+      },
+      {
+        path: 'accounts/:id(\\d+)',
+        name: 'account-management-detail',
+        component: () => import('@/views/AccountManagementView.vue'),
+        props: true,
+        meta: { title: () => copy.accountManagementDetail, roles: accountManagementRoles },
       },
       {
         path: 'accounts/new',
