@@ -1,19 +1,16 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 async function session(page, role, loggedIn = true) {
   if (loggedIn)
     await page.addInitScript(() => {
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'help-test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'help-test' }))
     })
-  await page.route('**/api/**', (route) => {
+  await page.route('**/api/v1/**', (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const path = new URL(route.request().url()).pathname
-    if (path.endsWith('/login'))
-      return route.fulfill({ json: { data: { accessToken: 'access', refreshToken: 'refresh' } } })
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/login')) return route.fulfill({ json: { data: { accessToken: 'access' } } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/me'))
       return route.fulfill({
         json: { id: 'help-user', email: 'help@company.com', roles: [role], active: true },

@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 async function setup(page) {
@@ -6,16 +7,13 @@ async function setup(page) {
   const history = []
   await page.clock.setFixedTime(new Date('2030-02-02T05:00:00Z'))
   await page.addInitScript(() =>
-    localStorage.setItem(
-      'company-hrm.session',
-      JSON.stringify({ id: 'period-test', refreshToken: 'refresh' }),
-    ),
+    localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'period-test' })),
   )
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const request = route.request(),
       path = new URL(request.url()).pathname
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/auth/me'))
       return route.fulfill({
         json: {
@@ -69,7 +67,9 @@ test('HR closes and reopens a whole-company month with reason, version and sourc
     body: { reason: 'Đã đối soát toàn công ty' },
   })
   await page.getByRole('button', { name: 'Kiểm tra thay đổi phép/ngày nghỉ' }).click()
-  await expect(page.getByRole('region', { name: 'Chốt kỳ công' }).getByRole('status')).toContainText('Phép hoặc ngày nghỉ đã thay đổi sau chốt')
+  await expect(
+    page.getByRole('region', { name: 'Chốt kỳ công' }).getByRole('status'),
+  ).toContainText('Phép hoặc ngày nghỉ đã thay đổi sau chốt')
   await page.getByLabel('Lý do mở lại kỳ').fill('Cập nhật phép đã điều chỉnh')
   await page.getByRole('button', { name: 'Mở lại kỳ công toàn công ty', exact: true }).click()
   await expect(page.getByText('2030-01 · Đang mở')).toBeVisible()

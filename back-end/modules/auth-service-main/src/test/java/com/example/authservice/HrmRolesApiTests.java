@@ -31,7 +31,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static com.example.authservice.CookieAuthTestSupport.post;
+import static com.example.authservice.CookieAuthTestSupport.refreshCookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -65,7 +66,7 @@ class HrmRolesApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        admin = new User();
+        admin = new User(); admin.setActiveSessionId(java.util.UUID.randomUUID());
         admin.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000009000"));
         admin.setEmail("admin-roles@example.com");
         admin.setPasswordHash("unused-in-token-authentication-tests");
@@ -118,11 +119,11 @@ class HrmRolesApiTests {
         assertNull(user.getLastLoginAt());
         assertTrue(passwordEncoder.matches("password123", user.getPasswordHash()));
 
-        String login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(registrationBody(role.name())))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String access = mapper.readTree(login).path("data").path("accessToken").asString();
-        String refresh = mapper.readTree(login).path("data").path("refreshToken").asString();
+                .andExpect(status().isOk()).andReturn().getResponse();
+        String access = mapper.readTree(login.getContentAsString()).path("data").path("accessToken").asString();
+        String refresh = login.getCookie("__Host-hrm-refresh").getValue();
         assertEquals(List.of(role.name()), jwtService.parseToken(access).get("roles", List.class));
         assertFalse(jwtService.parseToken(access).containsKey("role"));
         var lastLogin = users.findById(user.getId()).orElseThrow().getLastLoginAt();
@@ -147,7 +148,7 @@ class HrmRolesApiTests {
         user.setRoles(Set.of(UserRole.EMPLOYEE));
         users.saveAndFlush(user);
         String rotated = mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("refreshToken", refresh))))
+                .cookie(refreshCookie(refresh)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertEquals(List.of("EMPLOYEE"), jwtService.parseToken(mapper.readTree(rotated).path("accessToken").asString())
                 .get("roles", List.class));
@@ -193,24 +194,25 @@ class HrmRolesApiTests {
         User user = users.findByEmail("employee@example.com").orElseThrow();
         assertEquals(Set.of(UserRole.EMPLOYEE, UserRole.HR), user.getRoles());
 
-        String login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", "password123"))))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String access = mapper.readTree(login).path("data").path("accessToken").asString();
-        String refresh = mapper.readTree(login).path("data").path("refreshToken").asString();
+                .andExpect(status().isOk()).andReturn().getResponse();
+        String access = mapper.readTree(login.getContentAsString()).path("data").path("accessToken").asString();
+        String refresh = login.getCookie("__Host-hrm-refresh").getValue();
         assertEquals(List.of("EMPLOYEE", "HR"), jwtService.parseToken(access).get("roles", List.class));
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("EMPLOYEE", "HR")))
                 .andExpect(jsonPath("$.role").doesNotExist());
 
+        user = users.findById(user.getId()).orElseThrow();
         user.setRoles(Set.of(UserRole.EMPLOYEE, UserRole.MANAGER));
         users.saveAndFlush(user);
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("EMPLOYEE", "MANAGER")));
         String rotated = mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("refreshToken", refresh))))
+                .cookie(refreshCookie(refresh)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertEquals(List.of("EMPLOYEE", "MANAGER"),
                 jwtService.parseToken(mapper.readTree(rotated).path("accessToken").asString())
@@ -222,10 +224,11 @@ class HrmRolesApiTests {
         // Establish a real session using the existing service within its transaction.
         admin.setPasswordHash(passwordEncoder.encode("password123"));
         users.saveAndFlush(admin);
-        String login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(Map.of("email", admin.getEmail(), "password", "password123"))))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String refreshToken = mapper.readTree(login).path("data").path("refreshToken").asString();
+                .andExpect(status().isOk()).andReturn().getResponse();
+        adminToken = mapper.readTree(login.getContentAsString()).path("data").path("accessToken").asString();
+        String refreshToken = login.getCookie("__Host-hrm-refresh").getValue();
         admin = users.findById(admin.getId()).orElseThrow();
         admin.setActive(false);
         users.saveAndFlush(admin);
@@ -236,7 +239,7 @@ class HrmRolesApiTests {
                 .contentType(MediaType.APPLICATION_JSON).content(registrationBody("ADMIN")))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("refreshToken", refreshToken))))
+                .cookie(refreshCookie(refreshToken)))
                 .andExpect(status().isForbidden());
         assertEquals(1, sessions.count());
         assertNull(sessions.findAll().getFirst().getRevokedAt());
@@ -275,22 +278,23 @@ class HrmRolesApiTests {
         register(registrationBody("EMPLOYEE"));
         User user = users.findByEmail("employee@example.com").orElseThrow();
         assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-000000001001"), user.getEmployeeId());
-        String login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", "password123"))))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String access = mapper.readTree(login).path("data").path("accessToken").asString();
-        String refresh = mapper.readTree(login).path("data").path("refreshToken").asString();
+                .andExpect(status().isOk()).andReturn().getResponse();
+        String access = mapper.readTree(login.getContentAsString()).path("data").path("accessToken").asString();
+        String refresh = login.getCookie("__Host-hrm-refresh").getValue();
         assertEquals(user.getId().toString(), jwtService.parseToken(access).getSubject());
         assertEquals("550e8400-e29b-41d4-a716-000000001001", jwtService.parseToken(access).get("employee_id", String.class));
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.employeeId").value("550e8400-e29b-41d4-a716-000000001001"));
 
+        user = users.findById(user.getId()).orElseThrow();
         user.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001002"));
         users.saveAndFlush(user);
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.employeeId").value("550e8400-e29b-41d4-a716-000000001002"));
         String rotated = mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("refreshToken", refresh))))
+                .cookie(refreshCookie(refresh)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertEquals("550e8400-e29b-41d4-a716-000000001002", jwtService.parseToken(mapper.readTree(rotated).path("accessToken").asString())
                 .get("employee_id", String.class));

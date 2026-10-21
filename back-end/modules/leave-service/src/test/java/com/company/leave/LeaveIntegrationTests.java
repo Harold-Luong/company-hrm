@@ -2,6 +2,7 @@ package com.company.leave;
 
 import com.company.leave.request.LeaveModels.*;
 import com.company.leave.request.LeaveService;
+import com.company.leave.request.LeaveHistoryAction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -233,7 +234,7 @@ class LeaveIntegrationTests extends JwtTestSupport {
             assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS))).containsExactlyInAnyOrder(200, 412);
         }
         assertThat(service.balance(2030, actor(EMPLOYEE, "EMPLOYEE")).usedUnits()).isZero();
-        assertThat(service.history(request.id(), actor(HR, "HR")).stream().filter(h -> h.action().equals("ADJUSTMENT_APPROVED"))).hasSize(1);
+        assertThat(service.history(request.id(), actor(HR, "HR")).stream().filter(h -> h.action() == LeaveHistoryAction.ADJUSTMENT_APPROVED)).hasSize(1);
     }
 
     @Test

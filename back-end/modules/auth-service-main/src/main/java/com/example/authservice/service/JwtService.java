@@ -30,6 +30,7 @@ public class JwtService {
 
         return Jwts.builder()
                 .subject(user.getId().toString())
+                .claim("sid", user.getActiveSessionId())
                 .claim("employee_id", user.getEmployeeId())
                 .claim("email", user.getEmail())
                 .claim("roles", user.getRoles().stream().map(Enum::name).sorted().toList())
@@ -48,6 +49,7 @@ public class JwtService {
         UUID sessionId = UUID.randomUUID();
         String token = Jwts.builder()
                 .subject(user.getId().toString())
+                .claim("sid", user.getActiveSessionId())
                 .claim("type", "refresh")
                 .id(sessionId.toString())
                 .issuer(jwtProperties.getRefreshIssuer())
@@ -96,7 +98,8 @@ public class JwtService {
     private JwtParser parser(PublicKey key, String issuer, String audience) {
         var builder = Jwts.parser().verifyWith(key).requireIssuer(issuer).requireAudience(audience);
         var algorithms = builder.sig();
-        // JJWT 0.12.6 rejects an empty registry, so retain RS256 while removing the others.
+        // JJWT 0.12.6 rejects an empty registry, so retain RS256 while removing the
+        // others.
         for (var algorithm : Jwts.SIG.get().values()) {
             if (!Jwts.SIG.RS256.getId().equals(algorithm.getId())) {
                 algorithms.remove(algorithm);

@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 const employeeId = '550e8400-e29b-41d4-a716-446655440000'
@@ -21,15 +22,12 @@ const profile = {
 async function openProfile(page, employee = profile, linked = true) {
   const calls = { employeeRequests: 0 }
   await page.addInitScript(() => {
-    localStorage.setItem(
-      'company-hrm.session',
-      JSON.stringify({ id: 'profile-test', refreshToken: 'refresh' }),
-    )
+    localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'profile-test' }))
   })
   await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const path = new URL(route.request().url()).pathname
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/me'))
       return route.fulfill({
         json: {
@@ -288,7 +286,9 @@ for (const width of [1280, 390]) {
     await expect(trigger).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(dropdown).toBeVisible()
-    await page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true }).click()
+    await page
+      .getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })
+      .click({ position: { x: 5, y: 5 } })
     await expect(dropdown).toHaveCount(0)
     await trigger.click()
     await dropdown.getByRole('link', { name: 'Hồ sơ của tôi' }).click()

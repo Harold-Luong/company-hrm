@@ -27,7 +27,8 @@ import java.util.stream.Stream;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static com.example.authservice.CookieAuthTestSupport.post;
+import static com.example.authservice.CookieAuthTestSupport.refreshCookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,7 +53,7 @@ class AuthValidationApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        User admin = new User();
+        User admin = new User(); admin.setActiveSessionId(java.util.UUID.randomUUID());
         admin.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000009000"));
         admin.setEmail("admin-validation@example.com");
         admin.setPasswordHash("unused-in-token-authentication-tests");
@@ -100,19 +101,13 @@ class AuthValidationApiTests {
                         "password: Password is required")));
     }
 
-    @ParameterizedTest
-    @MethodSource("missingRefreshTokens")
-    void validatesRefreshAndLogoutBodies(String endpoint, String body) throws Exception {
-        mvc.perform(post("/api/v1/auth/" + endpoint).contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("400"))
-                .andExpect(jsonPath("$.message").value("refreshToken: Refresh token is required"));
-    }
-
-    static Stream<Arguments> missingRefreshTokens() {
-        return Stream.of("refresh", "logout").flatMap(endpoint -> Stream.of(
-                "{}", "{\"refreshToken\":null}", "{\"refreshToken\":\"\"}", "{\"refreshToken\":\"   \"}")
-                .map(body -> Arguments.of(endpoint, body)));
+    @Test
+    void refreshRequiresCookieAndLogoutWithoutCookieIsIdempotent() throws Exception {
+        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"body-token-is-ignored\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/auth/logout"))
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest
@@ -126,7 +121,7 @@ class AuthValidationApiTests {
     }
 
     static Stream<Arguments> unreadableBodies() {
-        return Stream.of("register", "login", "refresh", "logout").flatMap(endpoint -> {
+        return Stream.of("register", "login").flatMap(endpoint -> {
             String field = endpoint.equals("register") || endpoint.equals("login") ? "password" : "refreshToken";
             return Stream.of("", "null", "{", "[]", "{\"" + field + "\":{\"secret\":\"secret-password\"}}")
                     .map(body -> Arguments.of(endpoint, body));
@@ -159,7 +154,7 @@ class AuthValidationApiTests {
     @ValueSource(strings = { "refresh", "logout" })
     void invalidJwtRemainsAnAuthenticationError(String endpoint) throws Exception {
         mvc.perform(post("/api/v1/auth/" + endpoint).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"refreshToken\":\"invalid-token\"}"))
+                .cookie(refreshCookie("invalid-token")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("401"));
     }

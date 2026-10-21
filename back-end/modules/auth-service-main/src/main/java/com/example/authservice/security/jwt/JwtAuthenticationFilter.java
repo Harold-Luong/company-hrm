@@ -11,7 +11,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,6 +19,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
@@ -54,6 +54,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String userId = claims.getSubject();
             User user = userRepository.findById(Long.valueOf(userId))
                     .orElseThrow(() -> new IllegalArgumentException("Account no longer exists"));
+            String sid = claims.get("sid", String.class);
+            if (sid == null || !UUID.fromString(sid).equals(user.getActiveSessionId())) {
+                throw new IllegalArgumentException("Session replaced or signed out");
+            }
             if (!user.isActive() || user.isActivationPending()) {
                 SecurityContextHolder.clearContext();
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -66,10 +70,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     .map(SimpleGrantedAuthority::new)
                     .collect(Collectors.toSet());
 
-            Authentication authentication = new UsernamePasswordAuthenticationToken(
+            var authentication = new UsernamePasswordAuthenticationToken(
                     userId,
                     null,
                     authorities);
+            authentication.setDetails(UUID.fromString(sid));
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
 

@@ -17,7 +17,7 @@ public interface RefreshSessionsRepository extends JpaRepository<RefreshSessions
     @Query("select session from RefreshSessions session where session.uuid = :id")
     Optional<RefreshSessions> findByIdForUpdate(@Param("id") UUID id);
 
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("update RefreshSessions s set s.revokedAt = :revokedAt where s.user.id = :userId and s.revokedAt is null")
     int revokeAllByUserId(@Param("userId") Long userId, @Param("revokedAt") Instant revokedAt);
 }

@@ -9,11 +9,12 @@ const user = {
   createdAt: '2026-09-01T01:00:00Z',
   updatedAt: '2026-09-25T01:00:00Z',
 }
-const tokens = { accessToken: 'access-1', refreshToken: 'refresh-1' }
+const tokens = { accessToken: 'access-1' }
 const storageKey = 'company-hrm.session'
-const storedToken = () => JSON.parse(localStorage.getItem(storageKey))?.refreshToken
-const seedSession = (refreshToken) =>
-  localStorage.setItem(storageKey, JSON.stringify({ id: 'test-session', refreshToken }))
+const storedSession = () => JSON.parse(localStorage.getItem(storageKey))
+const csrfMock = vi.fn()
+const seedSession = (id = 'test-session') =>
+  localStorage.setItem(storageKey, JSON.stringify({ id }))
 const response = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -35,7 +36,14 @@ beforeEach(() => {
     value: { request: (_name, callback) => Promise.resolve().then(callback) },
   })
   fetchMock.mockReset()
-  vi.stubGlobal('fetch', fetchMock)
+  csrfMock
+    .mockReset()
+    .mockImplementation(async () =>
+      response({ token: 'csrf-token', headerName: 'X-XSRF-TOKEN', sessionPresent: false }),
+    )
+  vi.stubGlobal('fetch', (url, init) =>
+    url.endsWith('/csrf') ? csrfMock(url, init) : fetchMock(url, init),
+  )
 })
 async function login() {
   const { auth } = await import('../../src/auth/session.js')
@@ -44,6 +52,84 @@ async function login() {
   return auth
 }
 describe('Auth contract and session lifecycle', () => {
+  it('removes legacy refresh tokens and restores using cookie credentials only', async () => {
+    localStorage.setItem(storageKey, JSON.stringify({ id: 'legacy', refreshToken: 'secret' }))
+    const { auth } = await import('../../src/auth/session.js')
+    fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
+    await auth.initialize()
+    expect(storedSession()).toEqual({ id: 'legacy' })
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      credentials: 'same-origin',
+      headers: { 'X-XSRF-TOKEN': 'csrf-token' },
+    })
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined()
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('secret')
+  })
+  it('restores an HttpOnly cookie even when local metadata was removed', async () => {
+    csrfMock.mockImplementation(async () =>
+      response({ token: 'csrf-token', headerName: 'X-XSRF-TOKEN', sessionPresent: true }),
+    )
+    const { auth } = await import('../../src/auth/session.js')
+    fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
+    await auth.initialize()
+    expect(auth.authenticated.value).toBe(true)
+    expect(Object.keys(storedSession())).toEqual(['id'])
+  })
+  it('does not retry an uncertain refresh response', async () => {
+    seedSession('existing')
+    const { auth } = await import('../../src/auth/session.js')
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'))
+    await expect(auth.initialize()).rejects.toMatchObject({ status: 0 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(storedSession()).toEqual({ id: 'existing' })
+  })
+  it('does not silently restore cookies after an offline logout and reload', async () => {
+    const auth = await login()
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'))
+    await expect(auth.logout()).rejects.toMatchObject({ status: 0 })
+    expect(localStorage.getItem('company-hrm.signed-out')).toBe('1')
+    vi.resetModules()
+    csrfMock.mockClear()
+    const { auth: reloaded } = await import('../../src/auth/session.js')
+    await reloaded.initialize()
+    expect(reloaded.authenticated.value).toBe(false)
+    expect(csrfMock).not.toHaveBeenCalled()
+  })
+  it('never retries a rejected refresh with credentials from a different login', async () => {
+    seedSession('old-login')
+    const { auth } = await import('../../src/auth/session.js')
+    fetchMock.mockImplementationOnce(async () => {
+      localStorage.setItem(storageKey, JSON.stringify({ id: 'new-login' }))
+      return response({}, 401)
+    })
+    await auth.initialize()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(auth.state.user).toBeNull()
+    expect(storedSession()).toEqual({ id: expect.any(String) })
+  })
+  it('clears a replaced login when checking the session', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(response({}, 401)).mockResolvedValueOnce(response({}, 401))
+    await expect(auth.checkSession()).rejects.toMatchObject({ status: 401 })
+    expect(auth.authenticated.value).toBe(false)
+    expect(auth.state.sessionEnded).toBe(true)
+    expect(storedSession()).toBeNull()
+  })
+  it('keeps the login when Auth is unavailable during a session check', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(response({}, 503))
+    await expect(auth.checkSession()).rejects.toMatchObject({ status: 503 })
+    expect(auth.authenticated.value).toBe(true)
+    expect(auth.state.sessionEnded).toBe(false)
+    expect(storedSession()).toEqual({ id: expect.any(String) })
+  })
+  it('accepts a current session without rotating refresh tokens', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await auth.checkSession()
+    expect(fetchMock.mock.calls.at(-1)[0]).toBe('/api/v1/auth/session')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
+  })
   it('reauthenticates SSE with a Bearer header and preserves caller cancellation', async () => {
     const auth = await login()
     const controller = new AbortController()
@@ -52,7 +138,7 @@ describe('Auth contract and session lifecycle', () => {
     })
     fetchMock
       .mockResolvedValueOnce(response({}, 401))
-      .mockResolvedValueOnce(response({ accessToken: 'access-2', refreshToken: 'refresh-2' }))
+      .mockResolvedValueOnce(response({ accessToken: 'access-2' }))
       .mockResolvedValueOnce(streamResponse)
     const body = await auth.request('/api/v1/notifications/stream', {
       responseType: 'stream',
@@ -84,7 +170,7 @@ describe('Auth contract and session lifecycle', () => {
     const { auth } = await import('../../src/auth/session.js')
     await expect(auth.initialize()).rejects.toMatchObject({ status: 503 })
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(storedToken()).toBe('existing')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
   it('discards a late rejection from another login without deleting the new shared session', async () => {
     const auth = await login()
@@ -96,15 +182,12 @@ describe('Auth contract and session lifecycle', () => {
         }),
     )
     const pending = auth.loadUser()
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({ id: 'another-login', refreshToken: 'new-session' }),
-    )
+    localStorage.setItem(storageKey, JSON.stringify({ id: 'another-login' }))
     // Do not dispatch storage: a background tab may not have received the event yet.
     finish(response({}, 401))
     await expect(pending).rejects.toMatchObject({ status: 401 })
     expect(auth.state.user).toBeNull()
-    expect(storedToken()).toBe('new-session')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
   it('drops old per-tab tokens instead of restoring them after a shared logout', async () => {
     sessionStorage.setItem('company-hrm.refresh-token', 'legacy-token')
@@ -125,19 +208,17 @@ describe('Auth contract and session lifecycle', () => {
     expect(auth.hasRole(['ADMIN'])).toBe(true)
     expect(auth.hasRole(['HR'])).toBe(false)
     expect(localStorage.length).toBe(1)
-    expect(storedToken()).toBe('refresh-1')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
-  it('restores the tab session and stores the rotated refresh token', async () => {
+  it('restores the tab session without exposing the rotated refresh token', async () => {
     seedSession('old-refresh')
     const { auth } = await import('../../src/auth/session.js')
     fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
     await Promise.all([auth.initialize(), auth.initialize()])
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      refreshToken: 'old-refresh',
-    })
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined()
     expect(auth.state.user?.email).toBe(user.email)
-    expect(storedToken()).toBe('refresh-1')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
   it('shares refresh for concurrent 401s and retries with the new access token', async () => {
     const auth = await login()
@@ -146,14 +227,14 @@ describe('Auth contract and session lifecycle', () => {
       if (String(url).endsWith('/refresh')) {
         refreshCount++
         await new Promise((resolve) => setTimeout(resolve, 10))
-        return response({ accessToken: 'access-2', refreshToken: 'refresh-2' })
+        return response({ accessToken: 'access-2' })
       }
       if (init?.headers?.Authorization === 'Bearer access-1') return response({}, 401)
       return response(user)
     })
     await Promise.all([auth.loadUser(), auth.loadUser(), auth.loadUser()])
     expect(refreshCount).toBe(1)
-    expect(storedToken()).toBe('refresh-2')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
   it('does not loop when an API still returns 401 after refresh', async () => {
     const auth = await login()
@@ -165,7 +246,7 @@ describe('Auth contract and session lifecycle', () => {
     await expect(auth.loadUser()).rejects.toMatchObject({ status: 401 })
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(auth.state.user).toBeNull()
-    expect(localStorage.length).toBe(0)
+    expect(localStorage.getItem(storageKey)).toBeNull()
   })
   it('clears a revoked session on startup', async () => {
     seedSession('revoked')
@@ -174,14 +255,14 @@ describe('Auth contract and session lifecycle', () => {
     await auth.initialize()
     expect(auth.authenticated.value).toBe(false)
     expect(auth.state.initialized).toBe(true)
-    expect(localStorage.length).toBe(0)
+    expect(localStorage.getItem(storageKey)).toBeNull()
   })
   it('preserves a stored session during transient failures so startup can be retried', async () => {
     seedSession('existing')
     const { auth } = await import('../../src/auth/session.js')
     fetchMock.mockRejectedValueOnce(new TypeError('offline'))
     await expect(auth.initialize()).rejects.toMatchObject({ status: 0 })
-    expect(storedToken()).toBe('existing')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
     expect(auth.state.initialized).toBe(false)
     fetchMock.mockResolvedValueOnce(response(tokens)).mockResolvedValueOnce(response(user))
     await auth.initialize()
@@ -211,7 +292,14 @@ describe('Auth contract and session lifecycle', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('offline'))
     await expect(auth.logout()).rejects.toMatchObject({ status: 0 })
     expect(auth.authenticated.value).toBe(false)
-    expect(localStorage.length).toBe(0)
+    expect(localStorage.getItem(storageKey)).toBeNull()
+  })
+  it('reports a CSRF rejection on logout instead of claiming server revocation', async () => {
+    const auth = await login()
+    fetchMock.mockResolvedValueOnce(response({}, 403))
+    await expect(auth.logout()).rejects.toMatchObject({ status: 403 })
+    expect(auth.authenticated.value).toBe(false)
+    expect(localStorage.getItem('company-hrm.signed-out')).toBe('1')
   })
   it('does not restore the user from an in-flight response after logout', async () => {
     const auth = await login()
@@ -228,7 +316,7 @@ describe('Auth contract and session lifecycle', () => {
     finish(response(user))
     await expect(pending).rejects.toMatchObject({ status: 401 })
     expect(auth.authenticated.value).toBe(false)
-    expect(localStorage.length).toBe(0)
+    expect(localStorage.getItem(storageKey)).toBeNull()
   })
   it('waits for refresh rotation then revokes the latest session on logout', async () => {
     const auth = await login()
@@ -244,10 +332,11 @@ describe('Auth contract and session lifecycle', () => {
     await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
     const logout = auth.logout()
     fetchMock.mockImplementation(async () => response(user))
-    finish(response({ accessToken: 'access-2', refreshToken: 'refresh-2' }))
+    finish(response({ accessToken: 'access-2' }))
     await Promise.all([pending, logout])
     const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/logout'))
-    expect(JSON.parse(call[1].body)).toEqual({ refreshToken: 'refresh-2' })
+    expect(call[1].body).toBeUndefined()
+    expect(call[1].headers['X-XSRF-TOKEN']).toBe('csrf-token')
     expect(auth.authenticated.value).toBe(false)
   })
   it('keeps the current session if logout-all fails, clears it after success', async () => {
@@ -271,9 +360,7 @@ describe('Auth contract and session lifecycle', () => {
     const pending = auth.loadUser()
     const nextUser = { ...user, id: 8, email: 'hr@company.com', roles: ['HR'] }
     fetchMock
-      .mockResolvedValueOnce(
-        response({ data: { accessToken: 'new-access', refreshToken: 'new-refresh' } }),
-      )
+      .mockResolvedValueOnce(response({ data: { accessToken: 'new-access' } }))
       .mockResolvedValueOnce(response(nextUser))
     await auth.login(nextUser.email, 'password')
     finish(response(user))
@@ -281,7 +368,7 @@ describe('Auth contract and session lifecycle', () => {
     expect(auth.state.user?.email).toBe(nextUser.email)
     expect(auth.hasRole(['ADMIN'])).toBe(false)
     expect(auth.hasRole(['HR'])).toBe(true)
-    expect(storedToken()).toBe('new-refresh')
+    expect(storedSession()).toEqual({ id: expect.any(String) })
   })
 })
 
@@ -294,7 +381,7 @@ describe('Employee API uses the shared authenticated session', () => {
       if (url.endsWith('/refresh')) {
         refreshCount++
         await new Promise((resolve) => setTimeout(resolve, 10))
-        return response({ accessToken: 'access-2', refreshToken: 'refresh-2' })
+        return response({ accessToken: 'access-2' })
       }
       if (url.includes('/account-requests')) writes.push(init)
       if (init.headers.Authorization === 'Bearer access-1') return response({}, 401)

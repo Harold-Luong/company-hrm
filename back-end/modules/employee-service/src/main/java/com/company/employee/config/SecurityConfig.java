@@ -1,6 +1,9 @@
 package com.company.employee.config;
 
 import com.company.employee.security.AccessTokenClaimsValidator;
+import com.company.employee.security.SessionVerifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -25,16 +28,23 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.util.Assert;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 @Configuration
 @org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
+
+    @Bean
+    SessionVerifier sessionVerifier(@Value("${AUTH_SERVICE_URL:http://localhost:8081}") String authServiceUrl) {
+        return new SessionVerifier(authServiceUrl);
+    }
 
     @Bean
     JwtDecoder jwtDecoder(JwtProperties properties) throws IOException {
@@ -67,12 +77,17 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
-            JwtAuthenticationConverter converter) throws Exception {
+            JwtAuthenticationConverter converter, SessionVerifier sessions, ObjectMapper mapper) throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
+            if (exception instanceof OAuth2AuthenticationException oauth
+                    && "temporarily_unavailable".equals(oauth.getError().getErrorCode())) {
+                writeProblem(mapper, response, 503, "Service Unavailable", "Session verification is unavailable");
+                return;
+            }
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
-            writeProblem(response, 401, "Unauthorized", "A valid access token is required");
+            writeProblem(mapper, response, 401, "Unauthorized", "A valid access token is required");
         };
-        AccessDeniedHandler forbidden = (request, response, exception) -> writeProblem(response, 403, "Forbidden",
+        AccessDeniedHandler forbidden = (request, response, exception) -> writeProblem(mapper, response, 403, "Forbidden",
                 "Access is denied");
 
         http.csrf(AbstractHttpConfigurer::disable)
@@ -91,26 +106,34 @@ public class SecurityConfig {
                                 "/openapi/employee-api.yml")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/employees/*/account-requests").hasRole("ADMIN")
-                        // The detail controller also checks ownership against the signed employee_id claim.
+                        // The detail controller also checks ownership against the signed employee_id
+                        // claim.
                         .requestMatchers(HttpMethod.GET, "/api/v1/employees/*").authenticated()
                         .requestMatchers("/api/v1/employees", "/api/v1/employees/**",
                                 "/api/v1/departments", "/api/v1/departments/**",
-                                "/api/v1/positions", "/api/v1/positions/**").hasAnyRole("HR", "ADMIN")
+                                "/api/v1/positions", "/api/v1/positions/**")
+                        .hasAnyRole("HR", "ADMIN")
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(resource -> resource
                         .authenticationEntryPoint(unauthorized)
                         .accessDeniedHandler(forbidden)
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(converter)));
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
+                            sessions.verify(token.getTokenValue());
+                            return converter.convert(token);
+                        })));
         return http.build();
     }
 
-    private static void writeProblem(HttpServletResponse response, int status,
+    private static void writeProblem(ObjectMapper mapper, HttpServletResponse response, int status,
             String title, String detail) throws IOException {
         response.setStatus(status);
         response.setContentType("application/problem+json");
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"" + title
-                + "\",\"status\":" + status + ",\"detail\":\"" + detail + "\"}");
+        response.getWriter().write(mapper.writeValueAsString(Map.of(
+                "type", "about:blank",
+                "title", title,
+                "status", status,
+                "detail", detail)));
     }
 }

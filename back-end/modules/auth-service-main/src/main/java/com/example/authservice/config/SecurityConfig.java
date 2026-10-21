@@ -10,7 +10,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -20,11 +23,20 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({ JwtProperties.class, AuthCookieProperties.class })
 @AllArgsConstructor
 public class SecurityConfig {
 
     public final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @Bean
+    public CookieCsrfTokenRepository csrfTokenRepository(AuthCookieProperties cookies) {
+        var repository = new CookieCsrfTokenRepository();
+        repository.setCookieName(cookies.csrfName());
+        repository.setCookiePath("/");
+        repository.setCookieCustomizer(cookie -> cookie.httpOnly(true).secure(cookies.secure()).sameSite("Strict"));
+        return repository;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -32,9 +44,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, CookieCsrfTokenRepository csrfTokens)
+            throws Exception {
 
-        http.csrf(AbstractHttpConfigurer::disable)
+        http.csrf(csrf -> csrf
+                .csrfTokenRepository(csrfTokens)
+                .csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler())
+                .requireCsrfProtectionMatcher(new OrRequestMatcher(
+                        PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/login"),
+                        PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/refresh"),
+                        PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/logout"),
+                        PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/logout-all"))))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -46,7 +66,9 @@ public class SecurityConfig {
                     response.getWriter().write("{\"code\":\"403\",\"message\":\"Access is denied\"}");
                 }))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/activate", "/activation/index.html").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/api/v1/auth/csrf", "/activate",
+                                "/activation/index.html")
+                        .permitAll()
                         .requestMatchers("/openapi.yaml", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs",
                                 "/v3/api-docs/**", "/v3/api-docs.yaml")
                         .permitAll()
@@ -55,8 +77,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/activation-invitations/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         .requestMatchers("/api/v1/auth/refresh").permitAll()
-                        .requestMatchers("/api/v1/auth/logout-all").authenticated()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
+                        .requestMatchers("/api/v1/auth/logout-all").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

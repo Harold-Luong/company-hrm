@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 const id = '550e8400-e29b-41d4-a716-446655440000'
 const requestId = '650e8400-e29b-41d4-a716-446655440000'
@@ -36,18 +37,16 @@ async function setup(page, roles = ['HR']) {
   }
   await page.addInitScript(() => {
     if (!localStorage.getItem('company-hrm.session'))
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'test' }))
   })
   await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const req = route.request()
     const url = new URL(req.url())
     const path = url.pathname
     let body
     let status = 200
-    if (path.endsWith('/refresh')) body = { accessToken: 'access', refreshToken: 'refresh' }
+    if (path.endsWith('/refresh')) body = { accessToken: 'access' }
     else if (path.endsWith('/me')) body = { id: 1, email: 'hr@company.com', active: true, roles }
     else if (path === '/api/v1/calendar/health-check') body = { status: 'UP' }
     else if (path.endsWith('/health-check')) body = { status: 'UP', database: 'UP' }

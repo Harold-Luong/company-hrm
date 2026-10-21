@@ -50,6 +50,7 @@ test('live Auth: login, /me, restore with refresh, role-gated page and logout', 
     await page.goto('/accounts/new')
     await expect(page.getByRole('heading', { name: 'Bạn chưa có quyền truy cập' })).toBeVisible()
   }
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Đăng nhập workspace' })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('Bạn đã đăng xuất thành công.')

@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 test('renders the authenticated API without company metadata, including events crossing years', async ({
@@ -8,17 +9,19 @@ test('renders the authenticated API without company metadata, including events c
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
   await page.addInitScript(() => {
     if (!localStorage.getItem('company-hrm.session'))
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'test' }))
   })
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const url = new URL(route.request().url())
     let body
-    if (url.pathname.endsWith('/refresh')) body = { accessToken: 'access', refreshToken: 'refresh' }
+    if (url.pathname.endsWith('/refresh')) body = { accessToken: 'access' }
     else if (url.pathname.endsWith('/me'))
       body = { id: 1, email: 'member@company.com', roles: ['EMPLOYEE'], active: true }
+    else if (url.pathname === '/api/v1/leave/requests/calendar') body = []
+    else if (url.pathname === '/api/v1/notifications/stream')
+      return route.fulfill({ status: 503, json: { message: 'Stream unavailable' } })
+    else if (url.pathname === '/api/v1/auth/session') return route.fulfill({ status: 204 })
     else if (url.pathname === '/api/v1/calendar') {
       expect(route.request().headers().authorization).toBe('Bearer access')
       const year = Number(url.searchParams.get('year'))

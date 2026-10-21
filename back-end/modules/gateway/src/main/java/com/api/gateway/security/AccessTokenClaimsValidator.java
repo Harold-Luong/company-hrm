@@ -8,7 +8,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import java.util.Collection;
 import java.util.UUID;
 
-/** Validates the access-token contract emitted by Auth, before authorities are read. */
+/**
+ * Validates the access-token contract emitted by Auth, before authorities are
+ * read.
+ */
 public class AccessTokenClaimsValidator implements OAuth2TokenValidator<Jwt> {
     @Override
     public OAuth2TokenValidatorResult validate(Jwt jwt) {

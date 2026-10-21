@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 const employeeId = '10000000-0000-0000-0000-000000000001',
   otherId = '10000000-0000-0000-0000-000000000002'
@@ -19,16 +20,13 @@ async function setup(page, role = 'EMPLOYEE') {
   const state = { rows: [], writes: [], fail: false, stale: false }
   await page.clock.setFixedTime(new Date('2030-01-07T18:00:00+07:00'))
   await page.addInitScript(() =>
-    localStorage.setItem(
-      'company-hrm.session',
-      JSON.stringify({ id: 'corrections-test', refreshToken: 'refresh' }),
-    ),
+    localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'corrections-test' })),
   )
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const req = route.request(),
       path = new URL(req.url()).pathname
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path === '/api/v1/auth/me')
       return route.fulfill({
         json: {

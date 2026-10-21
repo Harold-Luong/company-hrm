@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 const employeeId = '550e8400-e29b-41d4-a716-446655440000'
@@ -32,10 +33,10 @@ async function setup(page, { linked = true, balanceHandler, listHandler } = {}) 
   )
   const calls = { balance: [], list: [] }
   await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const url = new URL(route.request().url())
     const path = url.pathname
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/me'))
       return route.fulfill({
         json: {
@@ -94,7 +95,7 @@ test('loads personal leave on demand, changes balance year and validates input',
   await expect(panel.getByText('2,5 ngày', { exact: true })).toBeVisible()
   await expect(panel.getByRole('listitem')).toContainText(/Buổi sáng\s+· 0,5 ngày/)
   expect(calls.balance).toEqual([{ year: '2026' }])
-  expect(calls.list).toEqual([{ status: '', page: '0', size: '5' }])
+  expect(calls.list).toEqual([{ page: '0', size: '5' }])
   await panel.getByLabel('Năm phép').fill('2025')
   await expect(panel.getByText('8 ngày', { exact: true })).toBeVisible()
   expect(calls.list).toHaveLength(1)

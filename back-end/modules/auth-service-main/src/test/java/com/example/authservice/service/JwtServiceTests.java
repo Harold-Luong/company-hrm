@@ -47,6 +47,7 @@ class JwtServiceTests {
         keys = new JwtKeys(properties);
         service = new JwtService(properties, keys);
         user = new User();
+        user.setActiveSessionId(UUID.randomUUID());
         user.setId(1L);
         user.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         user.setEmail("employee@example.com");
@@ -60,6 +61,7 @@ class JwtServiceTests {
         assertEquals("RS256", parsed.getHeader().getAlgorithm());
         var claims = parsed.getPayload();
         assertEquals("1", claims.getSubject());
+        assertEquals(user.getActiveSessionId().toString(), claims.get("sid", String.class));
         assertEquals(user.getEmployeeId().toString(), claims.get("employee_id", String.class));
         assertEquals(user.getEmail(), claims.get("email", String.class));
         assertEquals(List.of("EMPLOYEE", "HR"), claims.get("roles", List.class));
@@ -78,6 +80,7 @@ class JwtServiceTests {
         assertEquals("RS256", parsed.getHeader().getAlgorithm());
         var claims = service.verifyRefreshToken(result.getToken());
         assertEquals("1", claims.getSubject());
+        assertEquals(user.getActiveSessionId().toString(), claims.get("sid", String.class));
         assertEquals("refresh", claims.get("type", String.class));
         assertEquals(result.getSessionId().toString(), claims.getId());
         assertEquals(properties.getRefreshIssuer(), claims.getIssuer());

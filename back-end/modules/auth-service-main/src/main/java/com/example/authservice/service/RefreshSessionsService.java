@@ -58,8 +58,18 @@ public class RefreshSessionsService {
 
     @Transactional
     public void revokeAllRefreshSessionsByUserId(Long userId) {
-        lockUser(userId);
+        User user = lockUser(userId);
+        user.setActiveSessionId(null);
         refreshSessionsRepository.revokeAllByUserId(userId, Instant.now());
+    }
+
+    @Transactional(Transactional.TxType.MANDATORY)
+    public User requireCurrentSession(Long userId, UUID activeSessionId) {
+        User user = lockUser(userId);
+        if (activeSessionId == null || !activeSessionId.equals(user.getActiveSessionId())) {
+            throw new GlobalException("Session replaced or signed out", HttpStatus.UNAUTHORIZED);
+        }
+        return user;
     }
 
     private User lockUser(Long userId) {

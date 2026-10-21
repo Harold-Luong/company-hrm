@@ -1,5 +1,7 @@
 package com.company.calendar_service;
 
+import com.company.calendar_service.security.SessionVerifier;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -11,6 +13,7 @@ import java.util.Base64;
 
 /** Test-only keys generated in memory; no production key or Auth process is needed. */
 public abstract class JwtTestSupport {
+    @MockitoBean protected SessionVerifier sessionVerifier;
     protected static final KeyPair ACCESS_KEYS = generateKeyPair();
     private static final Path PUBLIC_KEY = writePublicKey();
 

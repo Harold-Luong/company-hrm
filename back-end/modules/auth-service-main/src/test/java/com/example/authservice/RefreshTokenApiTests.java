@@ -52,7 +52,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static com.example.authservice.CookieAuthTestSupport.post;
+import static com.example.authservice.CookieAuthTestSupport.refreshCookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -88,7 +89,7 @@ class RefreshTokenApiTests {
     void setUp() {
         sessions.deleteAll();
         users.deleteAll();
-        user = new User();
+        user = new User(); user.setActiveSessionId(java.util.UUID.randomUUID());
         user.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001001"));
         user.setEmail("refresh@example.com");
         user.setPasswordHash(passwordEncoder.encode("password123"));
@@ -109,17 +110,17 @@ class RefreshTokenApiTests {
 
     @Test
     void loginRefreshAndAccessProtectedEndpoint() throws Exception {
-        String login = mvc.perform(post("/api/v1/auth/login")
+        var login = mvc.perform(post("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(Map.of(
                         "email", user.getEmail(), "password", "password123"))))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String token = mapper.readTree(login).path("data").path("refreshToken").asString();
-        String response = mvc.perform(post("/api/v1/auth/refresh")
-                .contentType(MediaType.APPLICATION_JSON).content(body(token)))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        String token = login.getCookie("__Host-hrm-refresh").getValue();
+        var response = mvc.perform(post("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON).cookie(refreshCookie(token)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andReturn().getResponse().getContentAsString();
-        String accessToken = mapper.readTree(response).path("accessToken").asString();
+                .andReturn().getResponse();
+        String accessToken = mapper.readTree(response.getContentAsString()).path("accessToken").asString();
         Claims claims = jwtService.parseToken(accessToken);
         assertEquals(user.getId().toString(), claims.getSubject());
         assertEquals(user.getEmail(), claims.get("email", String.class));
@@ -128,11 +129,11 @@ class RefreshTokenApiTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.email").value(user.getEmail()));
 
         assertUnauthorized(token);
-        String replacement = mapper.readTree(response).path("refreshToken").asString();
+        String replacement = response.getCookie("__Host-hrm-refresh").getValue();
         assertNotEquals(token, replacement);
-        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body(replacement)))
+        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).cookie(refreshCookie(replacement)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.refeshToken").doesNotExist());
     }
 
@@ -152,7 +153,7 @@ class RefreshTokenApiTests {
         assertUnauthorized(refreshToken);
 
         mvc.perform(post("/api/v1/auth/logout").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(response.refreshToken())))
+                        .cookie(refreshCookie(response.refreshToken())))
                 .andExpect(status().isOk());
         assertUnauthorized(response.refreshToken());
     }
@@ -220,17 +221,14 @@ class RefreshTokenApiTests {
             assertTrue(releaseRotation.await(10, TimeUnit.SECONDS));
             return invocation.callRealMethod();
         }).when(jwtService).generateRefreshToken(any(User.class));
-        doAnswer(invocation -> {
-            logoutStarted.countDown();
-            return invocation.callRealMethod();
-        }).when(sessionsService).revokeAllRefreshSessionsByUserId(user.getId());
         var authentication = UsernamePasswordAuthenticationToken.authenticated(user.getId().toString(), null, List.of());
+        authentication.setDetails(user.getActiveSessionId());
 
         try (var executor = Executors.newFixedThreadPool(2)) {
             var rotation = executor.submit(() -> authService.refresh(refreshToken));
             try {
                 assertTrue(rotating.await(10, TimeUnit.SECONDS));
-                var logout = executor.submit(() -> authService.logoutAll(authentication));
+                var logout = executor.submit(() -> { logoutStarted.countDown(); authService.logoutAll(authentication); });
                 assertTrue(logoutStarted.await(10, TimeUnit.SECONDS));
                 assertThrows(TimeoutException.class, () -> logout.get(200, TimeUnit.MILLISECONDS));
                 releaseRotation.countDown();
@@ -263,6 +261,7 @@ class RefreshTokenApiTests {
             return invocation.callRealMethod();
         }).when(jwtService).verifyRefreshToken(refreshToken);
         var authentication = UsernamePasswordAuthenticationToken.authenticated(user.getId().toString(), null, List.of());
+        authentication.setDetails(user.getActiveSessionId());
 
         try (var executor = Executors.newFixedThreadPool(2)) {
             var logout = executor.submit(() -> authService.logoutAll(authentication));
@@ -289,7 +288,7 @@ class RefreshTokenApiTests {
                 .expiration(Date.from(Instant.now().minusSeconds(60)))
                 .signWith(jwtKeys.getAccess().getPrivate(), Jwts.SIG.RS256).compact();
         mvc.perform(post("/api/v1/auth/refresh").header("Authorization", "Bearer " + expiredAccess)
-                .contentType(MediaType.APPLICATION_JSON).content(body(refreshToken)))
+                .contentType(MediaType.APPLICATION_JSON).cookie(refreshCookie(refreshToken)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").isNotEmpty());
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + expiredAccess))
                 .andExpect(status().isUnauthorized());
@@ -298,9 +297,9 @@ class RefreshTokenApiTests {
     @ParameterizedTest
     @ValueSource(strings = { "{}", "{\"refreshToken\":null}", "{\"refreshToken\":\"\"}",
             "{\"refreshToken\":\"   \"}", "null", "{", "" })
-    void rejectsMissingOrMalformedRequest(String body) throws Exception {
+    void ignoresBodyAndRequiresRefreshCookie(String body) throws Exception {
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest
@@ -312,7 +311,7 @@ class RefreshTokenApiTests {
             case "expired" -> session.setExpiresAt(Instant.now().minusSeconds(60));
             case "wrong-hash" -> session.setTokenHash("0".repeat(64));
             case "wrong-user" -> {
-                User other = new User();
+                User other = new User(); other.setActiveSessionId(java.util.UUID.randomUUID());
                 other.setEmployeeId(UUID.fromString("550e8400-e29b-41d4-a716-000000001002"));
                 other.setEmail("other@example.com");
                 other.setPasswordHash(user.getPasswordHash());
@@ -331,7 +330,7 @@ class RefreshTokenApiTests {
     void rejectsInactiveUser() throws Exception {
         user.setActive(false);
         users.saveAndFlush(user);
-        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body(refreshToken)))
+        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).cookie(refreshCookie(refreshToken)))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").value("User is inactive"));
     }
 
@@ -373,7 +372,7 @@ class RefreshTokenApiTests {
     }
 
     private void assertUnauthorized(String token) throws Exception {
-        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body(token)))
+        mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).cookie(refreshCookie(token)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("401"))
                 .andExpect(jsonPath("$.message").value("Invalid refresh token"));

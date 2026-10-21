@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     activation_pending BOOLEAN NOT NULL DEFAULT FALSE,
     last_login_at TIMESTAMP(6) WITH TIME ZONE,
+    active_session_id UUID,
     created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP(6) WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT users_pending_inactive CHECK (NOT activation_pending OR NOT is_active),

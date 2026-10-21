@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GatewayApplicationTests {
     private static final KeyPair KEYS = keys();
     private static final AtomicInteger UPSTREAM_CALLS = new AtomicInteger();
+    private static final AtomicInteger SESSION_STATUS = new AtomicInteger(204);
     private static final HttpServer AUTH = backend("auth");
     private static final HttpServer EMPLOYEE = backend("employee");
     private static final HttpServer WORKFORCE = backend("workforce");
@@ -64,6 +65,7 @@ class GatewayApplicationTests {
 
     @BeforeEach
     void client() {
+        SESSION_STATUS.set(204);
         client = WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).build();
     }
 
@@ -112,10 +114,10 @@ class GatewayApplicationTests {
     }
 
     @Test
-    void refreshAcceptsExpiredAccessTokenWhileAuthValidatesRefreshBody() throws Exception {
+    void refreshAcceptsExpiredAccessTokenWhileAuthValidatesCookiesAndCsrf() throws Exception {
         String expired = sign(claims().expirationTime(Date.from(Instant.now().minusSeconds(60))), KEYS, JWSAlgorithm.RS256);
         client.post().uri("/api/v1/auth/refresh").headers(headers -> headers.setBearerAuth(expired))
-                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"refreshToken\":\"test\"}")
+                .cookie("__Host-hrm-refresh", "test").header("X-XSRF-TOKEN", "csrf")
                 .exchange().expectStatus().isOk().expectHeader().valueEquals("X-Test-Backend", "auth");
         client.get().uri("/api/v1/auth/me").headers(headers -> headers.setBearerAuth(expired))
                 .exchange().expectStatus().isUnauthorized();
@@ -161,7 +163,7 @@ class GatewayApplicationTests {
         int calls = UPSTREAM_CALLS.get();
         client.options().uri("/api/v1/calendar-events").header(HttpHeaders.ORIGIN, "https://hrm.example.com")
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type,if-match,idempotency-key")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type,if-match,idempotency-key,x-xsrf-token")
                 .exchange().expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://hrm.example.com");
         client.get().uri("/api/v1/employees").header(HttpHeaders.ORIGIN, "https://hrm.example.com")
@@ -198,6 +200,30 @@ class GatewayApplicationTests {
         client.get().uri(path).headers(headers -> headers.setBearerAuth(signUnchecked()))
                 .exchange().expectStatus().isForbidden();
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(calls);
+    }
+
+    @Test
+    void forwardsAuthCookiesAndCsrfButDoesNotLeakThemToOtherServices() {
+        client.get().uri("/api/v1/auth/csrf").exchange().expectStatus().isOk()
+                .expectHeader().valueEquals("X-Test-Backend", "auth");
+        client.post().uri("/api/v1/auth/refresh")
+                .cookie("__Host-hrm-refresh", "test-refresh")
+                .header("X-XSRF-TOKEN", "test-csrf")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals("X-Test-Cookie", "__Host-hrm-refresh=test-refresh")
+                .expectHeader().valueEquals("X-Test-CSRF", "test-csrf")
+                .expectHeader().valueEquals(HttpHeaders.SET_COOKIE,
+                        "__Host-hrm-refresh=rotated; Path=/; Secure; HttpOnly; SameSite=Strict");
+        client.get().uri("/api/v1/calendar").headers(headers -> headers.setBearerAuth(signUnchecked()))
+                .cookie("__Host-hrm-refresh", "test-refresh").header("X-XSRF-TOKEN", "test-csrf")
+                .exchange().expectStatus().isOk()
+                .expectHeader().doesNotExist("X-Test-Cookie")
+                .expectHeader().doesNotExist("X-Test-CSRF");
+        client.options().uri("/api/v1/auth/refresh").header(HttpHeaders.ORIGIN, "https://hrm.example.com")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "x-xsrf-token")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
     }
 
     @Test
@@ -246,6 +272,16 @@ class GatewayApplicationTests {
                 .exchange().expectStatus().isOk()
                 .expectHeader().valueEquals("X-Test-Backend", backend)
                 .expectBody(String.class).isEqualTo("/api/v1/" + service + "/health-check|");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 500, 302})
+    void revokedSessionsAndAuthFailuresNeverReachTheBusinessService(int authStatus) {
+        SESSION_STATUS.set(authStatus);
+        int calls = UPSTREAM_CALLS.get();
+        client.get().uri("/api/v1/employees").headers(headers -> headers.setBearerAuth(signUnchecked()))
+                .exchange().expectStatus().isEqualTo(authStatus == 401 || authStatus == 403 ? 401 : 503);
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(calls);
     }
 
     private static JWTClaimsSet.Builder claims() {
@@ -297,6 +333,11 @@ class GatewayApplicationTests {
         try {
             var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/", exchange -> {
+                if (name.equals("auth") && exchange.getRequestURI().getPath().equals("/api/v1/auth/session")) {
+                    exchange.sendResponseHeaders(SESSION_STATUS.get(), -1);
+                    exchange.close();
+                    return;
+                }
                 UPSTREAM_CALLS.incrementAndGet();
                 var incoming = exchange.getRequestHeaders();
                 var outgoing = exchange.getResponseHeaders();
@@ -314,6 +355,10 @@ class GatewayApplicationTests {
                         outgoing.set("X-Test-" + header.replace("X-", ""), incoming.getFirst(header));
                     }
                 }
+                if (incoming.getFirst("Cookie") != null) outgoing.set("X-Test-Cookie", incoming.getFirst("Cookie"));
+                if (incoming.getFirst("X-XSRF-TOKEN") != null) outgoing.set("X-Test-CSRF", incoming.getFirst("X-XSRF-TOKEN"));
+                if (name.equals("auth") && exchange.getRequestURI().getPath().equals("/api/v1/auth/refresh"))
+                    outgoing.add("Set-Cookie", "__Host-hrm-refresh=rotated; Path=/; Secure; HttpOnly; SameSite=Strict");
                 boolean untrusted = List.of("Forwarded", "X-Forwarded-Host", "X-Real-IP", "X-User-Id", "X-Employee-Id", "X-Roles", "Origin")
                         .stream().anyMatch(incoming::containsKey);
                 outgoing.set("X-Test-Untrusted", String.valueOf(untrusted));

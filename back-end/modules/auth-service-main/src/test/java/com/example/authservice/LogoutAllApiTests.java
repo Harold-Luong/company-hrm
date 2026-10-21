@@ -27,7 +27,8 @@ import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static com.example.authservice.CookieAuthTestSupport.post;
+import static com.example.authservice.CookieAuthTestSupport.refreshCookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,7 +61,7 @@ class LogoutAllApiTests {
     }
 
     @Test
-    void revokesOnlyAuthenticatedUsersSessionsAndAllowsRetry() throws Exception {
+    void revokesOnlyAuthenticatedUsersSessionsAndInvalidatesAccess() throws Exception {
         String accessToken = jwtService.generateAccessToken(user);
         mvc.perform(post("/api/v1/auth/logout-all").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
@@ -70,22 +71,22 @@ class LogoutAllApiTests {
         assertNotNull(sessions.findById(secondSession.getSessionId()).orElseThrow().getRevokedAt());
         assertNull(sessions.findById(otherUserSession.getSessionId()).orElseThrow().getRevokedAt());
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(firstSession.getToken())))
+                        .cookie(refreshCookie(firstSession.getToken())))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(secondSession.getToken())))
+                        .cookie(refreshCookie(secondSession.getToken())))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(otherUserSession.getToken())))
+                        .cookie(refreshCookie(otherUserSession.getToken())))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/v1/auth/logout-all").header("Authorization", "Bearer " + accessToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void refreshTokenInBodyDoesNotAuthenticateLogoutAll() throws Exception {
+    void refreshCookieDoesNotAuthenticateLogoutAll() throws Exception {
         mvc.perform(post("/api/v1/auth/logout-all").contentType(MediaType.APPLICATION_JSON)
-                        .content(body(firstSession.getToken())))
+                        .cookie(refreshCookie(firstSession.getToken())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("Authentication is required"));
         assertNoSessionsRevoked();
@@ -111,7 +112,7 @@ class LogoutAllApiTests {
     }
 
     private User createUser(String email, UUID employeeId) {
-        User result = new User();
+        User result = new User(); result.setActiveSessionId(java.util.UUID.randomUUID());
         result.setEmployeeId(employeeId);
         result.setEmail(email);
         result.setPasswordHash("unused-in-token-authentication-tests");

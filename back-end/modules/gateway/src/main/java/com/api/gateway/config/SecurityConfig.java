@@ -1,6 +1,10 @@
 package com.api.gateway.config;
 
 import com.api.gateway.security.AccessTokenClaimsValidator;
+import com.api.gateway.security.SessionVerifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,6 +42,11 @@ import java.util.List;
 @EnableConfigurationProperties({ JwtProperties.class, CorsProperties.class })
 public class SecurityConfig {
     @Bean
+    SessionVerifier sessionVerifier(@Value("${AUTH_SERVICE_URL:http://localhost:8081}") String authServiceUrl) {
+        return new SessionVerifier(authServiceUrl);
+    }
+
+    @Bean
     ReactiveJwtDecoder jwtDecoder(JwtProperties properties) throws IOException {
         try (var input = properties.accessPublicKey().getInputStream()) {
             var key = RsaKeyConverters.x509().convert(input);
@@ -55,37 +64,36 @@ public class SecurityConfig {
         }
     }
 
-    // Auth validates refresh tokens in the body; an expired access token in
+    // Auth validates refresh cookies and CSRF headers; an expired access token in
     // Authorization must not prevent obtaining a new one.
     @Bean
     @Order(0)
     SecurityWebFilterChain refreshSecurity(ServerHttpSecurity http, CorsConfigurationSource cors) {
         return stateless(http, cors)
-                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/v1/auth/refresh"))
+                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, SecurityPaths.REFRESH))
                 .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
                 .build();
     }
 
     @Bean
     @Order(1)
-    SecurityWebFilterChain apiSecurity(ServerHttpSecurity http, CorsConfigurationSource cors) {
+    SecurityWebFilterChain apiSecurity(ServerHttpSecurity http, CorsConfigurationSource cors, SessionVerifier sessions) {
         return stateless(http, cors)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers(HttpMethod.GET, "/actuator/health", "/activate",
-                                "/activation/index.html")
+                        .pathMatchers(HttpMethod.GET, SecurityPaths.PUBLIC_GET.toArray(String[]::new))
                         .permitAll()
-                        .pathMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/logout",
-                                "/api/v1/auth/activate")
+                        .pathMatchers(HttpMethod.POST, SecurityPaths.PUBLIC_POST.toArray(String[]::new))
                         .permitAll()
-                        .pathMatchers("/api/v1/auth/**", "/api/v1/employees/**", "/api/v1/departments/**",
-                                "/api/v1/positions/**", "/api/v1/calendar/**", "/api/v1/calendar-events/**",
-                                "/api/v1/leave/**", "/api/v1/attendance/**", "/api/v1/notifications", "/api/v1/notifications/**")
+                        .pathMatchers(SecurityPaths.AUTHENTICATED.toArray(String[]::new))
                         .authenticated()
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(resource -> resource
-                        .jwt(jwt -> {
-                        })
-                        .authenticationEntryPoint((exchange, exception) -> problem(exchange, HttpStatus.UNAUTHORIZED))
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> sessions.verify(token.getTokenValue())
+                                .then(new ReactiveJwtAuthenticationConverter().convert(token))))
+                        .authenticationEntryPoint((exchange, exception) -> problem(exchange,
+                                exception instanceof OAuth2AuthenticationException oauth
+                                        && "temporarily_unavailable".equals(oauth.getError().getErrorCode())
+                                        ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.UNAUTHORIZED))
                         .accessDeniedHandler((exchange, exception) -> problem(exchange, HttpStatus.FORBIDDEN)))
                 .build();
     }
@@ -107,9 +115,10 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         var configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.allowedOrigins());
+        configuration.setAllowCredentials(true);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept",
-                "If-Match", "If-None-Match", "Idempotency-Key"));
+                "If-Match", "If-None-Match", "Idempotency-Key", "X-XSRF-TOKEN"));
         configuration.setExposedHeaders(List.of("ETag", "Location", "Retry-After", "WWW-Authenticate"));
         configuration.setMaxAge(3600L);
         var source = new UrlBasedCorsConfigurationSource();

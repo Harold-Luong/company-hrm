@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 const token = 'a'.repeat(43)
@@ -17,7 +18,8 @@ test('public activation clears the URL, submits once and links to login after su
   await context.addCookies([
     { name: 'unrelated-session', value: 'cookie', url: 'http://127.0.0.1:5174' },
   ])
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     requests.push(route.request())
     await route.fulfill({ json: { message: 'Account activated successfully' } })
   })
@@ -48,12 +50,10 @@ test('public activation clears the URL, submits once and links to login after su
 test('activation does not initialize a stale login session', async ({ page }) => {
   const requests = []
   await page.addInitScript(() => {
-    localStorage.setItem(
-      'company-hrm.session',
-      JSON.stringify({ id: 'old', refreshToken: 'expired' }),
-    )
+    localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'old' }))
   })
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     requests.push(route.request().url())
     await route.fulfill({ status: 503, json: { message: 'Unavailable' } })
   })
@@ -75,7 +75,8 @@ for (const query of ['', '?token=invalid', `?token=${token}&token=${token}`]) {
 
 test('validates confirmation and UTF-8 length without submitting', async ({ page }) => {
   const requests = []
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     requests.push(route.request())
     await route.abort()
   })

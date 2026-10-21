@@ -46,4 +46,7 @@ public class User extends AuditableEntity {
 
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
+
+    @Column(name = "active_session_id")
+    private UUID activeSessionId;
 }

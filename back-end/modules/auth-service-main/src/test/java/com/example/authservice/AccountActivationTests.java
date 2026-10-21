@@ -27,6 +27,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static com.example.authservice.CookieAuthTestSupport.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {"hrm.events.enabled=true", "hrm.events.publisher-enabled=false", "hrm.events.listeners-enabled=false",
@@ -204,7 +205,7 @@ class AccountActivationTests {
     }
 
     private String bearer(UserRole role) {
-        var user = new User(); user.setEmployeeId(UUID.randomUUID()); user.setEmail(role.name().toLowerCase() + "@example.com");
+        var user = new User(); user.setActiveSessionId(java.util.UUID.randomUUID()); user.setEmployeeId(UUID.randomUUID()); user.setEmail(role.name().toLowerCase() + "@example.com");
         user.setPasswordHash("unused"); user.setRoles(Set.of(role)); user.setActive(true);
         return "Bearer " + jwt.generateAccessToken(users.saveAndFlush(user));
     }

@@ -9,21 +9,23 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 import jakarta.annotation.PreDestroy;
+import com.company.notification.security.SessionVerifier;
 @Component
 public class NotificationStreams {
  private final Notifications notifications;
  private final AccountResults accountResults;
+ private final SessionVerifier sessions;
  private final java.util.Set<Client> clients = ConcurrentHashMap.newKeySet();
  private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
  private static class Client {
-   final Notifications.Actor actor; final Instant expires; final SseEmitter emitter;
+   final Notifications.Actor actor; final Instant expires; final SseEmitter emitter; final String accessToken;
    final AtomicBoolean busy = new AtomicBoolean();
    Notifications.Snapshot last;
    long accountCursor;
    boolean accountStarted;
-   Client(Notifications.Actor actor, Instant expires) { this.actor=actor; this.expires=expires; this.emitter=new SseEmitter(65000L); }
+   Client(Notifications.Actor actor, Instant expires, String accessToken) { this.actor=actor; this.expires=expires; this.accessToken=accessToken; this.emitter=new SseEmitter(65000L); }
  }
- public NotificationStreams(Notifications notifications, AccountResults accountResults) { this.notifications=notifications; this.accountResults=accountResults; }
+ public NotificationStreams(Notifications notifications, AccountResults accountResults, SessionVerifier sessions) { this.notifications=notifications; this.accountResults=accountResults; this.sessions=sessions; }
  public synchronized SseEmitter open(JwtAuthenticationToken token, Long accountAfter) {
    var actor=Notifications.actor(token);
    if (clients.size() >= 500 || clients.stream().filter(c->c.actor.userId().equals(actor.userId())).count() >= 8)
@@ -32,7 +34,7 @@ public class NotificationStreams {
    if (expires == null || !expires.isAfter(Instant.now())) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
    // Periodically reauthenticate roles; never keep streaming beyond JWT expiry.
    if (expires.isAfter(Instant.now().plusSeconds(60))) expires=Instant.now().plusSeconds(60);
-   var client=new Client(actor, expires);
+   var client=new Client(actor, expires, token.getToken().getTokenValue());
    if (actor.reviewer()) client.accountCursor=accountAfter == null ? accountResults.latest(actor) : accountAfter;
    clients.add(client);
    client.emitter.onCompletion(()->clients.remove(client));
@@ -47,6 +49,7 @@ public class NotificationStreams {
      executor.submit(()->{
        try {
          if (!Instant.now().isBefore(client.expires)) { clients.remove(client); client.emitter.complete(); return; }
+         sessions.verify(client.accessToken);
          var snapshot=notifications.snapshot(client.actor);
          if (!snapshot.equals(client.last)) {
            client.emitter.send(SseEmitter.event().name("notifications").data(snapshot));

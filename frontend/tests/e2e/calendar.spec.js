@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 async function setup(
@@ -8,17 +9,15 @@ async function setup(
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
   await page.addInitScript(() => {
     if (!localStorage.getItem('company-hrm.session'))
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'test' }))
   })
   const unexpected = []
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const url = new URL(route.request().url())
     const path = url.pathname
     let body
-    if (path.endsWith('/refresh')) body = { accessToken: 'access', refreshToken: 'refresh' }
+    if (path.endsWith('/refresh')) body = { accessToken: 'access' }
     else if (path.endsWith('/me'))
       body = { id: 1, email: 'member@company.com', roles: [role], active: true }
     else if (path.endsWith('/pending-count')) body = { count: 0 }

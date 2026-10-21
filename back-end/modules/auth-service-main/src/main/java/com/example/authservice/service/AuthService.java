@@ -78,7 +78,7 @@ public class AuthService {
             throw e;
         }
 
-        Optional<User> user = userRepository.findByEmail(email);
+        Optional<User> user = userRepository.findByEmailForUpdate(email);
         if (user.isEmpty()) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.UNKNOWN_ACCOUNT);
             throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
@@ -97,6 +97,10 @@ public class AuthService {
             throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
 
+        // Serialize login/refresh/logout on the same account. Replacement and token
+        // creation commit together; a failed login leaves the previous session valid.
+        sessionsService.revokeAllRefreshSessionsByUserId(user.get().getId());
+        user.get().setActiveSessionId(UUID.randomUUID());
         String accessToken = jwtService.generateAccessToken(user.get());
 
         JwtService.RefreshTokenResult refreshTokenResult = jwtService.generateRefreshToken(user.get());
@@ -134,21 +138,25 @@ public class AuthService {
         }
 
         UUID sessionId;
+        UUID activeSessionId;
         Long userId;
         try {
             Claims claims = jwtService.verifyRefreshToken(refreshToken);
             if (claims.getId() == null || claims.getSubject() == null
+                    || claims.get("sid", String.class) == null
                     || claims.getExpiration() == null
                     || !claims.getExpiration().toInstant().isAfter(Instant.now())) {
                 throw new IllegalArgumentException("Missing or expired refresh token claims");
             }
             sessionId = UUID.fromString(claims.getId());
+            activeSessionId = UUID.fromString(claims.get("sid", String.class));
             userId = Long.valueOf(claims.getSubject());
         } catch (JwtException | IllegalArgumentException e) {
             throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
         }
 
         User user = sessionsService.validateRefreshSession(sessionId, userId, hashToken(refreshToken));
+        sessionsService.requireCurrentSession(userId, activeSessionId);
         if (!user.isActive() || user.isActivationPending()) {
             throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
         }
@@ -182,21 +190,25 @@ public class AuthService {
             throw new GlobalException("Refresh token is required", HttpStatus.BAD_REQUEST);
         }
         UUID sessionId;
+        UUID activeSessionId;
         Long userId;
         try {
             Claims claims = jwtService.verifyRefreshToken(request.refreshToken());
             if (claims.getId() == null || claims.getSubject() == null
+                    || claims.get("sid", String.class) == null
                     || claims.getExpiration() == null
                     || !claims.getExpiration().toInstant().isAfter(Instant.now())) {
                 throw new IllegalArgumentException("Missing or expired refresh token claims");
             }
             sessionId = UUID.fromString(claims.getId());
+            activeSessionId = UUID.fromString(claims.get("sid", String.class));
             userId = Long.valueOf(claims.getSubject());
         } catch (JwtException | IllegalArgumentException e) {
             throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
         }
         sessionsService.validateRefreshSession(sessionId, userId, hashToken(request.refreshToken()));
-        sessionsService.revokeRefreshSession(sessionId);
+        sessionsService.requireCurrentSession(userId, activeSessionId);
+        sessionsService.revokeAllRefreshSessionsByUserId(userId);
     }
 
     @Transactional
@@ -211,6 +223,8 @@ public class AuthService {
         } catch (NumberFormatException e) {
             throw new GlobalException("Invalid user ID in authentication", HttpStatus.UNAUTHORIZED);
         }
+        UUID activeSessionId = authentication.getDetails() instanceof UUID id ? id : null;
+        sessionsService.requireCurrentSession(userId, activeSessionId);
         sessionsService.revokeAllRefreshSessionsByUserId(userId);
     }
 

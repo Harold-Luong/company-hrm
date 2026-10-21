@@ -8,7 +8,9 @@ import org.springframework.web.server.ServerWebExchange;
 
 import java.util.Locale;
 
-/** Only the TCP peer at this public edge may supply the downstream client IP. */
+/**
+ * Only the TCP peer at this public edge may supply the downstream client IP.
+ */
 @Component
 public class EdgeHeadersFilter implements HttpHeadersFilter, Ordered {
     @Override
@@ -29,6 +31,11 @@ public class EdgeHeadersFilter implements HttpHeadersFilter, Ordered {
                     || lower.equals("x-employee-id") || lower.equals("x-roles");
         }).toList();
         untrusted.forEach(headers::remove);
+        // Host-prefixed cookies use Path=/; only Auth needs browser credentials.
+        if (!exchange.getRequest().getPath().value().startsWith("/api/v1/auth/")) {
+            headers.remove(HttpHeaders.COOKIE);
+            headers.remove("X-XSRF-TOKEN");
+        }
         if (peer != null && peer.getAddress() != null) {
             headers.set("X-Forwarded-For", peer.getAddress().getHostAddress());
         }

@@ -1,8 +1,10 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, authRequest, apiRequest } from './api.js'
+import { cookieAuthRequest, csrfSession } from './cookies.js'
 const storageKey = 'company-hrm.session'
+const signedOutKey = 'company-hrm.signed-out'
 const lockName = 'company-hrm.session-mutation'
-const state = reactive({ user: null, initialized: false, signingOut: false })
+const state = reactive({ user: null, initialized: false, signingOut: false, sessionEnded: false })
 let accessToken = null
 let session = readSession()
 let revision = 0
@@ -15,13 +17,17 @@ function readSession() {
     if (!value) return null
     try {
         const stored = JSON.parse(value)
-        return typeof stored?.id === 'string' &&
-            typeof stored?.refreshToken === 'string' &&
-            stored.id &&
-            stored.refreshToken
-            ? stored
-            : null
+        if (typeof stored?.id !== 'string' || !stored.id) {
+            localStorage.removeItem(storageKey)
+            return null
+        }
+        // Remove legacy refresh credentials during migration. Never send them again.
+        const metadata = { id: stored.id }
+        if (value !== JSON.stringify(metadata))
+            localStorage.setItem(storageKey, JSON.stringify(metadata))
+        return metadata
     } catch {
+        localStorage.removeItem(storageKey)
         return null
     }
 }
@@ -50,13 +56,14 @@ window.addEventListener('storage', (event) => {
 })
 window.addEventListener('focus', syncSession)
 function storeTokens(tokens, id = session?.id) {
-    if (!tokens.accessToken || !tokens.refreshToken) throw new ApiError(502, 'Invalid token response')
+    if (!tokens.accessToken) throw new ApiError(502, 'Invalid token response')
     // One atomic record identifies the login separately from its rotating token.
-    localStorage.setItem(storageKey, JSON.stringify({ id, refreshToken: tokens.refreshToken }))
+    localStorage.setItem(storageKey, JSON.stringify({ id }))
     syncSession()
     accessToken = tokens.accessToken
 }
-function clearSession() {
+function clearSession(ended = false) {
+    state.sessionEnded = ended
     localStorage.removeItem(storageKey)
     syncSession()
     revision += 1
@@ -73,18 +80,14 @@ async function refresh() {
     const currentRevision = revision
     refreshing = withSessionLock(async () => {
         assertRevision(currentRevision)
-        // Read after acquiring the lock: another tab may have rotated the token.
-        const token = session.refreshToken
         try {
-            const tokens = await authRequest('/refresh', {
-                method: 'POST',
-                body: JSON.stringify({ refreshToken: token }),
-            })
+            // The browser sends the latest rotated cookie after acquiring the lock.
+            const tokens = await cookieAuthRequest('/refresh', { method: 'POST' })
             assertRevision(currentRevision)
             storeTokens(tokens)
         } catch (error) {
             syncSession()
-            if (currentRevision === revision && isSessionRejected(error)) clearSession()
+            if (currentRevision === revision && isSessionRejected(error)) clearSession(true)
             throw error
         }
     }).finally(() => {
@@ -127,7 +130,7 @@ async function authorizedRequest(path, init = {}, request = authRequest) {
                 retryError instanceof ApiError &&
                 retryError.status === 401
             )
-                clearSession()
+                clearSession(true)
             throw retryError
         }
     }
@@ -141,11 +144,11 @@ async function loadUser() {
         if (!user.active) throw new ApiError(403, 'User is inactive')
         if (!Array.isArray(user.roles) || typeof user.email !== 'string')
             throw new ApiError(502, 'Invalid user response')
-        assertRevision(currentRevision) 
+        assertRevision(currentRevision)
         state.user = user
     } catch (error) {
         syncSession()
-        if (currentRevision === revision && isSessionRejected(error)) clearSession()
+        if (currentRevision === revision && isSessionRejected(error)) clearSession(true)
         throw error
     }
 }
@@ -155,6 +158,17 @@ async function initialize() {
     if (initializing) return initializing
     initializing = (async () => {
         try {
+            if (!session && !localStorage.getItem(signedOutKey)) {
+                await withSessionLock(async () => {
+                    syncSession()
+                    if (session || localStorage.getItem(signedOutKey)) return
+                    const csrf = await csrfSession()
+                    if (csrf.sessionPresent) {
+                        localStorage.setItem(storageKey, JSON.stringify({ id: crypto.randomUUID() }))
+                        syncSession()
+                    }
+                })
+            }
             if (session) await loadUser()
             state.initialized = true
         } catch (error) {
@@ -168,11 +182,13 @@ async function initialize() {
 }
 async function login(email, password) {
     await withSessionLock(async () => {
-        const response = await authRequest('/login', {
+        const response = await cookieAuthRequest('/login', {
             method: 'POST',
             body: JSON.stringify({ email: email.trim(), password }),
         })
+        localStorage.removeItem(signedOutKey)
         storeTokens(response.data, crypto.randomUUID())
+        state.sessionEnded = false
     })
     const currentRevision = revision
     try {
@@ -184,15 +200,32 @@ async function login(email, password) {
         throw error
     }
 }
+async function checkSession() {
+    syncSession()
+    if (!state.user || state.signingOut) return
+    const currentRevision = revision
+    try {
+        await authorizedRequest('/session')
+    } catch (error) {
+        syncSession()
+        if (currentRevision === revision && isSessionRejected(error)) clearSession(true)
+        throw error
+    }
+}
 async function logout(allSessions = false) {
     if (state.signingOut) return
     syncSession()
     const currentRevision = revision
-    // Finish any rotation so logout revokes the latest refresh token.
     if (refreshing) await refreshing.catch(() => undefined)
     if (allSessions) {
-        await authorizedRequest('/logout-all', { method: 'POST' })
+        await authorizedRequest('/logout-all', { method: 'POST' }, (path, init) =>
+            withSessionLock(() => {
+                assertRevision(currentRevision)
+                return cookieAuthRequest(path, init)
+            }),
+        )
         assertRevision(currentRevision)
+        localStorage.setItem(signedOutKey, '1')
         clearSession()
         return
     }
@@ -200,17 +233,16 @@ async function logout(allSessions = false) {
     try {
         await withSessionLock(async () => {
             assertRevision(currentRevision)
-            const token = session?.refreshToken
+            // An offline logout cannot delete HttpOnly cookies. Suppress automatic
+            // restoration until an explicit login succeeds, including after reload.
+            localStorage.setItem(signedOutKey, '1')
             clearSession()
-            if (token)
-                await authRequest('/logout', {
-                    method: 'POST',
-                    body: JSON.stringify({ refreshToken: token }),
-                })
+            await cookieAuthRequest('/logout', { method: 'POST' })
         })
     } catch (error) {
-        // An expired/revoked refresh session is already signed out.
-        if (!isSessionRejected(error)) throw error
+        // Only an already invalid credential counts as a completed logout.
+        // A CSRF rejection must remain visible: the server has not revoked the cookie.
+        if (!(error instanceof ApiError) || error.status !== 401) throw error
     } finally {
         state.signingOut = false
     }
@@ -229,6 +261,7 @@ export const auth = {
     login,
     logout,
     loadUser,
+    checkSession,
     register,
     request: (path, init) => authorizedRequest(path, init, apiRequest),
 }

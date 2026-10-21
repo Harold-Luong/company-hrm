@@ -47,6 +47,17 @@ class JwtSecurityTests extends JwtTestSupport {
     @Autowired private tools.jackson.databind.ObjectMapper mapper;
 
     @ParameterizedTest
+    @ValueSource(strings = {"invalid_token", "temporarily_unavailable"})
+    void checksTheCurrentSessionEvenWhenCallingEmployeeDirectly(String errorCode) throws Exception {
+        String token = sign(claims());
+        org.mockito.Mockito.doThrow(new org.springframework.security.oauth2.core.OAuth2AuthenticationException(
+                new org.springframework.security.oauth2.core.OAuth2Error(errorCode)))
+                .when(sessionVerifier).verify(token);
+        mvc.perform(get("/api/v1/employees/" + EMPLOYEE_ID).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().is("temporarily_unavailable".equals(errorCode) ? 503 : 401));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"EMPLOYEE", "MANAGER", "HR"})
     void onlyAdminCanRequestAccountCreation(String role) throws Exception {
         mvc.perform(post("/api/v1/employees/" + EMPLOYEE_ID + "/account-requests")

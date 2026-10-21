@@ -85,7 +85,13 @@ describe('authenticated calendar API', () => {
         new Response(JSON.stringify({ accessToken: 'access', refreshToken: 'rotated' })),
       )
       .mockResolvedValueOnce(response)
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', (url, init) =>
+      url.endsWith('/csrf')
+        ? Promise.resolve(
+            new Response(JSON.stringify({ token: 'test-csrf', headerName: 'X-XSRF-TOKEN' })),
+          )
+        : fetchMock(url, init),
+    )
     return fetchMock
   }
   afterEach(() => vi.unstubAllGlobals())

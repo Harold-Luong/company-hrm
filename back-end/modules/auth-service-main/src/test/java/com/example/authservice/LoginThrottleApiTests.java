@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static com.example.authservice.CookieAuthTestSupport.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {
@@ -60,7 +60,7 @@ class LoginThrottleApiTests {
         users.deleteAll();
         int id = sequence.incrementAndGet();
         ip = "192.0.2." + id;
-        user = new User();
+        user = new User(); user.setActiveSessionId(java.util.UUID.randomUUID());
         user.setEmployeeId(UUID.randomUUID());
         user.setEmail("throttle" + id + "@example.com");
         user.setPasswordHash(encoder.encode("correct-secret"));

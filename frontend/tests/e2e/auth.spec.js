@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 const baseUser = {
   id: 7,
@@ -45,6 +46,7 @@ async function mockAuth(page, roles = ['ADMIN']) {
     logoutAllCount: 0,
   }
   await page.route('**/api/v1/auth/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const endpoint = new URL(route.request().url()).pathname.split('/').pop()
     let status = 200
     let body = { message: 'OK' }
@@ -58,9 +60,8 @@ async function mockAuth(page, roles = ['ADMIN']) {
               data: {
                 tokenType: 'Bearer',
                 accessToken: 'access-token',
-                refreshToken: 'refresh-token',
+
                 accessTokenExpiresIn: 900,
-                refreshTokenExpiresIn: 604800,
               },
             }
           : {
@@ -82,7 +83,7 @@ async function mockAuth(page, roles = ['ADMIN']) {
     if (endpoint === 'refresh') {
       state.refreshCount++
       status = state.refreshStatus
-      body = { accessToken: 'rotated-access', refreshToken: 'rotated-refresh' }
+      body = { accessToken: 'rotated-access' }
     }
     if (endpoint === 'register') {
       state.registerBody = route.request().postDataJSON()
@@ -115,6 +116,7 @@ test('protected deep link returns to the page after login, restores on reload, t
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Tạo tài khoản', exact: true })).toBeVisible()
   expect(state.refreshCount).toBe(1)
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Đăng nhập workspace' })).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('company-hrm.session'))).toBeNull()
@@ -141,7 +143,7 @@ for (const roles of [['ADMIN'], ['EMPLOYEE', 'ADMIN'], ['HR', 'ADMIN']]) {
     await page.getByLabel('Email công việc', { exact: false }).fill('new@company.com')
     await page.getByLabel('Mật khẩu ban đầu', { exact: false }).fill('new-password')
     await page.getByLabel('UUID liên kết', { exact: false }).fill(baseUser.employeeId)
-    await page.getByRole('checkbox', { name: /^Quản lý Vai trò quản lý của doanh nghiệp/ }).check()
+    await page.getByRole('checkbox', { name: /^Quản lý(?:\s|$)/ }).check()
     await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click()
     await expect(page.getByRole('status')).toContainText(
       'Đã tạo tài khoản new@company.com thành công.',

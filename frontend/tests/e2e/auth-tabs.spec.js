@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 const user = {
@@ -21,25 +22,50 @@ async function setup(context, page) {
       },
     }),
   )
-  const state = { token: null, version: 0, expiredThrough: -1, used: [], logoutToken: null }
+  const state = {
+    token: null,
+    version: 0,
+    expiredThrough: -1,
+    used: [],
+    rejected: [],
+    logoutToken: null,
+  }
   const issue = () => {
     state.version++
     state.token = `refresh-${state.version}`
-    return { accessToken: `access-${state.version}`, refreshToken: state.token }
+    return { accessToken: `access-${state.version}` }
   }
   await context.route('**/api/v1/auth/**', async (route) => {
+    if (isCsrfRequest(route))
+      return route.fulfill({
+        json: { ...csrfResponse, sessionPresent: !!state.token },
+        headers: { 'Set-Cookie': 'hrm-csrf-dev=test-csrf; HttpOnly; SameSite=Strict; Path=/' },
+      })
     const request = route.request()
     const endpoint = new URL(request.url()).pathname.split('/').pop()
-    if (endpoint === 'login') return route.fulfill({ json: { data: issue() } })
+    const cookie = (value) =>
+      `hrm-refresh-dev=${value}; HttpOnly; SameSite=Strict; Path=/${value ? '' : '; Max-Age=0'}`
+    if (request.method() === 'POST') {
+      expect(request.headers()['x-xsrf-token']).toBe('test-csrf')
+      expect(await request.headerValue('cookie')).toContain('hrm-csrf-dev=test-csrf')
+    }
+    if (endpoint === 'login')
+      return route.fulfill({
+        json: { data: issue() },
+        headers: { 'Set-Cookie': cookie(state.token) },
+      })
     if (endpoint === 'refresh') {
-      const token = request.postDataJSON().refreshToken
-      state.used.push(token)
-      if (!state.token || token !== state.token)
+      expect(request.postData()).toBeNull()
+      const token = (await request.headerValue('cookie'))?.match(/hrm-refresh-dev=([^;]+)/)?.[1]
+      if (!state.token || token !== state.token) {
+        state.rejected.push(token)
         return route.fulfill({ status: 401, json: { message: 'Invalid refresh token' } })
+      }
+      state.used.push(token)
       // Rotate before replying, like the real backend's single-use token contract.
       const tokens = issue()
       if (state.beforeRefreshReply) await state.beforeRefreshReply()
-      return route.fulfill({ json: tokens })
+      return route.fulfill({ json: tokens, headers: { 'Set-Cookie': cookie(state.token) } })
     }
     if (endpoint === 'me') {
       const version = Number(request.headers().authorization?.replace('Bearer access-', ''))
@@ -49,9 +75,15 @@ async function setup(context, page) {
       return route.fulfill({ json: user })
     }
     if (endpoint === 'logout' || endpoint === 'logout-all') {
-      if (endpoint === 'logout') state.logoutToken = request.postDataJSON().refreshToken
+      if (endpoint === 'logout')
+        state.logoutToken = (await request.headerValue('cookie'))?.match(
+          /hrm-refresh-dev=([^;]+)/,
+        )?.[1]
       state.token = null
-      return route.fulfill({ json: { message: 'Logged out' } })
+      return route.fulfill({
+        json: { message: 'Logged out' },
+        headers: { 'Set-Cookie': cookie('') },
+      })
     }
     return route.fulfill({ json: { message: 'OK' } })
   })
@@ -92,6 +124,14 @@ test('new tabs share login and simultaneous refreshes use distinct current token
   ])
   expect(new Set(state.used).size).toBe(state.used.length)
   expect(state.used).toHaveLength(5)
+  expect(state.rejected).toEqual([])
+  expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(
+    'refresh-',
+  )
+  expect(await page.evaluate(() => document.cookie)).not.toContain('hrm-refresh-dev')
+  expect(
+    (await context.cookies()).find((cookie) => cookie.name === 'hrm-refresh-dev')?.httpOnly,
+  ).toBe(true)
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
 })
@@ -155,6 +195,7 @@ test('an old profile response cannot restore a tab after logout elsewhere', asyn
     })
   const pending = loadUser(second)
   await expect.poll(() => typeof release).toBe('function')
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('company-hrm.session')))
@@ -164,4 +205,27 @@ test('an old profile response cannot restore a tab after logout elsewhere', asyn
   expect(await pending).toBe(false)
   await expect(second).toHaveURL(/\/login/)
   expect(await second.evaluate(() => localStorage.getItem('company-hrm.session'))).toBeNull()
+})
+
+test('cookie session restores after storage is cleared; offline logout remains signed out on reload', async ({
+  context,
+  page,
+}) => {
+  const state = await setup(context, page)
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Hồ sơ của tôi', exact: true })).toBeVisible()
+  await page.route('**/api/v1/auth/logout', (route) => route.abort())
+  await page.evaluate(async () => {
+    const { auth } = await import('/src/auth/session.js')
+    try {
+      await auth.logout()
+    } catch {
+      /* offline */
+    }
+  })
+  expect(state.token).not.toBeNull()
+  await page.reload()
+  await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByRole('heading', { name: 'Đăng nhập workspace' })).toBeVisible()
 })

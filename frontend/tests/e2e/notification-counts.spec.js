@@ -1,13 +1,11 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 
 async function setup(page, role = 'HR', stream = true) {
   const state = { attendance: 1, leave: 2, failLeave: false, reads: [] }
   await page.addInitScript(
     ({ stream }) => {
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'test' }))
       const originalFetch = window.fetch
       window.notificationConnections = 0
       window.fetch = (url, init) => {
@@ -34,11 +32,11 @@ async function setup(page, role = 'HR', stream = true) {
     },
     { stream },
   )
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const path = new URL(route.request().url()).pathname
     state.reads.push(path)
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/me'))
       return route.fulfill({
         json: {
@@ -102,6 +100,7 @@ test('review badges update from SSE without navigation and reconnect after strea
   await emit(page, 3)
   await expect(badge(page, 'attendance')).toHaveText('99+')
   await expect(page).toHaveURL(/\/account$/)
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click()
   await page.getByRole('button', { name: /Đăng xuất/ }).click()
   await expect(page).toHaveURL(/\/login/)
   expect(await page.evaluate(() => window.notificationAborted)).toBe(true)

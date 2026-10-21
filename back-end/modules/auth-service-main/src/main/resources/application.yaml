@@ -58,6 +58,8 @@ springdoc:
         - /api/v1/auth/**
 
 auth:
+    cookies:
+        secure: ${AUTH_COOKIES_SECURE:true}
     activation:
         enabled: ${AUTH_ACTIVATION_ENABLED:false}
         token-secret: ${AUTH_ACTIVATION_TOKEN_SECRET:}

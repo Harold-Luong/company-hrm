@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 const draft = {
   id: 1,
@@ -27,22 +28,18 @@ async function setup(page, role = 'HR', options = {}) {
   await page.clock.setFixedTime(new Date('2026-01-15T05:00:00Z'))
   await page.addInitScript(() => {
     if (!localStorage.getItem('company-hrm.session'))
-      localStorage.setItem(
-        'company-hrm.session',
-        JSON.stringify({ id: 'test', refreshToken: 'refresh' }),
-      )
+      localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'test' }))
   })
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const req = route.request(),
       url = new URL(req.url()),
       path = url.pathname,
       method = req.method()
-    if (path.endsWith('/pending-count'))
-      return route.fulfill({ json: { count: 0 } })
+    if (path.endsWith('/pending-count')) return route.fulfill({ json: { count: 0 } })
     if (path === '/api/v1/leave/requests/calendar') return route.fulfill({ json: [] })
     if (path === '/api/v1/notifications/stream') return route.fulfill({ status: 503, json: {} })
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path.endsWith('/me'))
       return route.fulfill({
         json: { id: 7, email: 'member@company.com', roles: [role], active: true },

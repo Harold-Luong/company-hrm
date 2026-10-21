@@ -1,6 +1,9 @@
 package com.company.leave.config;
 
 import com.company.leave.security.AccessTokenClaimsValidator;
+import com.company.leave.security.SessionVerifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -40,6 +43,11 @@ import java.util.List;
 public class SecurityConfig {
 
     @Bean
+    SessionVerifier sessionVerifier(@Value("${AUTH_SERVICE_URL:http://localhost:8081}") String authServiceUrl) {
+        return new SessionVerifier(authServiceUrl);
+    }
+
+    @Bean
     JwtDecoder jwtDecoder(JwtProperties properties) throws IOException {
         try (var input = properties.accessPublicKey().getInputStream()) {
             var publicKey = RsaKeyConverters.x509().convert(input);
@@ -70,8 +78,13 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
-            JwtAuthenticationConverter converter) throws Exception {
+            JwtAuthenticationConverter converter, SessionVerifier sessions) throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
+            if (exception instanceof OAuth2AuthenticationException oauth
+                    && "temporarily_unavailable".equals(oauth.getError().getErrorCode())) {
+                writeProblem(response, 503, "Service Unavailable", "Session verification is unavailable");
+                return;
+            }
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
             writeProblem(response, 401, "Unauthorized", "A valid access token is required");
         };
@@ -111,7 +124,10 @@ public class SecurityConfig {
                 .oauth2ResourceServer(resource -> resource
                         .authenticationEntryPoint(unauthorized)
                         .accessDeniedHandler(forbidden)
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(converter)));
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
+                            sessions.verify(token.getTokenValue());
+                            return converter.convert(token);
+                        })));
         return http.build();
     }
 

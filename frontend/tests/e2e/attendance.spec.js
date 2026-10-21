@@ -1,3 +1,4 @@
+import { csrfResponse, isCsrfRequest } from './support/csrf.js'
 import { expect, test } from '@playwright/test'
 const employeeId = '10000000-0000-0000-0000-000000000001'
 const shiftId = '20000000-0000-0000-0000-000000000001'
@@ -47,22 +48,23 @@ async function setup(page, role = 'EMPLOYEE') {
   }
   await page.clock.setFixedTime(new Date('2030-01-07T01:00:00Z'))
   await page.addInitScript(() =>
-    localStorage.setItem(
-      'company-hrm.session',
-      JSON.stringify({ id: 'attendance-test', refreshToken: 'refresh' }),
-    ),
+    localStorage.setItem('company-hrm.session', JSON.stringify({ id: 'attendance-test' })),
   )
-  await page.route('**/api/**', async (route) => {
+  await page.route('**/api/v1/**', async (route) => {
+    if (isCsrfRequest(route)) return route.fulfill({ json: csrfResponse })
     const req = route.request(),
       path = new URL(req.url()).pathname
-    if (path.endsWith('/refresh'))
-      return route.fulfill({ json: { accessToken: 'access', refreshToken: 'refresh' } })
+    if (path.endsWith('/refresh')) return route.fulfill({ json: { accessToken: 'access' } })
     if (path === '/api/v1/auth/me')
       return route.fulfill({
         json: { id: 'user', employeeId, email: 'an@company.com', roles: [role], active: true },
       })
     if (path.includes('/attendance/periods/'))
-      return route.fulfill({ json: path.endsWith('/history') ? [] : { month: path.split('/')[5], version: -1, closed: false } })
+      return route.fulfill({
+        json: path.endsWith('/history')
+          ? []
+          : { month: path.split('/')[5], version: -1, closed: false },
+      })
     if (path.endsWith('/pending-count'))
       return route.fulfill({
         json: {

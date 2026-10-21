@@ -28,7 +28,29 @@ class AuthSchemaTests {
     @Autowired PasswordEncoder passwords;
 
     @Test
-    void completeSchemaHasAllEightTablesAndCanBeReplayedWithoutLosingAccounts() throws Exception {
+    void singleSessionMigrationUpgradesAnExistingDatabaseAndIsRepeatable() throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection(
+                "jdbc:h2:mem:session-migration-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "");
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, email VARCHAR(255))");
+            statement.execute("INSERT INTO users VALUES (1, 'existing@example.com')");
+            var migration = new FileSystemResource("docs/sql/003_single_active_session.sql");
+            ScriptUtils.executeSqlScript(connection, migration);
+            UUID sid = UUID.randomUUID();
+            try (var update = connection.prepareStatement("UPDATE users SET active_session_id = ? WHERE id = 1")) {
+                update.setObject(1, sid); update.executeUpdate();
+            }
+            ScriptUtils.executeSqlScript(connection, migration);
+            try (var result = statement.executeQuery("SELECT email, active_session_id FROM users WHERE id = 1")) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString(1)).isEqualTo("existing@example.com");
+                assertThat(result.getObject(2, UUID.class)).isEqualTo(sid);
+            }
+        }
+    }
+
+    @Test
+    void completeSchemaHasAllTablesAndCanBeReplayedWithoutLosingAccounts() throws Exception {
         var id = UUID.randomUUID();
         jdbc.update("INSERT INTO users (employee_id, email, password_hash) VALUES (?, ?, ?)", id, id + "@example.com", "hash");
         try (var connection = dataSource.getConnection()) {
