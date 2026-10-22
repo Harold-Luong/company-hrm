@@ -12,6 +12,7 @@ import { common } from '@/content/common.js'
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { auth } from '@/auth/session.js'
 import AppIcon from '@/components/AppIcon.vue'
+import GoogleMapsLink from '@/components/GoogleMapsLink.vue'
 import { getCalendar } from '@/calendar/api.js'
 import { leave } from '@/leave/api.js'
 import { personalLeaveEvents } from '@/calendar/leave.js'
@@ -408,6 +409,7 @@ watch(year, load, { immediate: true })
             <p v-if="selectedEvent.location">
               <strong>{{ copy.location }}</strong> {{ selectedEvent.location }}
             </p>
+            <GoogleMapsLink :location="selectedEvent.location" />
             <p v-if="selectedEvent.description" class="calendar-description">
               {{ selectedEvent.description }}
             </p>

@@ -7,6 +7,7 @@ import { fieldLimits } from '@/config/validation.js'
 
 import { calendarEventForm as copy } from '@/content/calendar.js'
 import { common } from '@/content/common.js'
+import GoogleMapsLink from '@/components/GoogleMapsLink.vue'
 
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
@@ -301,6 +302,7 @@ onUnmounted(() => {
                     <div class="field span-all">
                         <label for="event-location">{{ copy.location }}</label><input id="event-location"
                             v-model="form.location" :maxlength="fieldLimits.eventLocation" />
+                        <GoogleMapsLink :location="form.location" />
                     </div>
                     <div class="field span-all">
                         <label for="event-description">{{ copy.description }}</label><textarea id="event-description"

@@ -20,6 +20,7 @@
     "fullName": "Họ và tên",
     "phone": "Điện thoại",
     "address": "Địa chỉ",
+    "openInGoogleMaps": "Mở địa chỉ trên Google Maps",
     "employeeCode": "Mã nhân viên",
     "department": "Phòng ban",
     "position": "Chức danh",
