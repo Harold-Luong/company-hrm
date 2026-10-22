@@ -21,7 +21,7 @@ class CorporateNetworkTests {
             "", "", "", defaults("allowed-networks"), defaults("trusted-proxies")));
 
     @ParameterizedTest
-    @ValueSource(strings = {"127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "113.161.73.224", "10.20.30.40"})
+    @ValueSource(strings = {"127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "113.161.73.224", "192.168.1.5"})
     void configuredGatewayAcceptsLocalAndCompanyClientAddresses(String client) {
         assertThat(network.requireAllowed(request("127.0.0.1", client))).isEqualTo(client);
     }
@@ -34,6 +34,12 @@ class CorporateNetworkTests {
     @Test
     void trustingGatewayDoesNotAllowAnExternalClient() {
         denied(request("127.0.0.1", "203.0.113.8"));
+    }
+
+    @Test
+    void trustingGatewayDoesNotAllowUnlistedPrivateAddresses() {
+        denied(request("127.0.0.1", "10.20.30.40"));
+        denied(request("127.0.0.1", "192.168.1.6"));
     }
 
     @Test
