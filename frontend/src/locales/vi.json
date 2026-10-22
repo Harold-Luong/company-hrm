@@ -5,6 +5,8 @@
     "openingWorkspace": "Đang mở không gian làm việc…"
   },
   "common": {
+    "endpointMap": "Sơ đồ endpoint",
+    "endpointMapDescription": "Tra cứu luồng nghiệp vụ và liên kết giữa các API. Bản đồ kỹ thuật được trình bày bằng tiếng Việt.",
     "missingValue": "—",
     "hoursMinutes": "{hours}h {minutes}p",
     "secondsSuffix": " {seconds}s",

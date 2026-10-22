@@ -5,6 +5,8 @@
     "openingWorkspace": "Opening your workspace…"
   },
   "common": {
+    "endpointMap": "Endpoint map",
+    "endpointMapDescription": "Explore workflows and connections between APIs. The technical map is presented in Vietnamese.",
     "missingValue": "—",
     "hoursMinutes": "{hours}h {minutes}m",
     "secondsSuffix": " {seconds}s",

@@ -32,6 +32,13 @@ chưa sẵn sàng. Realtime cần Kafka, topic, outbox và `HRM_NOTIFICATIONS_EN
 
 ## Project chạy độc lập
 
+Trang **Trợ giúp → Sơ đồ endpoint** (`/help/endpoints`) hiển thị bản đồ 10 luồng
+nghiệp vụ và bảng tra cứu endpoint trong workspace sau đăng nhập. Nội dung tiếng
+Việt nằm tại [`public/docs/endpoint-map.html`](public/docs/endpoint-map.html), được
+Vite đưa nguyên vào bản build và cũng có thể mở riêng tại `/docs/endpoint-map.html`.
+Trang dùng iframe sandbox, hỗ trợ lọc, phóng to và tải SVG; liên kết mã nguồn mở
+GitHub ở tab mới. Cập nhật cùng [tài liệu Mermaid](../docs/endpoint-flows.md) khi API đổi.
+
 Frontend có package.json, dependency và cấu hình Vite riêng. Chạy/build UI không
 cần khởi động backend; đăng nhập và các màn hình lấy dữ liệu thật cần Gateway,
 Auth và service tương ứng. Không chạy Maven từ frontend.

@@ -32,6 +32,12 @@ export const routes = [
     meta: { title: () => copy.workspace, requiresAuth: true },
     children: [
       {
+        path: 'help/endpoints',
+        name: 'help-endpoints',
+        component: () => import('@/views/EndpointMapView.vue'),
+        meta: { title: () => common.endpointMap },
+      },
+      {
         path: 'help/guide',
         name: 'help-guide',
         component: () => import('@/views/UserGuideView.vue'),
