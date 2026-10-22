@@ -1,5 +1,6 @@
 package com.company.leave.request;
 
+import com.company.leave.exception.ExceptionMessages;
 import com.company.leave.notifications.NotificationOutbox;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -32,8 +33,8 @@ public class LeaveAdjustmentService {
 
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public Page inbox(int page, int size, JwtAuthenticationToken actor) {
-        if (!LeaveService.reviewer(actor)) throw error(HttpStatus.FORBIDDEN, "Access is denied");
-        if (page < 0 || size < 1 || size > 100) throw error(HttpStatus.BAD_REQUEST, "Invalid pagination");
+        if (!LeaveService.reviewer(actor)) throw error(HttpStatus.FORBIDDEN, ExceptionMessages.ACCESS_DENIED);
+        if (page < 0 || size < 1 || size > 100) throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_PAGINATION);
         return repository.list(null, Status.APPROVED, page, size, true);
     }
 
@@ -41,8 +42,8 @@ public class LeaveAdjustmentService {
     public Request submit(UUID id, String match, AdjustmentSubmission body, JwtAuthenticationToken actor) {
         Request request = lock(id, match, actor);
         if (!request.employeeId().equals(LeaveService.employee(actor)))
-            throw error(HttpStatus.FORBIDDEN, "Only the requester can adjust this request");
-        if (request.adjustmentPending()) throw error(HttpStatus.CONFLICT, "An adjustment is already pending");
+            throw error(HttpStatus.FORBIDDEN, ExceptionMessages.ADJUSTMENT_REQUESTER_REQUIRED);
+        if (request.adjustmentPending()) throw error(HttpStatus.CONFLICT, ExceptionMessages.ADJUSTMENT_ALREADY_PENDING);
         int units = remainingUnits(request, body);
         repository.insertAdjustment(request, body, units, actor.getName());
         return record(request, LeaveHistoryAction.ADJUSTMENT_SUBMITTED, body.reason().trim(), actor);
@@ -53,34 +54,34 @@ public class LeaveAdjustmentService {
             JwtAuthenticationToken actor) {
         Request request = lock(requestId, match, actor);
         Adjustment change = repository.adjustments(requestId).stream().filter(a -> a.id().equals(adjustmentId))
-                .findFirst().orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Adjustment not found"));
+                .findFirst().orElseThrow(() -> error(HttpStatus.NOT_FOUND, ExceptionMessages.ADJUSTMENT_NOT_FOUND));
         if (target == Status.CANCELLED) {
             if (!request.employeeId().equals(LeaveService.employee(actor)))
-                throw error(HttpStatus.FORBIDDEN, "Only the requester can withdraw an adjustment");
+                throw error(HttpStatus.FORBIDDEN, ExceptionMessages.WITHDRAWAL_REQUESTER_REQUIRED);
         } else {
-            if (!LeaveService.reviewer(actor)) throw error(HttpStatus.FORBIDDEN, "Access is denied");
+            if (!LeaveService.reviewer(actor)) throw error(HttpStatus.FORBIDDEN, ExceptionMessages.ACCESS_DENIED);
             if (request.employeeId().equals(LeaveService.employee(actor))
                     || request.requesterUserId().equals(actor.getName()) || change.requesterUserId().equals(actor.getName()))
-                throw error(HttpStatus.FORBIDDEN, "You cannot review your own leave request");
+                throw error(HttpStatus.FORBIDDEN, ExceptionMessages.SELF_REVIEW_FORBIDDEN);
         }
         if (target != Status.APPROVED && target != Status.REJECTED && target != Status.CANCELLED)
-            throw error(HttpStatus.BAD_REQUEST, "Invalid adjustment decision");
-        if (change.status() != Status.PENDING) throw error(HttpStatus.CONFLICT, "Adjustment already processed");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_ADJUSTMENT_DECISION);
+        if (change.status() != Status.PENDING) throw error(HttpStatus.CONFLICT, ExceptionMessages.ADJUSTMENT_ALREADY_PROCESSED);
         String cleanNote = note == null ? null : note.trim();
         if (target == Status.REJECTED && (cleanNote == null || cleanNote.isEmpty()))
-            throw error(HttpStatus.BAD_REQUEST, "A rejection reason is required");
-        if (cleanNote != null && cleanNote.length() > 2000) throw error(HttpStatus.BAD_REQUEST, "Note is too long");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.REJECTION_REASON_REQUIRED);
+        if (cleanNote != null && cleanNote.length() > 2000) throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.NOTE_TOO_LONG);
         if (target == Status.APPROVED) {
             int units = remainingUnits(request, new AdjustmentSubmission(change.cancelAll(), change.startDate(),
                     change.endDate(), change.period(), change.reason()));
             int refund = request.totalUnits() - units;
             if (request.leaveType() == LeaveType.ANNUAL
                     && !repository.refundAnnual(request.employeeId(), request.startDate().getYear(), refund))
-                throw error(HttpStatus.CONFLICT, "Leave balance requires reconciliation before refund");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.BALANCE_RECONCILIATION_REQUIRED);
             repository.applyAdjustment(request, change);
         }
         if (!repository.decideAdjustment(change.id(), target, actor.getName(), cleanNote))
-            throw error(HttpStatus.CONFLICT, "Adjustment already processed");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.ADJUSTMENT_ALREADY_PROCESSED);
         return record(request, LeaveHistoryAction.forAdjustmentDecision(target), cleanNote, actor);
     }
 
@@ -89,19 +90,19 @@ public class LeaveAdjustmentService {
         // Same lock as submissions and balance changes. Re-read AFTER acquiring it.
         repository.lockEmployee(current.employeeId());
         Request request = leaves.get(id, actor);
-        if (match == null) throw error(HttpStatus.PRECONDITION_REQUIRED, "If-Match is required");
+        if (match == null) throw error(HttpStatus.PRECONDITION_REQUIRED, ExceptionMessages.IF_MATCH_REQUIRED);
         if (!match.equals("\"" + request.version() + "\""))
-            throw error(HttpStatus.PRECONDITION_FAILED, "Leave request has changed; reload before retrying");
-        if (request.status() != Status.APPROVED) throw error(HttpStatus.CONFLICT, "Only approved leave can be adjusted");
+            throw error(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.LEAVE_VERSION_CONFLICT);
+        if (request.status() != Status.APPROVED) throw error(HttpStatus.CONFLICT, ExceptionMessages.LEAVE_NOT_APPROVED);
         return request;
     }
 
     private int remainingUnits(Request request, AdjustmentSubmission body) {
         if (body.cancelAll() == null || body.reason() == null || body.reason().isBlank() || body.reason().length() > 2000)
-            throw error(HttpStatus.BAD_REQUEST, "Adjustment reason is required");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.ADJUSTMENT_REASON_REQUIRED);
         if (body.cancelAll()) {
             if (body.startDate() != null || body.endDate() != null || body.period() != null)
-                throw error(HttpStatus.BAD_REQUEST, "Full cancellation cannot retain leave dates");
+                throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.FULL_CANCELLATION_RETAINS_DATES);
             return 0;
         }
         if (body.startDate() == null || body.endDate() == null || body.period() == null
@@ -109,14 +110,14 @@ public class LeaveAdjustmentService {
                 || body.endDate().isAfter(request.endDate())
                 || (body.period() != LeavePeriod.FULL_DAY && !body.startDate().equals(body.endDate()))
                 || (request.period() != LeavePeriod.FULL_DAY && body.period() != request.period()))
-            throw error(HttpStatus.BAD_REQUEST, "Remaining leave must be within the approved dates and period");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_REMAINING_LEAVE_RANGE);
         // Preserve the basis actually charged at approval, including legacy calendar-day requests.
         int units = calendars.find(request.id()).map(days -> days.stream()
             .filter(d -> !d.date().isBefore(body.startDate()) && !d.date().isAfter(body.endDate()))
             .mapToInt(d -> d.units(body.period())).sum()).orElseGet(() -> body.period() == LeavePeriod.FULL_DAY
                 ? Math.toIntExact(ChronoUnit.DAYS.between(body.startDate(), body.endDate()) + 1) * 2 : 1);
-        if (units == 0) throw error(HttpStatus.BAD_REQUEST, "Use full cancellation when no working leave remains");
-        if (units >= request.totalUnits()) throw error(HttpStatus.BAD_REQUEST, "Adjustment must reduce approved leave");
+        if (units == 0) throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.FULL_CANCELLATION_REQUIRED);
+        if (units >= request.totalUnits()) throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.ADJUSTMENT_MUST_REDUCE_LEAVE);
         return units;
     }
 

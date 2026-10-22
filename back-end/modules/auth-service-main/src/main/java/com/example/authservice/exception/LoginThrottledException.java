@@ -8,7 +8,7 @@ public class LoginThrottledException extends GlobalException {
     private final long retryAfterSeconds;
 
     public LoginThrottledException(long retryAfterSeconds) {
-        super("Too many login attempts. Please try again later.", HttpStatus.TOO_MANY_REQUESTS);
+        super(ExceptionMessages.LOGIN_THROTTLED, HttpStatus.TOO_MANY_REQUESTS);
         this.retryAfterSeconds = retryAfterSeconds;
     }
 }

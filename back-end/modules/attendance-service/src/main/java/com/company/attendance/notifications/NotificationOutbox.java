@@ -1,5 +1,6 @@
 package com.company.attendance.notifications;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.entity.NotificationOutboxEvent;
 import com.company.attendance.repository.NotificationOutboxRepository;
 import java.time.Clock;
@@ -35,7 +36,7 @@ public class NotificationOutbox {
     public void append(UUID requestId, long version, String requester, UUID employee, String actor, String action) {
         if (!enabled) return;
         if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
-            throw new IllegalStateException("Notification must be recorded in a transaction");
+            throw new IllegalStateException(ExceptionMessages.NOTIFICATION_TRANSACTION_REQUIRED);
         var now = clock.instant();
         var event = new Event(UUID.randomUUID(), "ATTENDANCE", requestId, version,
                 requester, employee, actor, action, now.toString());

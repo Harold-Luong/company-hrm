@@ -1,5 +1,6 @@
 package com.company.calendar_service.calendar;
 
+import com.company.calendar_service.exception.ExceptionMessages;
 import com.company.calendar_service.dto.CalendarResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -26,7 +27,7 @@ public class CalendarController {
     public ResponseEntity<CalendarResponse> get(@RequestParam(required = false) Integer year) {
         int selected = year == null ? LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).getYear() : year;
         if (selected < 2020 || selected > 2100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "year must be between 1900 and 2100");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_CALENDAR_YEAR);
         }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.read(selected));
     }

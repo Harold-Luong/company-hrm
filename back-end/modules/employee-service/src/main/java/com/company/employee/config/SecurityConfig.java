@@ -1,5 +1,6 @@
 package com.company.employee.config;
 
+import com.company.employee.exception.ExceptionMessages;
 import com.company.employee.security.AccessTokenClaimsValidator;
 import com.company.employee.security.SessionVerifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,9 +51,9 @@ public class SecurityConfig {
     JwtDecoder jwtDecoder(JwtProperties properties) throws IOException {
         try (var input = properties.accessPublicKey().getInputStream()) {
             var publicKey = RsaKeyConverters.x509().convert(input);
-            Assert.notNull(publicKey, "JWT access public key is required");
+            Assert.notNull(publicKey, ExceptionMessages.JWT_PUBLIC_KEY_REQUIRED);
             Assert.isTrue(publicKey.getModulus().bitLength() >= 2048,
-                    "JWT access public key must be at least 2048 bits");
+                    ExceptionMessages.JWT_PUBLIC_KEY_TOO_SHORT);
             var decoder = NimbusJwtDecoder.withPublicKey(publicKey)
                     .signatureAlgorithm(SignatureAlgorithm.RS256).build();
             decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
@@ -81,14 +82,14 @@ public class SecurityConfig {
         AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
             if (exception instanceof OAuth2AuthenticationException oauth
                     && "temporarily_unavailable".equals(oauth.getError().getErrorCode())) {
-                writeProblem(mapper, response, 503, "Service Unavailable", "Session verification is unavailable");
+                writeProblem(mapper, response, 503, ExceptionMessages.SERVICE_UNAVAILABLE_TITLE, ExceptionMessages.SESSION_VERIFICATION_UNAVAILABLE);
                 return;
             }
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
-            writeProblem(mapper, response, 401, "Unauthorized", "A valid access token is required");
+            writeProblem(mapper, response, 401, ExceptionMessages.UNAUTHORIZED_TITLE, ExceptionMessages.ACCESS_TOKEN_REQUIRED);
         };
-        AccessDeniedHandler forbidden = (request, response, exception) -> writeProblem(mapper, response, 403, "Forbidden",
-                "Access is denied");
+        AccessDeniedHandler forbidden = (request, response, exception) -> writeProblem(mapper, response, 403, ExceptionMessages.FORBIDDEN_TITLE,
+                ExceptionMessages.ACCESS_DENIED);
 
         http.csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

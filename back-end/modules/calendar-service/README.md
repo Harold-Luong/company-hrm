@@ -824,3 +824,12 @@ Sau khi seed trên DB mới, API trả **13 sự kiện cho năm 2026** và **13
 | `Schema-validation: missing table`                      | Kiểm tra `CALENDAR_DB_URL` trỏ tới đúng DB đã chạy schema và script đã hoàn tất `COMMIT`.                                                         |
 | Cổng `8083` đang được dùng                              | Dừng service đang chiếm cổng hoặc đổi `CALENDAR_PORT`, rồi mở URL theo cổng mới.                                                                  |
 | API trả `200` nhưng `events` rỗng                       | Kiểm tra năm truy vấn và trạng thái sự kiện; `DRAFT` không được trả qua API dành cho nhân viên đã đăng nhập.                                                            |
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/company/calendar_service/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

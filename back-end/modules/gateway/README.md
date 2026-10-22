@@ -310,3 +310,12 @@ credential với các CORS origin đã cấu hình; Auth kiểm tra CSRF trên
 login/refresh/logout/logout-all. Refresh vẫn bỏ qua Bearer hết hạn tại Gateway.
 Cookie/Set-Cookie được chuyển tới/từ Auth; Cookie và CSRF header bị loại khi
 chuyển sang các service nghiệp vụ. Triển khai frontend và `/api` cùng origin HTTPS.
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/api/gateway/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

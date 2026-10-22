@@ -21,21 +21,21 @@ import java.util.Map;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail conflict(DataIntegrityViolationException exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Data conflicts with a concurrent change or database constraint");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ExceptionMessages.DATA_CONFLICT);
     }
     @ExceptionHandler(OptimisticLockingFailureException.class)
     ProblemDetail stale(OptimisticLockingFailureException exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.PRECONDITION_FAILED, "Resource changed; reload before retrying");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.RESOURCE_VERSION_CONFLICT);
     }
     @ExceptionHandler({DataAccessResourceFailureException.class, org.springframework.transaction.CannotCreateTransactionException.class})
     ProblemDetail unavailable(RuntimeException exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Attendance database is unavailable");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.DATABASE_UNAVAILABLE);
     }
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException exception, HttpHeaders headers,
             HttpStatusCode status, WebRequest request) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "Request validation failed");
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ExceptionMessages.REQUEST_VALIDATION_FAILED);
         Map<String, String> errors = new LinkedHashMap<>();
         exception.getBindingResult().getFieldErrors()
                 .forEach(error -> errors.putIfAbsent(error.getField(), error.getDefaultMessage()));

@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.dto.ScheduleResponse.*;
 import com.company.attendance.entity.*;
@@ -102,12 +103,12 @@ public class ScheduleService {
         var shift = validate(request, actor);
         var preview = preview(request, shift, lock.getRevision(), actor);
         if (preview.approvedRequestConflicts() > 0)
-            throw error(HttpStatus.CONFLICT, "Schedule affects approved attendance requests; resolve conflicts first");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.SCHEDULE_ATTENDANCE_REQUEST_CONFLICT);
         if (preview.recordedDayConflicts() > 0 || preview.approvedLeaveConflicts() > 0)
             throw error(HttpStatus.CONFLICT,
-                    "Schedule affects recorded attendance or approved leave; resolve conflicts first");
+                    ExceptionMessages.SCHEDULE_ATTENDANCE_OR_LEAVE_CONFLICT);
         if (preview.approvedOvertimeConflicts() > 0)
-            throw error(HttpStatus.CONFLICT, "Schedule affects approved OT; choose another date range");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.SCHEDULE_OT_CONFLICT);
         var affected = affected(request);
         var history = new ScheduleBatch();
         history.recordAudit(actor.getName(), clock.instant());
@@ -204,30 +205,30 @@ public class ScheduleService {
         var personal = found.stream().filter(r -> r.getEmployeeId() != null).toList();
         var selected = personal.isEmpty() ? found : personal;
         if (selected.size() > 1)
-            throw error(HttpStatus.CONFLICT, "Overlapping schedule rules require correction");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.OVERLAPPING_SCHEDULE_RULES);
         return selected.stream().findFirst();
     }
 
     public static void dateRange(LocalDate from, LocalDate until) {
         if (from == null || until == null || until.isBefore(from) || until.isAfter(from.plusDays(365)))
-            throw error(HttpStatus.BAD_REQUEST, "Date range must be ordered and at most 366 days");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_DATE_RANGE);
     }
 
     private ShiftResponse validate(ScheduleRequest request, JwtAuthenticationToken actor) {
         if (request.from().isBefore(LocalDate.now(clock)) || until(request).isBefore(request.from()))
             throw error(HttpStatus.BAD_REQUEST,
-                    "Schedule changes must start today or later, with an ordered date range");
+                    ExceptionMessages.INVALID_SCHEDULE_DATE_RANGE);
         if ((request.scope() == ScheduleScope.SELECTED_EMPLOYEES) != !request.employeeIds().isEmpty())
-            throw error(HttpStatus.BAD_REQUEST, "Employee IDs are required only for SELECTED_EMPLOYEES");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_SELECTED_EMPLOYEE_IDS);
         var shift = shifts.get(request.shiftId());
         if (!shift.active())
-            throw error(HttpStatus.CONFLICT, "Inactive shift cannot be assigned");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.INACTIVE_SHIFT_ASSIGNMENT);
         if (shift.version() != request.shiftVersion())
-            throw error(HttpStatus.PRECONDITION_FAILED, "Shift changed; reload preview");
+            throw error(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.SHIFT_VERSION_CONFLICT);
         for (UUID employee : request.employeeIds()) {
             var person = source.employee(employee, actor);
             if (!source.eligible(person, request.from()))
-                throw error(HttpStatus.CONFLICT, "Selected employee is not eligible on the start date");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.SELECTED_EMPLOYEE_INELIGIBLE);
         }
         return shift;
     }
@@ -297,7 +298,7 @@ public class ScheduleService {
             var second = shifts.definition(b.get().getDefinition());
             if (ShiftTimes.at(date, first, first.intervals().getLast().end())
                     .isAfter(ShiftTimes.at(date.plusDays(1), second, second.intervals().getFirst().start())))
-                throw error(HttpStatus.CONFLICT, "Schedule overlaps an adjacent assigned shift");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.ADJACENT_SHIFT_OVERLAP);
         }
     }
 

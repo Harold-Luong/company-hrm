@@ -1,5 +1,6 @@
 package com.example.authservice.provisioning;
 
+import com.example.authservice.exception.ExceptionMessages;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,7 +22,7 @@ public class AccountRequestConsumer {
         var event = mapper.readValue(record.value(), EmployeeAccountRequested.class);
         if (event.data() == null || event.data().employeeId() == null
                 || !event.data().employeeId().toString().equals(record.key())) {
-            throw new IllegalArgumentException("Account request key does not match employeeId");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_REQUEST_KEY_MISMATCH);
         }
         service.process(event);
     }

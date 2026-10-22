@@ -226,3 +226,12 @@ database, schema và biến đích Gateway cho Notification; cần bổ sung tri
 trước khi bật tính năng trong Docker. Sự kiện Notification kích hoạt tải lại
 `pending-count` từ Leave và Attendance; badge hiển thị số đơn chờ duyệt. Nếu
 Notification chưa sẵn sàng, frontend vẫn cập nhật các số này mỗi 30 giây.
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/company/notification/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

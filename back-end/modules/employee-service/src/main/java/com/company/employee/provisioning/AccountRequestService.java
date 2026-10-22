@@ -1,5 +1,6 @@
 package com.company.employee.provisioning;
 
+import com.company.employee.exception.ExceptionMessages;
 import com.company.employee.enums.ProvisioningStatus;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -47,17 +48,17 @@ public class AccountRequestService {
     @PreAuthorize("hasRole('ADMIN')")
     public Response request(UUID employeeId, UUID idempotencyKey, Request body) {
         if (!enabled)
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Account provisioning is disabled");
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.PROVISIONING_DISABLED);
         if (employeeId == null || idempotencyKey == null || body == null || !validator.validate(body).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Valid employeeId, Idempotency-Key and email are required");
+                    ExceptionMessages.INVALID_PROVISIONING_REQUEST);
         }
         String actor = SecurityContextHolder.getContext().getAuthentication().getName();
         String email = body.email().strip().toLowerCase(Locale.ROOT);
         // All requests and results for one employee serialize on the source-of-truth
         // row.
         if (jdbc.queryForList("SELECT id FROM employees WHERE id = ? FOR UPDATE", UUID.class, employeeId).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, ExceptionMessages.EMPLOYEE_NOT_FOUND);
         }
         var existing = jdbc.queryForList("""
                 SELECT request_id FROM account_provisioning_requests WHERE requested_by = ? AND idempotency_key = ?
@@ -67,14 +68,14 @@ public class AccountRequestService {
                     "SELECT employee_id, email FROM account_provisioning_requests WHERE request_id = ?",
                     existing.getFirst());
             if (!employeeId.equals(stored.get("employee_id")) || !email.equals(stored.get("email"))) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Idempotency-Key was used with different data");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, ExceptionMessages.IDEMPOTENCY_DATA_CONFLICT);
             }
             return read(employeeId, existing.getFirst());
         }
         if (jdbc.queryForObject(
                 "SELECT COUNT(*) FROM account_provisioning_requests WHERE employee_id = ? AND status = ?",
                 Integer.class, employeeId, ProvisioningStatus.PENDING.name()) > 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "An account request is already pending");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, ExceptionMessages.ACCOUNT_REQUEST_PENDING);
         }
         UUID requestId = UUID.randomUUID();
         var event = EmployeeAccountRequested.create(requestId, employeeId, email, actor);
@@ -94,7 +95,7 @@ public class AccountRequestService {
     @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public Response find(UUID employeeId, UUID requestId) {
         if (!enabled)
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Account provisioning is disabled");
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.PROVISIONING_DISABLED);
         return read(employeeId, requestId);
     }
 
@@ -107,7 +108,7 @@ public class AccountRequestService {
                 ProvisioningStatus.valueOf(rs.getString(3)), rs.getString(4), rs.getString(5), rs.getObject(6, OffsetDateTime.class)), requestId,
                 employeeId);
         if (results.isEmpty())
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account request not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, ExceptionMessages.ACCOUNT_REQUEST_NOT_FOUND);
         return results.getFirst();
     }
 
@@ -115,7 +116,7 @@ public class AccountRequestService {
     public void apply(AccountProvisioningResult event) {
         if (!validator.validate(event).isEmpty() || event.schemaVersion() != 1
                 || !"auth-service".equals(event.producer())) {
-            throw new IllegalArgumentException("Invalid account result envelope");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_ACCOUNT_RESULT_ENVELOPE);
         }
         boolean success = "AccountCreated".equals(event.eventType());
         if (success) {
@@ -123,33 +124,33 @@ public class AccountRequestService {
                     .contains(Objects.toString(event.data().accountStatus(), ""))
                     || event.data().accountVersion() == null || event.data().accountVersion() < 1
                     || event.data().errorCode() != null) {
-                throw new IllegalArgumentException("Invalid successful account result");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_SUCCESSFUL_ACCOUNT_RESULT);
             }
         } else if (!"AccountCreationFailed".equals(event.eventType())
                 || !java.util.Set.of("ACCOUNT_ALREADY_EXISTS", "EMAIL_ALREADY_USED")
                         .contains(Objects.toString(event.data().errorCode(), ""))
                 || event.data().accountStatus() != null || event.data().accountVersion() != null) {
-            throw new IllegalArgumentException("Invalid failed account result");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_FAILED_ACCOUNT_RESULT);
         }
         UUID employeeId = event.data().employeeId();
         if (jdbc.queryForList("SELECT id FROM employees WHERE id = ? FOR UPDATE", UUID.class, employeeId).isEmpty()) {
-            throw new IllegalArgumentException("Result employee does not exist");
+            throw new IllegalArgumentException(ExceptionMessages.RESULT_EMPLOYEE_NOT_FOUND);
         }
         var requests = jdbc.queryForList(
                 "SELECT correlation_id, status, result_event_id FROM account_provisioning_requests WHERE request_id = ? AND employee_id = ?",
                 event.requestId(), employeeId);
         if (requests.isEmpty() || !event.correlationId().equals(requests.getFirst().get("correlation_id"))) {
-            throw new IllegalArgumentException("Result does not match its account request");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_RESULT_REQUEST_MISMATCH);
         }
         var previous = jdbc.queryForList("SELECT request_id FROM provisioning_processed_events WHERE event_id = ?",
                 UUID.class, event.eventId());
         if (!previous.isEmpty()) {
             if (!event.requestId().equals(previous.getFirst()))
-                throw new IllegalArgumentException("Event ID reused across requests");
+                throw new IllegalArgumentException(ExceptionMessages.EVENT_ID_REUSED);
             return;
         }
         if (ProvisioningStatus.valueOf((String) requests.getFirst().get("status")) != ProvisioningStatus.PENDING) {
-            throw new IllegalArgumentException("Conflicting terminal result for account request");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_RESULT_CONFLICT);
         }
         if (success) {
             jdbc.update("""

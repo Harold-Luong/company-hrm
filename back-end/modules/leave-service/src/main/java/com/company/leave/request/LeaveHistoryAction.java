@@ -1,5 +1,6 @@
 package com.company.leave.request;
 
+import com.company.leave.exception.ExceptionMessages;
 import com.company.leave.request.LeaveModels.Status;
 
 /** Stable codes shared by persisted history and the history API. */
@@ -18,7 +19,7 @@ public enum LeaveHistoryAction {
             case APPROVED -> APPROVED;
             case REJECTED -> REJECTED;
             case CANCELLED -> CANCELLED;
-            case PENDING -> throw new IllegalArgumentException("Pending is not a leave decision");
+            case PENDING -> throw new IllegalArgumentException(ExceptionMessages.INVALID_LEAVE_DECISION);
         };
     }
 
@@ -27,7 +28,7 @@ public enum LeaveHistoryAction {
             case APPROVED -> ADJUSTMENT_APPROVED;
             case REJECTED -> ADJUSTMENT_REJECTED;
             case CANCELLED -> ADJUSTMENT_CANCELLED;
-            case PENDING -> throw new IllegalArgumentException("Pending is not an adjustment decision");
+            case PENDING -> throw new IllegalArgumentException(ExceptionMessages.INVALID_ADJUSTMENT_STATUS);
         };
     }
 }

@@ -1,5 +1,6 @@
 package com.example.authservice.activation;
 
+import com.example.authservice.exception.ExceptionMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import javax.crypto.Mac;
@@ -22,7 +23,7 @@ public class ActivationTokens {
             mac.init(new SecretKeySpec(settings.secretBytes(), "HmacSHA256"));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(
                     mac.doFinal(("hrm-account-activation-v1:" + invitationId).getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.GeneralSecurityException e) { throw new IllegalStateException("Cannot derive activation token", e); }
+        } catch (java.security.GeneralSecurityException e) { throw new IllegalStateException(ExceptionMessages.ACTIVATION_TOKEN_DERIVATION_FAILED, e); }
     }
     public String hash(String token) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8))); }

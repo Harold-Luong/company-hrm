@@ -1325,3 +1325,12 @@ Auth bằng consumer group riêng, dùng `data.requestedBy` để phát SSE đú
 GET vẫn trả `PENDING` và UI tiếp tục polling dự phòng, kể cả khi đã chuyển trang.
 Xem [cấu hình Notification và schema bổ sung](../notification-service/README.md).
 Khi thành công, yêu cầu là `SUCCEEDED`, còn Account đang `PENDING_ACTIVATION`.
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/company/employee/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

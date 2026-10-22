@@ -1,5 +1,6 @@
 package com.api.gateway.security;
 
+import com.api.gateway.exception.ExceptionMessages;
 import java.time.Duration;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -20,7 +21,7 @@ public final class SessionVerifier {
                     int status = response.statusCode().value();
                     if (status == 204) return response.releaseBody();
                     var error = status == 401 || status == 403
-                            ? new OAuth2AuthenticationException(new OAuth2Error("invalid_token"), "Session replaced or signed out")
+                            ? new OAuth2AuthenticationException(new OAuth2Error("invalid_token"), ExceptionMessages.SESSION_REPLACED)
                             : unavailable();
                     return response.releaseBody().then(Mono.<Void>error(error));
                 })
@@ -30,6 +31,6 @@ public final class SessionVerifier {
 
     private OAuth2AuthenticationException unavailable() {
         return new OAuth2AuthenticationException(new OAuth2Error("temporarily_unavailable"),
-                "Session verification is unavailable");
+                ExceptionMessages.SESSION_VERIFICATION_UNAVAILABLE);
     }
 }

@@ -1,5 +1,6 @@
 package com.company.calendar_service.calendar;
 
+import com.company.calendar_service.exception.ExceptionMessages;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -15,16 +16,16 @@ public class CalendarErrors extends ResponseEntityExceptionHandler {
     @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class})
     ProblemDetail staleVersion(Exception error) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.PRECONDITION_FAILED,
-                "Event has changed; reload before retrying");
+                ExceptionMessages.EVENT_VERSION_CONFLICT);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail conflict(DataIntegrityViolationException error) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Calendar data conflicts with stored constraints");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ExceptionMessages.DATA_CONFLICT);
     }
 
     @ExceptionHandler(DataAccessException.class)
     ProblemDetail unavailable(DataAccessException error) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Calendar data is temporarily unavailable");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.DATABASE_UNAVAILABLE);
     }
 }

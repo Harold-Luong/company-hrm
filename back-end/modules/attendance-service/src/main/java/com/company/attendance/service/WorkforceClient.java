@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.config.AttendanceProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -49,7 +50,7 @@ public class WorkforceClient {
     public Employee employee(UUID id, JwtAuthenticationToken actor) {
         Employee result = read(properties.employeeUrl(), "/api/v1/employees/" + id, actor, Employee.class);
         if (!id.equals(result.id()) || result.hireDate() == null || result.status() == null)
-            throw error(HttpStatus.SERVICE_UNAVAILABLE, "Employee returned incomplete data");
+            throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.EMPLOYEE_DATA_INCOMPLETE);
         return result;
     }
     public boolean eligible(Employee employee, LocalDate date) {
@@ -60,11 +61,11 @@ public class WorkforceClient {
         List<Employee> result = new ArrayList<>();
         for (int page = 0; page < 100; page++) {
             EmployeePage data = read(properties.employeeUrl(), "/api/v1/employees?page=" + page + "&size=100", actor, EmployeePage.class);
-            if (data.content() == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, "Employee returned incomplete data");
+            if (data.content() == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.EMPLOYEE_DATA_INCOMPLETE);
             result.addAll(data.content());
             if (page + 1 >= data.totalPages()) return result;
         }
-        throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Select a smaller employee scope");
+        throw error(HttpStatus.UNPROCESSABLE_CONTENT, ExceptionMessages.EMPLOYEE_SCOPE_TOO_LARGE);
     }
     public List<Leave> leaves(UUID employee, LocalDate from, LocalDate until, JwtAuthenticationToken actor) {
         String path = "/api/v1/leave/requests/attendance?from=" + from + "&until=" + until
@@ -75,7 +76,7 @@ public class WorkforceClient {
         List<Holiday> result = new ArrayList<>();
         for (int year = from.getYear(); year <= until.getYear(); year++) {
             var data = read(properties.calendarUrl(), "/api/v1/calendar?year=" + year, actor, Calendar.class);
-            if (data.events() == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, "Calendar returned incomplete data");
+            if (data.events() == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.CALENDAR_DATA_INCOMPLETE);
             data.events().stream().filter(e -> e.allDay() && "HOLIDAY".equals(e.type()) && "PUBLISHED".equals(e.status())
                     && "ALL".equals(e.audienceType()) && e.startDate() != null && e.endDate() != null
                     && !e.startDate().isAfter(until) && !e.endDate().isBefore(from)).forEach(result::add);
@@ -88,17 +89,17 @@ public class WorkforceClient {
                     .header("Authorization", "Bearer " + actor.getToken().getTokenValue()).GET().build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 401 || response.statusCode() == 403)
-                throw error(HttpStatus.valueOf(response.statusCode()), "Source service denied access");
-            if (response.statusCode() == 404) throw error(HttpStatus.NOT_FOUND, "Source resource not found");
-            if (response.statusCode() != 200) throw error(HttpStatus.SERVICE_UNAVAILABLE, "Source service is unavailable");
+                throw error(HttpStatus.valueOf(response.statusCode()), ExceptionMessages.SOURCE_ACCESS_DENIED);
+            if (response.statusCode() == 404) throw error(HttpStatus.NOT_FOUND, ExceptionMessages.SOURCE_RESOURCE_NOT_FOUND);
+            if (response.statusCode() != 200) throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.SOURCE_UNAVAILABLE);
             T result = mapper.readValue(response.body(), type);
-            if (result == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, "Source returned no data");
+            if (result == null) throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.SOURCE_DATA_MISSING);
             return result;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw error(HttpStatus.SERVICE_UNAVAILABLE, "Source request interrupted");
+            throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.SOURCE_REQUEST_INTERRUPTED);
         } catch (java.io.IOException | tools.jackson.core.JacksonException exception) {
-            throw error(HttpStatus.SERVICE_UNAVAILABLE, "Source service is unavailable or returned invalid data");
+            throw error(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.SOURCE_DATA_UNAVAILABLE);
         }
     }
 }

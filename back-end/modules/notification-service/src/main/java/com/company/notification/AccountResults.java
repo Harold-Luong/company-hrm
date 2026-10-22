@@ -1,5 +1,6 @@
 package com.company.notification;
 
+import com.company.notification.exception.ExceptionMessages;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,7 +25,7 @@ public class AccountResults {
                 || event.schemaVersion() != 1 || !"auth-service".equals(event.producer())
                 || event.data() == null || event.data().employeeId() == null
                 || !("AccountCreated".equals(event.eventType()) || "AccountCreationFailed".equals(event.eventType())))
-            throw new IllegalArgumentException("Invalid account result");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_ACCOUNT_RESULT);
         var data = event.data();
         // Old v1 events predate recipient information. Never broadcast them to other reviewers.
         if (data.requestedBy() == null || data.requestedBy().isBlank()) return;
@@ -33,7 +34,7 @@ public class AccountResults {
                 ? data.accountVersion() == null || data.accountVersion() < 1 || data.errorCode() != null
                     || !"PENDING_ACTIVATION".equals(data.accountStatus())
                 : !("ACCOUNT_ALREADY_EXISTS".equals(data.errorCode()) || "EMAIL_ALREADY_USED".equals(data.errorCode()))))
-            throw new IllegalArgumentException("Invalid account result data");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_ACCOUNT_RESULT_DATA);
         // Serialize inserts so stream cursors follow commit order, including across consumer instances.
         jdbc.execute("LOCK TABLE account_result_notifications IN EXCLUSIVE MODE");
         jdbc.update("""

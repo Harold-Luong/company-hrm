@@ -1,5 +1,6 @@
 package com.company.attendance.service.worktime;
 
+import com.company.attendance.exception.ExceptionMessages;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;
@@ -12,9 +13,9 @@ public record WorkTimePolicy(int standardDayMinutes, int deviationRoundingMinute
 
     public WorkTimePolicy {
         if (standardDayMinutes < 1 || standardDayMinutes > 1440)
-            throw new IllegalArgumentException("standardDayMinutes must be 1..1440");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_STANDARD_DAY_MINUTES);
         if (deviationRoundingMinutes < 1 || deviationRoundingMinutes > 1440)
-            throw new IllegalArgumentException("deviationRoundingMinutes must be 1..1440");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_DEVIATION_ROUNDING_MINUTES);
         Objects.requireNonNull(dayBasis, "dayBasis");
     }
 

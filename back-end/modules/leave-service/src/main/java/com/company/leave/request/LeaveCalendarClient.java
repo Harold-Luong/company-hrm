@@ -1,5 +1,6 @@
 package com.company.leave.request;
 
+import com.company.leave.exception.ExceptionMessages;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -34,7 +35,7 @@ public class LeaveCalendarClient {
                 .header("Authorization", "Bearer " + actor.getToken().getTokenValue()).GET().build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 401 || response.statusCode() == 403)
-                throw new ResponseStatusException(HttpStatus.valueOf(response.statusCode()), "Schedule access denied");
+                throw new ResponseStatusException(HttpStatus.valueOf(response.statusCode()), ExceptionMessages.SCHEDULE_ACCESS_DENIED);
             if (response.statusCode() != 200) throw unavailable();
             var parsed = mapper.readValue(response.body(), Day[].class);
             if (parsed == null || Arrays.stream(parsed).anyMatch(Objects::isNull)) throw unavailable();
@@ -53,6 +54,6 @@ public class LeaveCalendarClient {
         } catch (java.io.IOException | tools.jackson.core.JacksonException | IllegalArgumentException e) { throw unavailable(); }
     }
     private static ResponseStatusException unavailable() {
-        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Working calendar is unavailable or incomplete");
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.WORKING_CALENDAR_UNAVAILABLE);
     }
 }

@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.dto.OvertimeModels.*;
 import com.company.attendance.entity.OvertimeRequest;
@@ -49,20 +50,20 @@ public class OvertimeService {
         if(start.getSecond()!=0 || start.getNano()!=0 || end.getSecond()!=0 || end.getNano()!=0
                 || !end.isAfter(start) || Duration.between(start,end).toHours()>=24
                 || (beforeStart && !start.atZone(ZONE).toInstant().isAfter(clock.instant())) || start.toLocalDate().isAfter(LocalDate.now(clock).plusDays(365)))
-            throw error(HttpStatus.BAD_REQUEST,"OT must be in the future, at minute precision, and shorter than 24 hours");
+            throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.INVALID_OT_INTERVAL);
         periods.requireOpen(row.getWorkDate());
         var person=source.employee(row.getEmployeeId(),actor);
         if(!source.eligible(person,start.toLocalDate()) || !source.eligible(person,end.toLocalDate()))
-            throw error(HttpStatus.CONFLICT,"Employee is not eligible for OT");
+            throw error(HttpStatus.CONFLICT,ExceptionMessages.EMPLOYEE_INELIGIBLE_FOR_OT);
         if(requests.overlapping(row.getEmployeeId(),start,end).stream().anyMatch(r->!r.getId().equals(row.getId())))
-            throw error(HttpStatus.CONFLICT,"OT overlaps another pending or approved request");
+            throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_REQUEST_OVERLAP);
         for(LocalDate date=start.toLocalDate().minusDays(1);!date.isAfter(end.toLocalDate());date=date.plusDays(1)) {
             var rule=schedules.effective(row.getEmployeeId(),date);
             var leaves=source.leaves(row.getEmployeeId(),date,date,actor);
             boolean holiday=!source.holidays(date,date,actor).isEmpty();
             if(rule.isEmpty()) {
                 if(!date.isBefore(start.toLocalDate()) && leaves.stream().anyMatch(l->"APPROVED".equals(l.status()) || "PENDING".equals(l.status())))
-                    throw error(HttpStatus.CONFLICT,"OT conflicts with leave");
+                    throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_LEAVE_CONFLICT);
                 continue;
             }
             var plan=shifts.definition(rule.get().getDefinition());
@@ -72,8 +73,8 @@ public class OvertimeService {
                 if(!overlap) continue;
                 if(leaves.stream().anyMatch(l->("APPROVED".equals(l.status()) || "PENDING".equals(l.status()))
                         && ("FULL_DAY".equals(l.period()) || interval.period().name().equals(l.period()))))
-                    throw error(HttpStatus.CONFLICT,"OT conflicts with leave");
-                if(!holiday) throw error(HttpStatus.CONFLICT,"OT must be outside regular working intervals");
+                    throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_LEAVE_CONFLICT);
+                if(!holiday) throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_OVERLAPS_WORKING_INTERVAL);
             }
         }
     }
@@ -81,12 +82,12 @@ public class OvertimeService {
     public Response decide(UUID id,AttendanceRequestModels.Decision decision,String match,JwtAuthenticationToken actor) {
         requireReviewer(actor); state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); requireVersion(match,row.getVersion());
         if(row.getRequesterUserId().equals(actor.getName()) || row.getEmployeeId().equals(employee(actor)))
-            throw error(HttpStatus.FORBIDDEN,"You cannot review your own OT request");
+            throw error(HttpStatus.FORBIDDEN,ExceptionMessages.OT_SELF_REVIEW_FORBIDDEN);
         pending(row);
         if(decision.status()!=AttendanceRequestStatus.APPROVED && decision.status()!=AttendanceRequestStatus.REJECTED)
-            throw error(HttpStatus.BAD_REQUEST,"Decision must be APPROVED or REJECTED");
+            throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.INVALID_REVIEW_DECISION);
         if(decision.status()==AttendanceRequestStatus.REJECTED && (decision.reviewNote()==null || decision.reviewNote().isBlank()))
-            throw error(HttpStatus.BAD_REQUEST,"A rejection reason is required");
+            throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.REJECTION_REASON_REQUIRED);
         if(decision.status()==AttendanceRequestStatus.APPROVED) validate(row,actor,true);
         row.setStatus(decision.status().name()); row.recordReview(actor.getName(), clock.instant(), decision.reviewNote());
         requests.flush(); var result=response(row);
@@ -103,16 +104,16 @@ public class OvertimeService {
         state.lockState(); var type=checkIn?"OT_CHECK_IN":"OT_CHECK_OUT"; var body=Map.of("id",id);
         var replay=operations.replay(actor.getName(),type,key,body,Response.class); if(replay!=null) return replay;
         var row=read(id,actor); periods.requireOpen(row.getWorkDate()); own(row,actor);
-        if(!"APPROVED".equals(row.getStatus())) throw error(HttpStatus.CONFLICT,"OT must be approved before recording time");
+        if(!"APPROVED".equals(row.getStatus())) throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_NOT_APPROVED);
         Instant now=clock.instant(),start=row.getStartTime().atZone(ZONE).toInstant(),end=row.getEndTime().atZone(ZONE).toInstant();
         if(checkIn) {
-            if(row.getCheckIn()!=null) throw error(HttpStatus.CONFLICT,"OT already started");
-            if(now.isBefore(start) || !now.isBefore(end)) throw error(HttpStatus.FORBIDDEN,"Outside the approved OT interval");
-            if(!source.eligible(source.employee(row.getEmployeeId(),actor),row.getWorkDate())) throw error(HttpStatus.FORBIDDEN,"Employee is not eligible for OT");
+            if(row.getCheckIn()!=null) throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_ALREADY_STARTED);
+            if(now.isBefore(start) || !now.isBefore(end)) throw error(HttpStatus.FORBIDDEN,ExceptionMessages.OUTSIDE_OT_INTERVAL);
+            if(!source.eligible(source.employee(row.getEmployeeId(),actor),row.getWorkDate())) throw error(HttpStatus.FORBIDDEN,ExceptionMessages.EMPLOYEE_INELIGIBLE_FOR_OT);
             validate(row,actor,false);
             row.setCheckIn(now); row.setCheckInIp(ip);
         } else {
-            if(row.getCheckIn()==null || row.getCheckOut()!=null || !now.isAfter(row.getCheckIn())) throw error(HttpStatus.CONFLICT,"OT check-in is required and check-out must be unique");
+            if(row.getCheckIn()==null || row.getCheckOut()!=null || !now.isAfter(row.getCheckIn())) throw error(HttpStatus.CONFLICT,ExceptionMessages.INVALID_OT_RECORDING);
             row.setCheckOut(now); row.setCheckOutIp(ip);
         }
         requests.flush(); var result=response(row); operations.save(actor.getName(),type,key,body,result); return result;
@@ -149,13 +150,13 @@ public class OvertimeService {
                 "APPROVED".equals(row.getStatus())?(int)Duration.between(row.getStartTime(),row.getEndTime()).toMinutes():0,counted(row));
     }
     private OvertimeRequest read(UUID id,JwtAuthenticationToken actor) {
-        var row=requests.findById(id).orElseThrow(()->error(HttpStatus.NOT_FOUND,"OT request not found"));
-        if(!row.getEmployeeId().equals(employee(actor)) && !reviewer(actor)) throw error(HttpStatus.NOT_FOUND,"OT request not found"); return row;
+        var row=requests.findById(id).orElseThrow(()->error(HttpStatus.NOT_FOUND,ExceptionMessages.OT_REQUEST_NOT_FOUND));
+        if(!row.getEmployeeId().equals(employee(actor)) && !reviewer(actor)) throw error(HttpStatus.NOT_FOUND,ExceptionMessages.OT_REQUEST_NOT_FOUND); return row;
     }
     private void own(OvertimeRequest row,JwtAuthenticationToken actor) {
-        if(!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN,"Only the owner may record or cancel OT");
+        if(!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN,ExceptionMessages.OT_OWNER_REQUIRED);
     }
     private void pending(OvertimeRequest row) {
-        if(!"PENDING".equals(row.getStatus())) throw error(HttpStatus.CONFLICT,"Only pending OT requests can be changed");
+        if(!"PENDING".equals(row.getStatus())) throw error(HttpStatus.CONFLICT,ExceptionMessages.OT_NOT_PENDING);
     }
 }

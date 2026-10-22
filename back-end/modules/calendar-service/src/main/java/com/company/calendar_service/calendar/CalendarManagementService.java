@@ -1,5 +1,6 @@
 package com.company.calendar_service.calendar;
 
+import com.company.calendar_service.exception.ExceptionMessages;
 import com.company.calendar_service.dto.*;
 import com.company.calendar_service.entity.CalendarEvent;
 import com.company.calendar_service.enums.*;
@@ -31,7 +32,7 @@ public class CalendarManagementService {
             CalendarEventStatus status, int page, int size) {
         if (to.isBefore(from) || ChronoUnit.DAYS.between(from, to) >= 366
                 || page < 0 || size < 1 || size > 100) {
-            throw problem(HttpStatus.BAD_REQUEST, "Invalid date range or pagination (maximum 366 days, size 1-100)");
+            throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_DATE_RANGE_OR_PAGINATION);
         }
         var result = repository.search(from, to, from.atStartOfDay(ZONE).toInstant(),
                 to.plusDays(1).atStartOfDay(ZONE).toInstant(),
@@ -63,14 +64,14 @@ public class CalendarManagementService {
         var event = matching(id, match);
         validateDates(request);
         if (event.getStatus() == CalendarEventStatus.CANCELLED) {
-            throw problem(HttpStatus.CONFLICT, "Cancelled events cannot be changed");
+            throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_CANCELLED);
         }
         if (event.getStatus() == CalendarEventStatus.PUBLISHED) {
             requireFuture(event);
             requireReason(request.reason());
             if (event.getType() != request.type() || event.getHolidayKind() != request.holidayKind()
                     || event.isAllDay() != request.allDay() || event.getAudienceType() != request.audienceType()) {
-                throw problem(HttpStatus.CONFLICT, "Published event classification cannot be changed");
+                throw problem(HttpStatus.CONFLICT, ExceptionMessages.PUBLISHED_CLASSIFICATION_IMMUTABLE);
             }
         }
         String before = snapshot(id);
@@ -85,11 +86,11 @@ public class CalendarManagementService {
     public ManagedCalendarEventResponse publish(long id, String match, String actor) {
         var event = matching(id, match);
         if (event.getStatus() != CalendarEventStatus.DRAFT) {
-            throw problem(HttpStatus.CONFLICT, "Only draft events can be published");
+            throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_NOT_DRAFT_FOR_PUBLISH);
         }
         if (event.isAllDay()) {
             if (event.getStartDate().isBefore(LocalDate.now(ZONE))) {
-                throw problem(HttpStatus.CONFLICT, "Cannot publish an event in the past");
+                throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_IN_PAST);
             }
         } else requireFuture(event);
         String before = snapshot(id);
@@ -103,7 +104,7 @@ public class CalendarManagementService {
     public ManagedCalendarEventResponse cancel(long id, String match, String reason, String actor) {
         var event = matching(id, match);
         if (event.getStatus() != CalendarEventStatus.PUBLISHED) {
-            throw problem(HttpStatus.CONFLICT, "Only published events can be cancelled");
+            throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_NOT_PUBLISHED);
         }
         requireFuture(event);
         requireReason(reason);
@@ -118,7 +119,7 @@ public class CalendarManagementService {
     public void delete(long id, String match, String actor) {
         var event = matching(id, match);
         if (event.getStatus() != CalendarEventStatus.DRAFT) {
-            throw problem(HttpStatus.CONFLICT, "Only draft events can be deleted; cancel published events instead");
+            throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_NOT_DRAFT_FOR_DELETE);
         }
         String before = snapshot(id);
         repository.delete(event);
@@ -128,21 +129,21 @@ public class CalendarManagementService {
 
     private CalendarEvent find(long id) {
         return repository.findById(id)
-                .orElseThrow(() -> problem(HttpStatus.NOT_FOUND, "Calendar event not found"));
+                .orElseThrow(() -> problem(HttpStatus.NOT_FOUND, ExceptionMessages.EVENT_NOT_FOUND));
     }
 
     private CalendarEvent matching(long id, String match) {
-        if (match == null) throw problem(HttpStatus.PRECONDITION_REQUIRED, "If-Match is required");
+        if (match == null) throw problem(HttpStatus.PRECONDITION_REQUIRED, ExceptionMessages.IF_MATCH_REQUIRED);
         long version;
         try {
             if (!match.matches("\"[0-9]+\"")) throw new NumberFormatException();
             version = Long.parseLong(match.substring(1, match.length() - 1));
         } catch (NumberFormatException error) {
-            throw problem(HttpStatus.BAD_REQUEST, "If-Match must contain one quoted non-negative version");
+            throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_IF_MATCH);
         }
         var event = find(id);
         if (event.getVersion() != version) {
-            throw problem(HttpStatus.PRECONDITION_FAILED, "Event has changed; reload before retrying");
+            throw problem(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.EVENT_VERSION_CONFLICT);
         }
         return event;
     }
@@ -158,25 +159,25 @@ public class CalendarManagementService {
                     && request.endAt().isAfter(request.startAt())
                     && request.startDate() == null && request.endDate() == null;
         }
-        if (!valid) throw problem(HttpStatus.BAD_REQUEST, "Invalid all-day or timed event range");
+        if (!valid) throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_EVENT_RANGE);
         if (request.type() == CalendarEventType.HOLIDAY) {
             if (!request.allDay() || request.holidayKind() == null) {
-                throw problem(HttpStatus.BAD_REQUEST, "Holiday events require allDay and holidayKind");
+                throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_HOLIDAY_EVENT);
             }
         } else if (request.holidayKind() != null) {
-            throw problem(HttpStatus.BAD_REQUEST, "holidayKind is only allowed for holidays");
+            throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.UNEXPECTED_HOLIDAY_KIND);
         }
     }
 
     private void requireFuture(CalendarEvent event) {
         Instant start = event.isAllDay() ? event.getStartDate().atStartOfDay(ZONE).toInstant() : event.getStartAt();
         if (!start.isAfter(Instant.now())) {
-            throw problem(HttpStatus.CONFLICT, "Events that have started cannot be changed or cancelled");
+            throw problem(HttpStatus.CONFLICT, ExceptionMessages.EVENT_ALREADY_STARTED);
         }
     }
 
     private void requireReason(String reason) {
-        if (reason == null || reason.isBlank()) throw problem(HttpStatus.BAD_REQUEST, "A reason is required");
+        if (reason == null || reason.isBlank()) throw problem(HttpStatus.BAD_REQUEST, ExceptionMessages.REASON_REQUIRED);
     }
 
     private void apply(CalendarEvent event, CalendarEventRequest request) {

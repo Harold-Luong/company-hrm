@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.entity.*;
 import com.company.attendance.repository.*;
@@ -52,7 +53,7 @@ public class AttendanceService {
                 && !now.isAfter(ShiftTimes.windowEnd(previous.get().getWorkDate(),
                         shifts.definition(previous.get().getShiftDefinition())))) {
             if (checkIn)
-                throw error(HttpStatus.CONFLICT, "Finish the previous overnight shift first");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.PREVIOUS_SHIFT_INCOMPLETE);
             date = date.minusDays(1);
         } else if (checkIn && previous.isEmpty()) {
             var priorRule = schedules.effective(employee, date.minusDays(1));
@@ -65,14 +66,14 @@ public class AttendanceService {
         periods.requireOpen(date);
         var person = source.employee(employee, actor);
         if (!source.eligible(person, date))
-            throw error(HttpStatus.FORBIDDEN, "Employee is not eligible to record attendance");
+            throw error(HttpStatus.FORBIDDEN, ExceptionMessages.EMPLOYEE_INELIGIBLE_FOR_ATTENDANCE);
         var existing = days.findByEmployeeIdAndWorkDate(employee, date);
         AttendanceDay day;
         if (checkIn) {
             if (existing.isPresent())
-                throw error(HttpStatus.CONFLICT, "Attendance has already been recorded for this day");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.ATTENDANCE_ALREADY_RECORDED);
             var rule = schedules.effective(employee, date)
-                    .orElseThrow(() -> error(HttpStatus.CONFLICT, "No assigned schedule for today"));
+                    .orElseThrow(() -> error(HttpStatus.CONFLICT, ExceptionMessages.TODAY_SCHEDULE_MISSING));
             day = new AttendanceDay();
             day.setId(UUID.randomUUID());
             day.setEmployeeId(employee);
@@ -82,16 +83,16 @@ public class AttendanceService {
             validateWindow(day, now);
             var planned = result(day);
             if (planned.remainingRequiredMinutes() == 0 || "SOURCE_CONFLICT".equals(planned.status()))
-                throw error(HttpStatus.CONFLICT, "Today is a non-working day or leave coverage conflicts");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.NON_WORKING_DAY_OR_LEAVE_CONFLICT);
             day.setCheckIn(now);
             days.saveAndFlush(day);
         } else {
-            day = existing.orElseThrow(() -> error(HttpStatus.CONFLICT, "Check-in is required first"));
+            day = existing.orElseThrow(() -> error(HttpStatus.CONFLICT, ExceptionMessages.CHECK_IN_REQUIRED));
             if (day.getEffectiveCheckOut() != null)
-                throw error(HttpStatus.CONFLICT, "Already checked out");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.ALREADY_CHECKED_OUT);
             validateWindow(day, now);
             if (!now.isAfter(day.getEffectiveCheckIn()))
-                throw error(HttpStatus.CONFLICT, "Check-out must be after check-in");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.INVALID_CHECK_OUT_ORDER);
             day.setCheckOut(now);
             days.flush();
         }
@@ -119,7 +120,7 @@ public class AttendanceService {
         if (employee == null || !employee.equals(employee(actor)))
             requireReviewer(actor);
         if (until.isAfter(LocalDate.now(clock)))
-            throw error(HttpStatus.BAD_REQUEST, "Attendance reports cannot include future dates");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.FUTURE_REPORT_DATES);
         state.lockState();
         List<AttendanceResponse> all = new ArrayList<>();
         for (YearMonth month = YearMonth.from(from); !month.isAfter(YearMonth.from(until)); month = month.plusMonths(1)) {
@@ -131,7 +132,7 @@ public class AttendanceService {
                     .filter(row -> employee == null || employee.equals(row.employeeId()))
                     .filter(row -> department == null || department.equals(row.departmentId())).forEach(all::add);
             } else all.addAll(draft(employee, department, first, last, actor));
-            if (all.size() > 5000) throw error(HttpStatus.UNPROCESSABLE_CONTENT, "Report exceeds 5000 rows; narrow the scope");
+            if (all.size() > 5000) throw error(HttpStatus.UNPROCESSABLE_CONTENT, ExceptionMessages.REPORT_TOO_LARGE);
         }
         return all;
     }
@@ -146,7 +147,7 @@ public class AttendanceService {
         long rows = people.size() * (ChronoUnit.DAYS.between(from, until) + 1);
         if (rows > 5000)
             throw error(HttpStatus.UNPROCESSABLE_CONTENT,
-                    "Report exceeds 5000 rows; narrow the date or employee scope");
+                    ExceptionMessages.REPORT_SCOPE_TOO_LARGE);
         List<AttendanceResponse> result = new ArrayList<>();
         var holidays = source.holidays(from, until, actor);
         for (var person : people) {
@@ -200,7 +201,7 @@ public class AttendanceService {
         state.lockState();
         periods.requireOpen(date);
         var day = days.findByEmployeeIdAndWorkDate(employee, date)
-                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Recorded day not found"));
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, ExceptionMessages.RECORDED_DAY_NOT_FOUND));
         requireVersion(match, day.getVersion());
         var before = Map.of("employeeId", employee, "date", date, "recordVersion", day.getVersion(),
                 "leaveSnapshot", day.getLeaveSnapshot(), "holidaySnapshot", day.getHolidaySnapshot(),
@@ -220,7 +221,7 @@ public class AttendanceService {
         if (!employee.equals(employee(actor)))
             requireReviewer(actor);
         var day = days.findByEmployeeIdAndWorkDate(employee, date)
-                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Recorded day not found"));
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, ExceptionMessages.RECORDED_DAY_NOT_FOUND));
         return events.findByDayIdOrderByOccurredAt(day.getId());
     }
 
@@ -238,7 +239,7 @@ public class AttendanceService {
         var shift = shifts.definition(day.getShiftDefinition());
         if (time.isBefore(ShiftTimes.windowStart(day.getWorkDate(), shift))
                 || time.isAfter(ShiftTimes.windowEnd(day.getWorkDate(), shift)))
-            throw error(HttpStatus.FORBIDDEN, "Outside the assigned recording window");
+            throw error(HttpStatus.FORBIDDEN, ExceptionMessages.OUTSIDE_RECORDING_WINDOW);
     }
 
     private AttendanceResponse result(AttendanceDay day) {

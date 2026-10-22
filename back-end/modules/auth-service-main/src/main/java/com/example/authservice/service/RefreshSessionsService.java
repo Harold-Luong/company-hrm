@@ -1,5 +1,6 @@
 package com.example.authservice.service;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.entity.RefreshSessions;
 import com.example.authservice.entity.User;
 import com.example.authservice.exception.GlobalException;
@@ -27,12 +28,12 @@ public class RefreshSessionsService {
         // The caller holds both locks until rotation/revocation commits or rolls back.
         User user = lockUser(userId);
         RefreshSessions session = refreshSessionsRepository.findByIdForUpdate(sessionId)
-                .orElseThrow(() -> new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED));
+                .orElseThrow(() -> new GlobalException(ExceptionMessages.INVALID_REFRESH_TOKEN, HttpStatus.UNAUTHORIZED));
         if (session.getRevokedAt() != null
                 || session.getExpiresAt() == null || !session.getExpiresAt().isAfter(Instant.now())
                 || !tokenHash.equals(session.getTokenHash())
                 || session.getUser() == null || !userId.equals(session.getUser().getId())) {
-            throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_REFRESH_TOKEN, HttpStatus.UNAUTHORIZED);
         }
         return user;
     }
@@ -52,7 +53,7 @@ public class RefreshSessionsService {
     @Transactional
     public void revokeRefreshSession(UUID sessionId) {
         RefreshSessions session = refreshSessionsRepository.findById(sessionId)
-                .orElseThrow(() -> new GlobalException("Session not found", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new GlobalException(ExceptionMessages.SESSION_NOT_FOUND, HttpStatus.NOT_FOUND));
         session.setRevokedAt(Instant.now());
     }
 
@@ -67,13 +68,13 @@ public class RefreshSessionsService {
     public User requireCurrentSession(Long userId, UUID activeSessionId) {
         User user = lockUser(userId);
         if (activeSessionId == null || !activeSessionId.equals(user.getActiveSessionId())) {
-            throw new GlobalException("Session replaced or signed out", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.SESSION_REPLACED, HttpStatus.UNAUTHORIZED);
         }
         return user;
     }
 
     private User lockUser(Long userId) {
         return userRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED));
+                .orElseThrow(() -> new GlobalException(ExceptionMessages.INVALID_REFRESH_TOKEN, HttpStatus.UNAUTHORIZED));
     }
 }

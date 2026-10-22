@@ -1,5 +1,6 @@
 package com.company.employee.provisioning;
 
+import com.company.employee.exception.ExceptionMessages;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,7 +23,7 @@ public class AccountResultConsumer {
         var event = mapper.readValue(record.value(), AccountProvisioningResult.class);
         if (event.data() == null || event.data().employeeId() == null
                 || !event.data().employeeId().toString().equals(record.key())) {
-            throw new IllegalArgumentException("Account result key does not match employeeId");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_RESULT_KEY_MISMATCH);
         }
         service.apply(event);
     }
@@ -34,7 +35,7 @@ public class AccountResultConsumer {
         var event = mapper.readValue(record.value(), AccountLifecycleService.Event.class);
         if (event == null || event.data() == null || event.data().employeeId() == null
                 || !event.data().employeeId().toString().equals(record.key()))
-            throw new IllegalArgumentException("Account lifecycle key does not match employeeId");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_LIFECYCLE_KEY_MISMATCH);
         lifecycle.apply(event);
     }
 }

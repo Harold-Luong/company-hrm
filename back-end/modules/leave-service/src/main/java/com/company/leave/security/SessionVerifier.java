@@ -1,5 +1,6 @@
 package com.company.leave.security;
 
+import com.company.leave.exception.ExceptionMessages;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -26,7 +27,7 @@ public final class SessionVerifier {
             int status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
             if (status == 204) return;
             if (status == 401 || status == 403) {
-                throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token"), "Session replaced or signed out");
+                throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token"), ExceptionMessages.SESSION_REPLACED);
             }
             throw unavailable();
         } catch (InterruptedException e) {
@@ -39,6 +40,6 @@ public final class SessionVerifier {
 
     private OAuth2AuthenticationException unavailable() {
         return new OAuth2AuthenticationException(new OAuth2Error("temporarily_unavailable"),
-                "Session verification is unavailable");
+                ExceptionMessages.SESSION_VERIFICATION_UNAVAILABLE);
     }
 }

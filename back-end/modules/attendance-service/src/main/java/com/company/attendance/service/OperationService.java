@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.entity.AttendanceOperation;
 import com.company.attendance.repository.AttendanceOperationRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,14 +28,14 @@ public class OperationService {
 
     public <T> T replay(String actor, String type, String key, Object body, Class<T> resultType) {
         if (key == null || !key.matches("[A-Za-z0-9._:-]{1,100}"))
-            throw error(HttpStatus.BAD_REQUEST, "A 1-100 character Idempotency-Key is required");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.IDEMPOTENCY_KEY_REQUIRED);
         var found = operations.findByActorUserIdAndOperationTypeAndRequestKey(actor, type, key);
         if (found.isEmpty())
             return null;
         if (!mapper.readTree(found.get().getRequestBody()).equals(mapper.readTree(mapper.writeValueAsString(body))))
-            throw error(HttpStatus.CONFLICT, "Idempotency-Key was used for a different request");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.IDEMPOTENCY_REQUEST_CONFLICT);
         if (found.get().getResponseBody() == null)
-            throw error(HttpStatus.CONFLICT, "Idempotency response expired; the original operation will not be repeated");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.IDEMPOTENCY_RESPONSE_EXPIRED);
         return mapper.readValue(found.get().getResponseBody(), resultType);
     }
 

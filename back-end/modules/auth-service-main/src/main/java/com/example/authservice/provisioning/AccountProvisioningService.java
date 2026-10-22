@@ -1,5 +1,6 @@
 package com.example.authservice.provisioning;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.entity.User;
 import com.example.authservice.enums.UserRole;
 import com.example.authservice.repository.UserRepository;
@@ -38,7 +39,7 @@ public class AccountProvisioningService {
     public void process(EmployeeAccountRequested event) {
         if (event == null || !validator.validate(event).isEmpty() || event.schemaVersion() != 1
                 || !"EmployeeAccountRequested".equals(event.eventType()) || !"employee-service".equals(event.producer())) {
-            throw new IllegalArgumentException("Invalid account request envelope");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_ACCOUNT_REQUEST_ENVELOPE);
         }
         var transaction = new TransactionTemplate(transactionManager);
         // A unique conflict aborts the whole transaction. Retry in a fresh transaction,
@@ -60,7 +61,7 @@ public class AccountProvisioningService {
         if (!previous.isEmpty()) {
             if (previous.size() != 1 || !event.requestId().equals(previous.getFirst().get("request_id"))
                     || !fingerprint.equals(previous.getFirst().get("payload_hash"))) {
-                throw new IllegalArgumentException("Account request identity reused with different data");
+                throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_REQUEST_IDENTITY_CONFLICT);
             }
             return; // Account and result Outbox were committed together on the first delivery.
         }

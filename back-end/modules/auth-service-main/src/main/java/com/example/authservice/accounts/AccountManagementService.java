@@ -1,5 +1,6 @@
 package com.example.authservice.accounts;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.entity.User;
 import com.example.authservice.enums.UserRole;
 import com.example.authservice.exception.GlobalException;
@@ -55,7 +56,7 @@ public class AccountManagementService {
         long actorId = Long.parseLong(authentication.getName());
         // Self-service logout already exists. Keeping the acting administrator unchanged
         // protects the last active administrator, including two admins modifying each other.
-        if (actorId == id) throw conflict("ACCOUNT_SELF_CHANGE_FORBIDDEN");
+        if (actorId == id) throw conflict(ExceptionMessages.ACCOUNT_SELF_CHANGE_FORBIDDEN);
         // All management requests acquire account locks in the same order. Login/refresh
         // acquire just one account lock, so they cannot form a cycle with this operation.
         User first = lock(Math.min(actorId, id));
@@ -67,17 +68,17 @@ public class AccountManagementService {
         UUID sid = authentication.getDetails() instanceof UUID value ? value : null;
         if (sid == null || !sid.equals(actor.getActiveSessionId()) || !actor.isActive()
                 || actor.isActivationPending() || actor.isAdministrativelyLocked())
-            throw new GlobalException("Session replaced or signed out", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.SESSION_REPLACED, HttpStatus.UNAUTHORIZED);
         if (!actor.getRoles().contains(UserRole.ADMIN))
-            throw new GlobalException("Access is denied", HttpStatus.FORBIDDEN);
+            throw new GlobalException(ExceptionMessages.ACCESS_DENIED, HttpStatus.FORBIDDEN);
         if (command.version() != target.getManagementVersion())
-            throw new GlobalException("ACCOUNT_VERSION_CONFLICT", HttpStatus.PRECONDITION_FAILED);
+            throw new GlobalException(ExceptionMessages.ACCOUNT_VERSION_CONFLICT, HttpStatus.PRECONDITION_FAILED);
         if (command.action() != AccountAction.CHANGE_ROLES && command.roles() != null)
-            throw new GlobalException("ACCOUNT_UNEXPECTED_ROLES", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.ACCOUNT_UNEXPECTED_ROLES, HttpStatus.BAD_REQUEST);
         var before = AccountModels.Account.of(target);
         switch (command.action()) {
             case DISABLE -> {
-                if (before.status() == AccountStatus.DISABLED) throw conflict("ACCOUNT_ALREADY_DISABLED");
+                if (before.status() == AccountStatus.DISABLED) throw conflict(ExceptionMessages.ACCOUNT_ALREADY_DISABLED);
                 target.setAdministrativelyLocked(true);
                 target.setActive(false);
                 // Previously sent invitation links must not reactivate a locked account.
@@ -88,15 +89,15 @@ public class AccountManagementService {
                         """, id);
             }
             case ENABLE -> {
-                if (before.status() != AccountStatus.DISABLED) throw conflict("ACCOUNT_NOT_DISABLED");
+                if (before.status() != AccountStatus.DISABLED) throw conflict(ExceptionMessages.ACCOUNT_NOT_DISABLED);
                 target.setAdministrativelyLocked(false);
                 // Unlocking cannot bypass password activation.
                 target.setActive(!target.isActivationPending());
             }
             case CHANGE_ROLES -> {
                 if (command.roles() == null || command.roles().isEmpty())
-                    throw new GlobalException("ACCOUNT_ROLES_REQUIRED", HttpStatus.BAD_REQUEST);
-                if (command.roles().equals(target.getRoles())) throw conflict("ACCOUNT_ROLES_UNCHANGED");
+                    throw new GlobalException(ExceptionMessages.ACCOUNT_ROLES_REQUIRED, HttpStatus.BAD_REQUEST);
+                if (command.roles().equals(target.getRoles())) throw conflict(ExceptionMessages.ACCOUNT_ROLES_UNCHANGED);
                 target.setRoles(new HashSet<>(command.roles()));
             }
             case REVOKE_SESSIONS -> { }
@@ -110,13 +111,13 @@ public class AccountManagementService {
     }
 
     private User lock(long id) {
-        User user = users.findByIdForUpdate(id).orElseThrow(() -> new GlobalException("Account not found", HttpStatus.NOT_FOUND));
+        User user = users.findByIdForUpdate(id).orElseThrow(() -> new GlobalException(ExceptionMessages.ACCOUNT_NOT_FOUND, HttpStatus.NOT_FOUND));
         // Discard any entity loaded by the authentication filter before the lock was acquired.
         entityManager.refresh(user, LockModeType.PESSIMISTIC_WRITE);
         return user;
     }
     private User find(long id) {
-        return users.findById(id).orElseThrow(() -> new GlobalException("Account not found", HttpStatus.NOT_FOUND));
+        return users.findById(id).orElseThrow(() -> new GlobalException(ExceptionMessages.ACCOUNT_NOT_FOUND, HttpStatus.NOT_FOUND));
     }
     private GlobalException conflict(String message) { return new GlobalException(message, HttpStatus.CONFLICT); }
 }

@@ -1,5 +1,6 @@
 package com.company.notification;
 
+import com.company.notification.exception.ExceptionMessages;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,7 +33,7 @@ public class Notifications {
                 || !Set.of("LEAVE","ATTENDANCE").contains(event.source())
                 || !Set.of("SUBMITTED","UPDATED","CANCELLED","APPROVED","REJECTED").contains(event.action())
                 || event.requesterUserId() == null || event.requesterUserId().isBlank()
-                || event.actorUserId() == null || event.actorUserId().isBlank()) throw new IllegalArgumentException("Invalid notification event");
+                || event.actorUserId() == null || event.actorUserId().isBlank()) throw new IllegalArgumentException(ExceptionMessages.INVALID_NOTIFICATION_EVENT);
         jdbc.update("""
             INSERT INTO notifications(event_id, source, request_id, request_version, requester_user_id,
                 employee_id, actor_user_id, action, occurred_at)

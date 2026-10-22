@@ -1,5 +1,6 @@
 package com.company.leave.notifications;
 
+import com.company.leave.exception.ExceptionMessages;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -30,7 +31,7 @@ public class NotificationOutbox {
     public void append(UUID requestId, long version, String requester, UUID employee, String actor, String action) {
         if (!enabled) return;
         if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
-            throw new IllegalStateException("Notification must be recorded in a transaction");
+            throw new IllegalStateException(ExceptionMessages.NOTIFICATION_TRANSACTION_REQUIRED);
         var event = new Event(UUID.randomUUID(), "LEAVE", requestId, version,
                 requester, employee, actor, action, Instant.now().toString());
         jdbc.update("INSERT INTO notification_outbox(event_id, message_key, payload) VALUES (?, ?, ?)",

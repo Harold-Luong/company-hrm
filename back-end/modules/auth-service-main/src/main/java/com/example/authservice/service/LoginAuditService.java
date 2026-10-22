@@ -1,5 +1,6 @@
 package com.example.authservice.service;
 
+import com.example.authservice.exception.ExceptionMessages;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,7 +33,7 @@ public class LoginAuditService {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(email.trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
+            throw new IllegalStateException(ExceptionMessages.SHA256_UNAVAILABLE, e);
         }
     }
 

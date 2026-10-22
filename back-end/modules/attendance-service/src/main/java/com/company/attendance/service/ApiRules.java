@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,18 +25,18 @@ public final class ApiRules {
 
     public static void requireReviewer(JwtAuthenticationToken actor) {
         if (!reviewer(actor))
-            throw error(HttpStatus.FORBIDDEN, "HR or ADMIN role is required");
+            throw error(HttpStatus.FORBIDDEN, ExceptionMessages.REVIEWER_ROLE_REQUIRED);
     }
 
     public static void requireVersion(String match, long version) {
         if (match == null)
-            throw error(HttpStatus.PRECONDITION_REQUIRED, "If-Match is required");
+            throw error(HttpStatus.PRECONDITION_REQUIRED, ExceptionMessages.IF_MATCH_REQUIRED);
         if (!match.equals("\"" + version + "\""))
-            throw error(HttpStatus.PRECONDITION_FAILED, "Resource changed; reload before retrying");
+            throw error(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.RESOURCE_VERSION_CONFLICT);
     }
 
     public static void page(int page, int size) {
         if (page < 0 || size < 1 || size > 100)
-            throw error(HttpStatus.BAD_REQUEST, "Invalid pagination");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_PAGINATION);
     }
 }

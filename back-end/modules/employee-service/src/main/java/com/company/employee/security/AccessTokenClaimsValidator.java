@@ -1,5 +1,6 @@
 package com.company.employee.security;
 
+import com.company.employee.exception.ExceptionMessages;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
@@ -23,7 +24,7 @@ public class AccessTokenClaimsValidator implements OAuth2TokenValidator<Jwt> {
                 || values.stream().anyMatch(role -> !(role instanceof String name) || name.isBlank())
                 || (type != null && !"access".equals(type))) {
             return OAuth2TokenValidatorResult.failure(
-                    new OAuth2Error("invalid_token", "Invalid access token claims", null));
+                    new OAuth2Error("invalid_token", ExceptionMessages.INVALID_ACCESS_TOKEN_CLAIMS, null));
         }
         return OAuth2TokenValidatorResult.success();
     }

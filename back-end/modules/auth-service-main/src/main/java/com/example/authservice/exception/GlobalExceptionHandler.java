@@ -37,6 +37,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableRequest(HttpMessageNotReadableException ex) {
         return ResponseEntity.badRequest()
-                .body(new ErrorResponse("400", "Request body is missing or contains invalid JSON"));
+                .body(new ErrorResponse("400", ExceptionMessages.INVALID_REQUEST_BODY));
     }
 }

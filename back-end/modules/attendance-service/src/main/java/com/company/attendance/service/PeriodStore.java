@@ -1,4 +1,6 @@
 package com.company.attendance.service;
+
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.repository.*;
 import com.company.attendance.dto.AttendanceResponse;
 import lombok.RequiredArgsConstructor;
@@ -16,13 +18,13 @@ public class PeriodStore {
     private final ObjectMapper mapper;
     public void requireOpen(LocalDate date) {
         if (periods.findById(YearMonth.from(date).toString()).map(p -> p.isClosed()).orElse(false))
-            throw error(HttpStatus.CONFLICT, "Attendance period is closed; HR/ADMIN must reopen it with a reason");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.PERIOD_CLOSED);
     }
     public void requireOpen(LocalDate from, LocalDate until) {
         if (periods.findAll().stream().anyMatch(p -> p.isClosed()
                 && !YearMonth.parse(p.getMonth()).atDay(1).isAfter(until)
                 && !YearMonth.parse(p.getMonth()).atEndOfMonth().isBefore(from)))
-            throw error(HttpStatus.CONFLICT, "Schedule overlaps a closed attendance period");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.SCHEDULE_OVERLAPS_CLOSED_PERIOD);
     }
     public Optional<List<AttendanceResponse>> frozen(YearMonth month) {
         return periods.findById(month.toString()).filter(p -> p.isClosed())

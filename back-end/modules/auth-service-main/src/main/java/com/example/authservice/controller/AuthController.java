@@ -1,5 +1,6 @@
 package com.example.authservice.controller;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.request.LoginRequest;
 import com.example.authservice.request.RefreshTokenRequest;
 import com.example.authservice.request.RegisterRequest;
@@ -75,7 +76,7 @@ public class AuthController {
     public ResponseEntity<BrowserRefresh> refresh(HttpServletRequest request, HttpServletResponse response) {
         String token = cookies.refreshToken(request);
         if (token == null || token.isBlank())
-            throw new com.example.authservice.exception.GlobalException("Refresh cookie is required",
+            throw new com.example.authservice.exception.GlobalException(ExceptionMessages.REFRESH_COOKIE_REQUIRED,
                     HttpStatus.UNAUTHORIZED);
         var result = authService.refresh(token);
         cookies.setRefresh(response, result.refreshToken());

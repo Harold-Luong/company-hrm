@@ -1,4 +1,6 @@
 package com.company.attendance.service;
+
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.dto.AttendanceRequestModels.*;
 import com.company.attendance.entity.*;
@@ -59,7 +61,7 @@ public class AttendanceRequestService {
     public Response update(UUID id,Write body,String match,JwtAuthenticationToken actor) {
         state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); ownPending(row,actor); requireVersion(match,row.getVersion());
         // Do not allow an expired pending request to be repurposed as a new request.
-        if(row.getWorkDate().isBefore(LocalDate.now(clock))) throw error(HttpStatus.CONFLICT,"Past requests cannot be edited");
+        if(row.getWorkDate().isBefore(LocalDate.now(clock))) throw error(HttpStatus.CONFLICT,ExceptionMessages.PAST_REQUEST_NOT_EDITABLE);
         var before=response(row); populate(row,body,actor);
         if(before.equals(response(row))) return before;
         // Force a version even when the injected clock has not advanced.
@@ -74,11 +76,11 @@ public class AttendanceRequestService {
     public Response decide(UUID id,Decision decision,String match,JwtAuthenticationToken actor) {
         requireReviewer(actor); state.lockState(); var row=read(id,actor); periods.requireOpen(row.getWorkDate()); requireVersion(match,row.getVersion());
         if(row.getEmployeeId().equals(employee(actor)) || row.getRequesterUserId().equals(actor.getName()))
-            throw error(HttpStatus.FORBIDDEN,"You cannot review your own attendance request");
-        if(row.getStatus()!=PENDING) throw error(HttpStatus.CONFLICT,"Only pending requests can be reviewed");
-        if(decision.status()!=APPROVED && decision.status()!=REJECTED) throw error(HttpStatus.BAD_REQUEST,"Decision must be APPROVED or REJECTED");
+            throw error(HttpStatus.FORBIDDEN,ExceptionMessages.ATTENDANCE_SELF_REVIEW_FORBIDDEN);
+        if(row.getStatus()!=PENDING) throw error(HttpStatus.CONFLICT,ExceptionMessages.REQUEST_NOT_PENDING_REVIEW);
+        if(decision.status()!=APPROVED && decision.status()!=REJECTED) throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.INVALID_REVIEW_DECISION);
         String note=decision.reviewNote()==null ? null : decision.reviewNote().trim();
-        if(decision.status()==REJECTED && (note==null || note.isBlank())) throw error(HttpStatus.BAD_REQUEST,"A rejection reason is required");
+        if(decision.status()==REJECTED && (note==null || note.isBlank())) throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.REJECTION_REASON_REQUIRED);
         if(decision.status()==APPROVED) validateSchedule(row,new Write(row.getWorkDate(),row.getShiftId(),row.getShiftVersion(),row.getRequestType(),row.getPeriod(),row.getExpectedTime(),row.getReason()),actor,false);
         row.setStatus(decision.status()); row.setActiveSlot(decision.status()==APPROVED ? "ACTIVE" : null);
         row.recordReview(actor.getName(), clock.instant(), note); row.setUpdatedAt(nextUpdate(row));
@@ -87,7 +89,7 @@ public class AttendanceRequestService {
     private void populate(AttendanceRequest row,Write body,JwtAuthenticationToken actor) {
         periods.requireOpen(body.workDate());
         var person=source.employee(row.getEmployeeId(),actor);
-        if(!source.eligible(person,body.workDate())) throw error(HttpStatus.CONFLICT,"Employee is not eligible on the request date");
+        if(!source.eligible(person,body.workDate())) throw error(HttpStatus.CONFLICT,ExceptionMessages.EMPLOYEE_INELIGIBLE_ON_REQUEST_DATE);
         var plan=validateSchedule(row,body,actor,true);
         var interval=plan.intervals().stream().filter(i->i.period()==body.period()).findFirst().orElseThrow();
         row.setEmployeeCode(person.employeeCode()); row.setEmployeeName(person.lastName()+" "+person.firstName());
@@ -99,38 +101,38 @@ public class AttendanceRequestService {
     }
     private ShiftRequest validateSchedule(AttendanceRequest row,Write body,JwtAuthenticationToken actor,boolean newOrEdit) {
         if(newOrEdit && (body.workDate().isBefore(LocalDate.now(clock)) || body.workDate().isAfter(LocalDate.now(clock).plusDays(365))))
-            throw error(HttpStatus.BAD_REQUEST,"Request date must be today or within the next 365 days");
+            throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.INVALID_REQUEST_DATE);
         var recorded=days.findByEmployeeIdAndWorkDate(row.getEmployeeId(),body.workDate());
         UUID shiftId; long version; ShiftRequest plan;
         if(recorded.isPresent()) { var d=recorded.get(); shiftId=d.getShiftId(); version=d.getShiftVersion(); plan=shifts.definition(d.getShiftDefinition()); }
-        else { var rule=schedules.effective(row.getEmployeeId(),body.workDate()).orElseThrow(()->error(HttpStatus.CONFLICT,"No assigned schedule for request date"));
+        else { var rule=schedules.effective(row.getEmployeeId(),body.workDate()).orElseThrow(()->error(HttpStatus.CONFLICT,ExceptionMessages.REQUEST_SCHEDULE_MISSING));
             shiftId=rule.getShiftId(); version=rule.getShiftVersion(); plan=shifts.definition(rule.getDefinition()); }
-        if(!shiftId.equals(body.shiftId()) || version!=body.shiftVersion()) throw error(HttpStatus.PRECONDITION_FAILED,"Assigned schedule changed; reload request");
+        if(!shiftId.equals(body.shiftId()) || version!=body.shiftVersion()) throw error(HttpStatus.PRECONDITION_FAILED,ExceptionMessages.REQUEST_SCHEDULE_CHANGED);
         var interval=plan.intervals().stream().filter(i->i.period()==body.period()).findFirst()
-            .orElseThrow(()->error(HttpStatus.BAD_REQUEST,"Requested period is not in the assigned shift"));
+            .orElseThrow(()->error(HttpStatus.BAD_REQUEST,ExceptionMessages.REQUEST_PERIOD_OUTSIDE_SHIFT));
         if(body.expectedTime().getSecond()!=0 || body.expectedTime().getNano()!=0 || !ShiftTimes.at(body.workDate(),plan,body.expectedTime()).isAfter(ShiftTimes.at(body.workDate(),plan,interval.start())) || !ShiftTimes.at(body.workDate(),plan,body.expectedTime()).isBefore(ShiftTimes.at(body.workDate(),plan,interval.end())))
-            throw error(HttpStatus.BAD_REQUEST,"Expected time must be strictly inside the work interval at minute precision");
-        if(!source.holidays(body.workDate(),body.workDate(),actor).isEmpty()) throw error(HttpStatus.CONFLICT,"Cannot request time on a company holiday");
+            throw error(HttpStatus.BAD_REQUEST,ExceptionMessages.INVALID_EXPECTED_TIME);
+        if(!source.holidays(body.workDate(),body.workDate(),actor).isEmpty()) throw error(HttpStatus.CONFLICT,ExceptionMessages.REQUEST_ON_HOLIDAY);
         if(source.leaves(row.getEmployeeId(),body.workDate(),body.workDate(),actor).stream().anyMatch(l->
             ("APPROVED".equals(l.status()) || "PENDING".equals(l.status())) && ("FULL_DAY".equals(l.period()) || body.period().name().equals(l.period()))))
-            throw error(HttpStatus.CONFLICT,"A leave request already covers this period");
+            throw error(HttpStatus.CONFLICT,ExceptionMessages.LEAVE_COVERS_REQUEST_PERIOD);
         for(var other:requests.findByEmployeeIdAndWorkDateAndActiveSlot(row.getEmployeeId(),body.workDate(),"ACTIVE")) {
             if(other.getId().equals(row.getId()) || other.getPeriod()!=body.period()) continue;
-            if(other.getRequestType()==body.requestType()) throw error(HttpStatus.CONFLICT,"An active request already exists for this date, period and type");
+            if(other.getRequestType()==body.requestType()) throw error(HttpStatus.CONFLICT,ExceptionMessages.DUPLICATE_ATTENDANCE_REQUEST);
             LocalTime late=body.requestType()==AttendanceRequestType.LATE_ARRIVAL ? body.expectedTime() : other.getExpectedTime();
             LocalTime early=body.requestType()==AttendanceRequestType.EARLY_DEPARTURE ? body.expectedTime() : other.getExpectedTime();
-            if(!ShiftTimes.at(body.workDate(),plan,late).isBefore(ShiftTimes.at(body.workDate(),plan,early))) throw error(HttpStatus.CONFLICT,"Late and early requests cannot cover the entire work interval");
+            if(!ShiftTimes.at(body.workDate(),plan,late).isBefore(ShiftTimes.at(body.workDate(),plan,early))) throw error(HttpStatus.CONFLICT,ExceptionMessages.REQUESTS_COVER_ENTIRE_INTERVAL);
         }
         return plan;
     }
     private Instant nextUpdate(AttendanceRequest row) { return clock.instant().isAfter(row.getUpdatedAt()) ? clock.instant() : row.getUpdatedAt().plusNanos(1000); }
     private AttendanceRequest read(UUID id,JwtAuthenticationToken actor) {
-        var row=requests.findById(id).orElseThrow(()->error(HttpStatus.NOT_FOUND,"Attendance request not found"));
-        if(!row.getEmployeeId().equals(employee(actor)) && !reviewer(actor)) throw error(HttpStatus.NOT_FOUND,"Attendance request not found"); return row;
+        var row=requests.findById(id).orElseThrow(()->error(HttpStatus.NOT_FOUND,ExceptionMessages.ATTENDANCE_REQUEST_NOT_FOUND));
+        if(!row.getEmployeeId().equals(employee(actor)) && !reviewer(actor)) throw error(HttpStatus.NOT_FOUND,ExceptionMessages.ATTENDANCE_REQUEST_NOT_FOUND); return row;
     }
     private void ownPending(AttendanceRequest row,JwtAuthenticationToken actor) {
-        if(!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN,"Only the owner may edit or cancel a request");
-        if(row.getStatus()!=PENDING) throw error(HttpStatus.CONFLICT,"Only pending requests can be edited or cancelled");
+        if(!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN,ExceptionMessages.REQUEST_OWNER_REQUIRED);
+        if(row.getStatus()!=PENDING) throw error(HttpStatus.CONFLICT,ExceptionMessages.REQUEST_NOT_PENDING_EDIT);
     }
     private Response response(AttendanceRequest row) {
         return new Response(row.getId(),row.getVersion(),row.getEmployeeId(),row.getEmployeeCode(),row.getEmployeeName(),row.getWorkDate(),row.getShiftId(),row.getShiftVersion(),

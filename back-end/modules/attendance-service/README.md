@@ -1137,3 +1137,12 @@ không ảnh hưởng người khác; áp dụng toàn bộ xử lý cả ngoạ
 quay về mặc định; ngày hiệu lực không làm đổi snapshot hoặc số dư phép quá khứ.
 
 Đây là tiêu chí cho implementation tương lai, chưa phải bộ test đã chạy.
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/company/attendance/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

@@ -1,5 +1,6 @@
 package com.company.attendance.security;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.config.AttendanceProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -21,10 +22,10 @@ public class CorporateNetwork {
             // Gateway replaces all untrusted forwarding headers with exactly its TCP peer.
             String forwarded = request.getHeader("X-Forwarded-For");
             if (forwarded == null || forwarded.contains(",") || !forwarded.matches("[0-9a-fA-F:.]+"))
-                throw error(HttpStatus.FORBIDDEN, "A trusted single client IP is required");
+                throw error(HttpStatus.FORBIDDEN, ExceptionMessages.TRUSTED_CLIENT_IP_REQUIRED);
             ip = forwarded;
         }
-        if (!matches(allowed, ip)) throw error(HttpStatus.FORBIDDEN, "Check-in/out is only allowed from the company network");
+        if (!matches(allowed, ip)) throw error(HttpStatus.FORBIDDEN, ExceptionMessages.COMPANY_NETWORK_REQUIRED);
         return ip;
     }
     private List<IpAddressMatcher> matchers(List<String> networks) {

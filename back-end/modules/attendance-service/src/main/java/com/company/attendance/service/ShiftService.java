@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.entity.*;
 import com.company.attendance.enums.AttendanceMode;
@@ -36,11 +37,11 @@ public class ShiftService {
     }
     public ShiftResponse get(UUID id) { return response(require(id)); }
     public WorkShift require(UUID id) {
-        return shifts.findById(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Shift not found"));
+        return shifts.findById(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, ExceptionMessages.SHIFT_NOT_FOUND));
     }
     public ShiftRevision revision(UUID shiftId, long version) {
         return revisions.findByShiftIdAndShiftVersion(shiftId, version)
-                .orElseThrow(() -> error(HttpStatus.CONFLICT, "Shift revision not found"));
+                .orElseThrow(() -> error(HttpStatus.CONFLICT, ExceptionMessages.SHIFT_REVISION_NOT_FOUND));
     }
     public ShiftRequest definition(String json) { return mapper.readValue(json, ShiftRequest.class); }
     public PageResponse<ShiftRevision> history(UUID id, int page, int size) {
@@ -66,7 +67,7 @@ public class ShiftService {
     public ShiftResponse deactivate(UUID id, String match, JwtAuthenticationToken actor) {
         requireReviewer(actor); state.lockState();
         var shift = require(id); requireVersion(match, shift.getVersion());
-        if (!shift.isActive()) throw error(HttpStatus.CONFLICT, "Shift is already inactive");
+        if (!shift.isActive()) throw error(HttpStatus.CONFLICT, ExceptionMessages.SHIFT_ALREADY_INACTIVE);
         shift.setActive(false); shift.setUpdatedAt(clock.instant()); shifts.flush(); audit(shift, actor);
         return response(shift);
     }
@@ -79,9 +80,9 @@ public class ShiftService {
     }
     public int validate(ShiftRequest body) {
         if (body.mode() != AttendanceMode.FIXED_SHIFT)
-            throw error(HttpStatus.BAD_REQUEST, "Only FIXED_SHIFT is supported in this release");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.UNSUPPORTED_SHIFT_TYPE);
         if (!"Asia/Ho_Chi_Minh".equals(body.timezone()))
-            throw error(HttpStatus.BAD_REQUEST, "Only Asia/Ho_Chi_Minh is supported in this release");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.UNSUPPORTED_TIMEZONE);
         var periods = new HashSet<>(); LocalTime previous = null; int minutes = 0;
         if (body.overnight()) {
             var i = body.intervals().getFirst();
@@ -90,21 +91,21 @@ public class ShiftService {
                     || !minutePrecision(body.checkInFrom()) || !minutePrecision(body.checkOutUntil())
                     || body.checkInFrom().isAfter(i.start()) || !body.checkInFrom().isAfter(i.end())
                     || body.checkOutUntil().isBefore(i.end()) || !body.checkOutUntil().isBefore(body.checkInFrom()))
-                throw error(HttpStatus.BAD_REQUEST, "Overnight shift requires one interval and a recording window shorter than 24 hours");
+                throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_OVERNIGHT_SHIFT);
             return (int) Duration.between(i.start(), i.end()).toMinutes() + 1440;
         }
         for (var interval : body.intervals()) {
             if (!minutePrecision(interval.start()) || !minutePrecision(interval.end())
                     || !interval.start().isBefore(interval.end())
                     || (previous != null && interval.start().isBefore(previous)) || !periods.add(interval.period()))
-                throw error(HttpStatus.BAD_REQUEST, "Intervals must be ordered, non-overlapping and have unique periods, at minute precision");
+                throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_SHIFT_INTERVALS);
             previous = interval.end();
             minutes += (int) Duration.between(interval.start(), interval.end()).toMinutes();
         }
         if (!minutePrecision(body.checkInFrom()) || !minutePrecision(body.checkOutUntil())
                 || body.checkInFrom().isAfter(body.intervals().getFirst().start())
                 || body.checkOutUntil().isBefore(body.intervals().getLast().end()))
-            throw error(HttpStatus.BAD_REQUEST, "The recording window must cover the entire same-day shift");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_SHIFT_RECORDING_WINDOW);
         return minutes;
     }
     private boolean minutePrecision(LocalTime time) { return time.getSecond() == 0 && time.getNano() == 0; }

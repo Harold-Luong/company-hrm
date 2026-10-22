@@ -1,5 +1,8 @@
 package com.example.authservice.security.jwt;
 
+import com.example.authservice.exception.ExceptionMessages;
+import com.example.authservice.exception.ErrorResponse;
+import tools.jackson.databind.ObjectMapper;
 import com.example.authservice.service.JwtService;
 import com.example.authservice.entity.User;
 import com.example.authservice.repository.UserRepository;
@@ -19,6 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,6 +32,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -49,20 +54,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             Claims claims = jwtService.parseToken(token);
             if (claims.getExpiration() == null) {
-                throw new IllegalArgumentException("Access token must expire");
+                throw new IllegalArgumentException(ExceptionMessages.ACCESS_TOKEN_EXPIRATION_REQUIRED);
             }
             String userId = claims.getSubject();
             User user = userRepository.findById(Long.valueOf(userId))
-                    .orElseThrow(() -> new IllegalArgumentException("Account no longer exists"));
+                    .orElseThrow(() -> new IllegalArgumentException(ExceptionMessages.ACCOUNT_NO_LONGER_EXISTS));
             String sid = claims.get("sid", String.class);
             if (sid == null || !UUID.fromString(sid).equals(user.getActiveSessionId())) {
-                throw new IllegalArgumentException("Session replaced or signed out");
+                throw new IllegalArgumentException(ExceptionMessages.SESSION_REPLACED);
             }
             if (!user.isActive() || user.isActivationPending() || user.isAdministrativelyLocked()) {
                 SecurityContextHolder.clearContext();
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");
-                response.getWriter().write("{\"code\":\"403\",\"message\":\"User is inactive\"}");
+                response.getWriter().write(objectMapper.writeValueAsString(
+                        new ErrorResponse("403", ExceptionMessages.USER_INACTIVE)));
                 return;
             }
             Set<GrantedAuthority> authorities = user.getRoles().stream()
@@ -82,11 +88,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
-            response.getWriter().write("""
-                    {
-                        "message": "Invalid or expired access token"
-                    }
-                    """);
+            response.getWriter().write(objectMapper.writeValueAsString(
+                    Map.of("message", ExceptionMessages.INVALID_ACCESS_TOKEN)));
 
             return;
         }

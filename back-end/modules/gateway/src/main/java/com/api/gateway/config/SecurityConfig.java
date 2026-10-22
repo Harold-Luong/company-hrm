@@ -1,5 +1,6 @@
 package com.api.gateway.config;
 
+import com.api.gateway.exception.ExceptionMessages;
 import com.api.gateway.security.AccessTokenClaimsValidator;
 import com.api.gateway.security.SessionVerifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,8 +51,8 @@ public class SecurityConfig {
     ReactiveJwtDecoder jwtDecoder(JwtProperties properties) throws IOException {
         try (var input = properties.accessPublicKey().getInputStream()) {
             var key = RsaKeyConverters.x509().convert(input);
-            Assert.notNull(key, "JWT access public key is required");
-            Assert.isTrue(key.getModulus().bitLength() >= 2048, "RSA key must be at least 2048 bits");
+            Assert.notNull(key, ExceptionMessages.JWT_PUBLIC_KEY_REQUIRED);
+            Assert.isTrue(key.getModulus().bitLength() >= 2048, ExceptionMessages.RSA_KEY_TOO_SHORT);
             var decoder = NimbusReactiveJwtDecoder.withPublicKey(key)
                     .signatureAlgorithm(SignatureAlgorithm.RS256).build();
             decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(

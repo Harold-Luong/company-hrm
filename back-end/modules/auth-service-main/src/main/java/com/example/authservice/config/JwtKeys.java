@@ -1,5 +1,6 @@
 package com.example.authservice.config;
 
+import com.example.authservice.exception.ExceptionMessages;
 import lombok.Getter;
 import org.springframework.core.io.Resource;
 import org.springframework.security.converter.RsaKeyConverters;
@@ -22,21 +23,21 @@ public class JwtKeys {
         access = loadKeyPair("access", properties.getAccessPrivateKey(), properties.getAccessPublicKey());
         refresh = loadKeyPair("refresh", properties.getRefreshPrivateKey(), properties.getRefreshPublicKey());
         Assert.isTrue(!access.getPublic().equals(refresh.getPublic()),
-                "JWT access and refresh must use different RSA key pairs");
+                ExceptionMessages.JWT_DISTINCT_KEY_PAIRS_REQUIRED);
     }
 
     private static KeyPair loadKeyPair(String purpose, Resource privateResource, Resource publicResource) {
-        Assert.notNull(privateResource, "jwt." + purpose + "-private-key is required");
-        Assert.notNull(publicResource, "jwt." + purpose + "-public-key is required");
+        Assert.notNull(privateResource, ExceptionMessages.JWT_PRIVATE_KEY_REQUIRED.formatted(purpose));
+        Assert.notNull(publicResource, ExceptionMessages.JWT_PUBLIC_KEY_REQUIRED.formatted(purpose));
         try (var privateInput = privateResource.getInputStream();
                 var publicInput = publicResource.getInputStream()) {
             var privateKey = RsaKeyConverters.pkcs8().convert(privateInput);
             var publicKey = RsaKeyConverters.x509().convert(publicInput);
-            Assert.notNull(privateKey, "RSA private key is required");
-            Assert.notNull(publicKey, "RSA public key is required");
+            Assert.notNull(privateKey, ExceptionMessages.RSA_PRIVATE_KEY_REQUIRED);
+            Assert.notNull(publicKey, ExceptionMessages.RSA_PUBLIC_KEY_REQUIRED);
             Assert.isTrue(privateKey.getModulus().bitLength() >= 2048
                     && publicKey.getModulus().bitLength() >= 2048,
-                    "RSA keys must be at least 2048 bits");
+                    ExceptionMessages.RSA_KEY_TOO_SHORT);
 
             byte[] probe = "JWT key pair validation".getBytes(StandardCharsets.US_ASCII);
             Signature signature = Signature.getInstance("SHA256withRSA");
@@ -45,11 +46,10 @@ public class JwtKeys {
             byte[] signed = signature.sign();
             signature.initVerify(publicKey);
             signature.update(probe);
-            Assert.isTrue(signature.verify(signed), "RSA private and public keys do not match");
+            Assert.isTrue(signature.verify(signed), ExceptionMessages.RSA_KEY_PAIR_MISMATCH);
             return new KeyPair(publicKey, privateKey);
         } catch (IOException | GeneralSecurityException | IllegalArgumentException e) {
-            throw new IllegalStateException("Invalid JWT " + purpose
-                    + " key pair: configure matching RSA PEM keys (PKCS#8 private, X.509 public)", e);
+            throw new IllegalStateException(ExceptionMessages.INVALID_JWT_KEY_PAIR.formatted(purpose), e);
         }
     }
 }

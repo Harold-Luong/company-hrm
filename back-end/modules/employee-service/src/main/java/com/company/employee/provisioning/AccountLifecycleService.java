@@ -1,5 +1,6 @@
 package com.company.employee.provisioning;
 
+import com.company.employee.exception.ExceptionMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,11 +29,11 @@ public class AccountLifecycleService {
                 || event.data().accountVersion() < 1 || event.data().accountStatus() == null
                 || !Set.of("ACTIVE", "DISABLED", "SUSPENDED", "PENDING_ACTIVATION")
                         .contains(event.data().accountStatus()))
-            throw new IllegalArgumentException("Invalid account lifecycle event");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_ACCOUNT_LIFECYCLE_EVENT);
         var data = event.data();
         if (jdbc.queryForList("SELECT id FROM employees WHERE id = ? FOR UPDATE", UUID.class, data.employeeId())
                 .isEmpty())
-            throw new IllegalArgumentException("Lifecycle employee does not exist");
+            throw new IllegalArgumentException(ExceptionMessages.LIFECYCLE_EMPLOYEE_NOT_FOUND);
         jdbc.update("""
                 INSERT INTO employee_account_versions (employee_id, version)
                 SELECT ?, 0 WHERE NOT EXISTS (SELECT 1 FROM employee_account_versions WHERE employee_id = ?)

@@ -1,5 +1,6 @@
 package com.example.authservice.service;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.config.JwtProperties;
 import com.example.authservice.config.JwtKeys;
 import com.example.authservice.entity.User;
@@ -74,7 +75,7 @@ public class JwtService {
 
         if (!"refresh".equals(type)) {
             throw new IllegalArgumentException(
-                    "Invalid refresh token type");
+                    ExceptionMessages.INVALID_REFRESH_TOKEN_TYPE);
         }
         return claims;
     }

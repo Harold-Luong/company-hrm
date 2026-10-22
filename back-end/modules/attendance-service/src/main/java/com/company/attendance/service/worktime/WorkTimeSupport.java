@@ -1,5 +1,6 @@
 package com.company.attendance.service.worktime;
 
+import com.company.attendance.exception.ExceptionMessages;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -152,9 +153,9 @@ public final class WorkTimeSupport {
         List<WorkTimeResult> results = new ArrayList<>();
         for (var day : days) {
             if (!dates.add(day.workDate()))
-                throw new IllegalArgumentException("Duplicate work date: " + day.workDate());
+                throw new IllegalArgumentException(ExceptionMessages.DUPLICATE_WORK_DATE.formatted(day.workDate()));
             if (!policy.equals(day.policy()) || !zone.equals(day.zone()))
-                throw new IllegalArgumentException("Period inputs must use the same policy and timezone");
+                throw new IllegalArgumentException(ExceptionMessages.INCONSISTENT_PERIOD_POLICY);
             results.add(calculate(day));
         }
         validatePeriodRanges(days);
@@ -184,7 +185,7 @@ public final class WorkTimeSupport {
                 ranges.add(new PeriodRange(day.workDate(), shift.start(), shift.end(), false,
                         day.calendarDay() == CalendarDay.PAID_HOLIDAY));
             for (var ot : day.overtime()) {
-                if (!overtimeIds.add(ot.id())) throw new IllegalArgumentException("Duplicate OT id in period: " + ot.id());
+                if (!overtimeIds.add(ot.id())) throw new IllegalArgumentException(ExceptionMessages.DUPLICATE_PERIOD_OT_ID.formatted(ot.id()));
                 if (ot.status() == Approval.APPROVED)
                     ranges.add(new PeriodRange(day.workDate(), ot.start(), ot.end(), true, false));
             }
@@ -196,7 +197,7 @@ public final class WorkTimeSupport {
                 var second = ranges.get(j);
                 if (first.date().equals(second.date())) continue; // reported by the daily calculation
                 if ((first.overtime() && second.paidHoliday()) || (second.overtime() && first.paidHoliday())) continue;
-                throw new IllegalArgumentException("Overlapping shift/OT across work dates: " + first.date() + " and " + second.date());
+                throw new IllegalArgumentException(ExceptionMessages.OVERLAPPING_WORK_DATES.formatted(first.date(), second.date()));
             }
         }
     }
@@ -207,9 +208,9 @@ public final class WorkTimeSupport {
         Instant previousEnd = null;
         for (var interval : input.schedule()) {
             if (!periods.add(interval.period()))
-                throw new IllegalArgumentException("Duplicate work period: " + interval.period());
+                throw new IllegalArgumentException(ExceptionMessages.DUPLICATE_WORK_PERIOD.formatted(interval.period()));
             if (previousEnd != null && interval.start().isBefore(previousEnd))
-                throw new IllegalArgumentException("Work intervals must be ordered and non-overlapping");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_WORK_INTERVAL_ORDER);
             previousEnd = interval.end();
         }
         if (!input.schedule().isEmpty()) {
@@ -217,18 +218,18 @@ public final class WorkTimeSupport {
             var last = input.schedule().getLast();
             if (!first.start().atZone(input.zone()).toLocalDate().equals(input.workDate())
                     || Duration.between(first.start(), last.end()).compareTo(Duration.ofHours(24)) > 0)
-                throw new IllegalArgumentException("Shift must start on workDate and span at most 24 hours");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_SHIFT_DATE_RANGE);
             if (input.recordingClosesAt().isBefore(last.end()))
-                throw new IllegalArgumentException("Recording cutoff must cover the complete shift");
+                throw new IllegalArgumentException(ExceptionMessages.INCOMPLETE_RECORDING_CUTOFF);
         }
         for (var leave : input.leaves())
             if (!leaveIds.add(leave.id()))
-                throw new IllegalArgumentException("Duplicate leave id: " + leave.id());
+                throw new IllegalArgumentException(ExceptionMessages.DUPLICATE_LEAVE_ID.formatted(leave.id()));
         for (var ot : input.overtime()) {
             if (!otIds.add(ot.id()))
-                throw new IllegalArgumentException("Duplicate OT id: " + ot.id());
+                throw new IllegalArgumentException(ExceptionMessages.DUPLICATE_OT_ID.formatted(ot.id()));
             if (!ot.start().atZone(input.zone()).toLocalDate().equals(input.workDate()))
-                throw new IllegalArgumentException("OT must be assigned to its starting workDate");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_OT_WORK_DATE);
         }
     }
 

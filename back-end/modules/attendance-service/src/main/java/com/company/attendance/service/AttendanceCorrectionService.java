@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.dto.*;
 import com.company.attendance.dto.AttendanceCorrectionModels.*;
 import com.company.attendance.dto.AttendanceRequestModels.Decision;
@@ -89,13 +90,13 @@ public class AttendanceCorrectionService {
         requireReviewer(actor); state.lockState();
         var row = read(id, actor); periods.requireOpen(row.getWorkDate()); requireVersion(match, row.getVersion());
         if (row.getEmployeeId().equals(employee(actor)) || row.getRequesterUserId().equals(actor.getName()))
-            throw error(HttpStatus.FORBIDDEN, "You cannot review your own attendance correction");
-        if (row.getStatus() != PENDING) throw error(HttpStatus.CONFLICT, "Only pending corrections can be reviewed");
+            throw error(HttpStatus.FORBIDDEN, ExceptionMessages.CORRECTION_SELF_REVIEW_FORBIDDEN);
+        if (row.getStatus() != PENDING) throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_NOT_PENDING_REVIEW);
         if (decision.status() != APPROVED && decision.status() != REJECTED)
-            throw error(HttpStatus.BAD_REQUEST, "Decision must be APPROVED or REJECTED");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_REVIEW_DECISION);
         String note = decision.reviewNote() == null ? null : decision.reviewNote().trim();
         if (decision.status() == REJECTED && (note == null || note.isBlank()))
-            throw error(HttpStatus.BAD_REQUEST, "A rejection reason is required");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.REJECTION_REASON_REQUIRED);
         if (decision.status() == APPROVED) {
             var body = new Write(row.getWorkDate(), row.getShiftRevision().getShiftId(),
                     row.getShiftRevision().getShiftVersion(), row.getBaseRecordVersion(),
@@ -124,7 +125,7 @@ public class AttendanceCorrectionService {
     private void populate(AttendanceCorrection row, Write body, JwtAuthenticationToken actor) {
         periods.requireOpen(body.workDate());
         if (requests.existsByEmployeeIdAndWorkDateAndActiveSlotAndIdNot(row.getEmployeeId(), body.workDate(), "PENDING", row.getId()))
-            throw error(HttpStatus.CONFLICT, "A pending correction already exists for this date");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_ALREADY_PENDING);
         var context = validate(row, body, actor);
         row.setWorkDate(body.workDate()); row.setShiftRevision(context.revision());
         row.setBaseRecordVersion(body.recordVersion());
@@ -138,35 +139,35 @@ public class AttendanceCorrectionService {
 
     private Context validate(AttendanceCorrection row, Write body, JwtAuthenticationToken actor) {
         if (body.workDate().isAfter(LocalDate.now(clock)))
-            throw error(HttpStatus.BAD_REQUEST, "Correction date cannot be in the future");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.CORRECTION_DATE_IN_FUTURE);
         var day = days.findByEmployeeIdAndWorkDate(row.getEmployeeId(), body.workDate()).orElse(null);
         if (!Objects.equals(body.recordVersion(), day == null ? null : day.getVersion()))
-            throw error(HttpStatus.PRECONDITION_FAILED, "Attendance changed; update the correction before approval");
+            throw error(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.CORRECTION_ATTENDANCE_CHANGED);
         var revision = day == null ? schedules.effective(row.getEmployeeId(), body.workDate())
-                .orElseThrow(() -> error(HttpStatus.CONFLICT, "No assigned schedule for correction date")).getShiftRevision()
+                .orElseThrow(() -> error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_SCHEDULE_MISSING)).getShiftRevision()
                 : day.getShiftRevision();
         if (!revision.getShiftId().equals(body.shiftId()) || revision.getShiftVersion() != body.shiftVersion())
-            throw error(HttpStatus.PRECONDITION_FAILED, "Assigned schedule changed; update the correction");
+            throw error(HttpStatus.PRECONDITION_FAILED, ExceptionMessages.CORRECTION_SCHEDULE_CHANGED);
         var shift = shifts.definition(revision.getDefinition());
         Instant shiftEnd = shift.intervals().stream().map(i -> ShiftTimes.at(body.workDate(), shift, i.end()))
                 .max(Comparator.naturalOrder()).orElseThrow();
         if (clock.instant().isBefore(shiftEnd))
-            throw error(HttpStatus.CONFLICT, "Corrections can only be submitted after the shift ends");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_BEFORE_SHIFT_END);
         Instant in = body.proposedCheckIn(), out = body.proposedCheckOut();
         if (!out.isAfter(in) || out.isAfter(clock.instant()) || in.getNano() != 0 || out.getNano() != 0
                 || in.isBefore(ShiftTimes.windowStart(body.workDate(), shift))
                 || out.isAfter(ShiftTimes.windowEnd(body.workDate(), shift)))
-            throw error(HttpStatus.BAD_REQUEST, "Corrected times must be ordered, not in the future and inside the recording window (whole seconds)");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_CORRECTED_TIMES);
         if (day != null && in.equals(day.getEffectiveCheckIn()) && out.equals(day.getEffectiveCheckOut()))
-            throw error(HttpStatus.CONFLICT, "Corrected times are unchanged");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTED_TIMES_UNCHANGED);
         var person = source.employee(row.getEmployeeId(), actor);
         if (!source.eligible(person, body.workDate()))
-            throw error(HttpStatus.CONFLICT, "Employee is not eligible on the correction date");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.EMPLOYEE_INELIGIBLE_ON_CORRECTION_DATE);
         var leaves = source.leaves(row.getEmployeeId(), body.workDate(), body.workDate(), actor);
         var holidays = source.holidays(body.workDate(), body.workDate(), actor);
         var result = calculator.calculate(body.workDate(), shift, in, out, leaves, holidays, clock.instant());
         if (!"CLOSED".equals(result.status()))
-            throw error(HttpStatus.CONFLICT, "Corrected times conflict with leave or company holidays");
+            throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_LEAVE_OR_HOLIDAY_CONFLICT);
         return new Context(day, revision, person, leaves, holidays);
     }
 
@@ -174,14 +175,14 @@ public class AttendanceCorrectionService {
             List<WorkforceClient.Leave> leaves, List<WorkforceClient.Holiday> holidays) {}
 
     private AttendanceCorrection read(UUID id, JwtAuthenticationToken actor) {
-        var row = requests.findById(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Attendance correction not found"));
+        var row = requests.findById(id).orElseThrow(() -> error(HttpStatus.NOT_FOUND, ExceptionMessages.CORRECTION_NOT_FOUND));
         if (!row.getEmployeeId().equals(employee(actor)) && !reviewer(actor))
-            throw error(HttpStatus.NOT_FOUND, "Attendance correction not found");
+            throw error(HttpStatus.NOT_FOUND, ExceptionMessages.CORRECTION_NOT_FOUND);
         return row;
     }
     private void ownPending(AttendanceCorrection row, JwtAuthenticationToken actor) {
-        if (!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN, "Only the owner may edit or cancel a correction");
-        if (row.getStatus() != PENDING) throw error(HttpStatus.CONFLICT, "Only pending corrections can be edited or cancelled");
+        if (!row.getEmployeeId().equals(employee(actor))) throw error(HttpStatus.FORBIDDEN, ExceptionMessages.CORRECTION_OWNER_REQUIRED);
+        if (row.getStatus() != PENDING) throw error(HttpStatus.CONFLICT, ExceptionMessages.CORRECTION_NOT_PENDING_EDIT);
     }
     private Instant nextUpdate(AttendanceCorrection row) {
         return clock.instant().isAfter(row.getUpdatedAt()) ? clock.instant() : row.getUpdatedAt().plusNanos(1000);

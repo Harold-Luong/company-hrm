@@ -1,5 +1,6 @@
 package com.company.employee.service;
 
+import com.company.employee.exception.ExceptionMessages;
 import com.company.employee.dto.EmployeeRequest;
 import com.company.employee.dto.EmployeeResponse;
 import com.company.employee.dto.PageResponse;
@@ -72,7 +73,7 @@ public class EmployeeService {
 
     private void applyRequest(Employee employee, EmployeeRequest request) {
         if (request.dateOfBirth() != null && !request.dateOfBirth().isBefore(request.hireDate())) {
-            throw new InvalidEmployeeException("dateOfBirth must be before hireDate");
+            throw new InvalidEmployeeException(ExceptionMessages.INVALID_BIRTH_DATE);
         }
 
         var department = request.departmentId() == null ? null
@@ -107,7 +108,7 @@ public class EmployeeService {
         Set<UUID> visited = new HashSet<>();
         for (Employee current = manager; current != null; current = current.getManager()) {
             if (current.getId().equals(employeeId) || !visited.add(current.getId())) {
-                throw new InvalidEmployeeException("managerId must not create a cycle in the manager hierarchy");
+                throw new InvalidEmployeeException(ExceptionMessages.MANAGER_HIERARCHY_CYCLE);
             }
         }
         return manager;

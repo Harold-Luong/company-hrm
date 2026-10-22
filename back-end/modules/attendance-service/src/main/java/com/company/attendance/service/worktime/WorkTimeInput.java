@@ -1,5 +1,6 @@
 package com.company.attendance.service.worktime;
 
+import com.company.attendance.exception.ExceptionMessages;
 import java.time.*;
 import java.util.*;
 
@@ -56,7 +57,7 @@ public record WorkTimeInput(LocalDate workDate, ZoneId zone, List<WorkInterval> 
         public WorkInterval {
             requireText(period, "period");
             if (FULL_DAY.equals(period))
-                throw new IllegalArgumentException("FULL_DAY is reserved for leave");
+                throw new IllegalArgumentException(ExceptionMessages.FULL_DAY_RESERVED_FOR_LEAVE);
             requireRange(start, end);
         }
 
@@ -92,16 +93,16 @@ public record WorkTimeInput(LocalDate workDate, ZoneId zone, List<WorkInterval> 
 
     private static void requireText(String value, String name) {
         if (value == null || value.isBlank())
-            throw new IllegalArgumentException(name + " must not be blank");
+            throw new IllegalArgumentException(ExceptionMessages.REQUIRED_TEXT.formatted(name));
     }
 
     private static void requireRange(Instant start, Instant end) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(end, "end");
         if (!end.isAfter(start) || Duration.between(start, end).compareTo(Duration.ofHours(24)) > 0)
-            throw new IllegalArgumentException("Intervals must be positive and at most 24 hours");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_INTERVAL_DURATION);
         if (start.getNano() != 0 || end.getNano() != 0 || Math.floorMod(start.getEpochSecond(), 60) != 0
                 || Math.floorMod(end.getEpochSecond(), 60) != 0)
-            throw new IllegalArgumentException("Scheduled intervals must have minute precision");
+            throw new IllegalArgumentException(ExceptionMessages.INVALID_SCHEDULED_INTERVAL_PRECISION);
     }
 }

@@ -1,5 +1,6 @@
 package com.company.calendar_service.dto;
 
+import com.company.calendar_service.exception.ExceptionMessages;
 import com.company.calendar_service.enums.*;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import jakarta.validation.constraints.*;
@@ -28,7 +29,7 @@ public record CalendarEventRequest(
 
     @JsonAnySetter
     public void rejectUnknown(String name, Object value) {
-        throw new IllegalArgumentException("Unsupported request field: " + name);
+        throw new IllegalArgumentException(ExceptionMessages.UNSUPPORTED_REQUEST_FIELD.formatted(name));
     }
 
     private static String trim(String value) {

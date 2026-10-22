@@ -1,5 +1,6 @@
 package com.company.leave.request;
 
+import com.company.leave.exception.ExceptionMessages;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -12,10 +13,10 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class LeaveErrors extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail conflict(DataIntegrityViolationException error) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Leave data conflicts with stored constraints");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ExceptionMessages.DATA_CONFLICT);
     }
     @ExceptionHandler(DataAccessException.class)
     ProblemDetail unavailable(DataAccessException error) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Leave data is temporarily unavailable");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, ExceptionMessages.DATABASE_UNAVAILABLE);
     }
 }

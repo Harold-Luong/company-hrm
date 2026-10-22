@@ -1,5 +1,6 @@
 package com.company.notification;
 
+import com.company.notification.exception.ExceptionMessages;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -21,7 +22,7 @@ public class AccountResultConsumer {
         var event = mapper.readValue(record.value(), AccountResults.Event.class);
         if (event == null || event.data() == null || event.data().employeeId() == null
                 || !event.data().employeeId().toString().equals(record.key()))
-            throw new IllegalArgumentException("Account result key does not match employeeId");
+            throw new IllegalArgumentException(ExceptionMessages.ACCOUNT_RESULT_KEY_MISMATCH);
         results.accept(event);
     }
 }

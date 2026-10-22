@@ -311,3 +311,12 @@ chọn nhân viên hoặc toàn công ty. Tối đa 2.000 đơn; vượt giới 
 mất dữ liệu. Attendance dùng APPROVED tính thời lượng phép theo ca và PENDING làm
 cờ đối soát. Endpoint này không thay đổi quy tắc sổ số dư Leave, không tự đồng bộ
 ngày công đã snapshot; HR cập nhật coverage qua Attendance khi nguồn thay đổi.
+
+## Thông báo lỗi
+
+Các thông báo lỗi do service khai báo được quản lý tại
+[`ExceptionMessages.java`](src/main/java/com/company/leave/exception/ExceptionMessages.java).
+Service, exception handler và lớp bảo mật tham chiếu các hằng số trong file này.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+Khi sửa nội dung API trả về, kiểm tra mapping lỗi và bản dịch phía frontend;
+HTTP status và mã lỗi giao thức vẫn được quyết định tại nơi xử lý.

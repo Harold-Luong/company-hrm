@@ -10,6 +10,7 @@ Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
 - [Thứ tự chạy local](#thứ-tự-chạy-local)
 - [Role và field](#role-và-field)
 - [API hiện có](#api-hiện-có)
+- [Thông báo lỗi](#thông-báo-lỗi)
 - [Cấp tài khoản qua Employee](#cấp-tài-khoản-qua-employee)
 - [Khởi tạo database và seed](#khởi-tạo-database-và-seed)
 - [Kiểm thử](#kiểm-thử)
@@ -22,6 +23,18 @@ User lưu `employee_id` bắt buộc/unique để liên kết một-một với 
 phòng ban, trạng thái lao động hoặc ngày vào/nghỉ việc vào User.
 
 Chạy trực tiếp Auth tại `8081`; Gateway là `8080`. Health/Swagger bên dưới dùng cổng trực tiếp; health qua Gateway yêu cầu access token. Xem [hướng dẫn chạy độc lập](../../../README.md#local) cho `.env` từng service. Mẫu `.env` trỏ PostgreSQL `55432` và khóa `back-end/modules/auth-service-main/keys`; nếu tự tạo database/khóa theo hướng dẫn bên dưới, sửa các biến `SPRING_DATASOURCE_*` và `JWT_*` khớp vị trí thực tế trước khi nạp.
+
+## Thông báo lỗi
+
+Các thông báo exception và validation khai báo riêng của Auth service nằm trong
+[`ExceptionMessages.java`](src/main/java/com/example/authservice/exception/ExceptionMessages.java).
+Service, controller, security filter và validation annotation cùng sử dụng các hằng số này;
+thêm thông báo mới tại đây và tham chiếu bằng `ExceptionMessages.TEN_THONG_BAO`.
+Thông báo có tham số dùng template `%s` và `.formatted(...)`.
+
+Giữ ổn định các giá trị `ACCOUNT_*` vì frontend dùng chúng làm khóa dịch lỗi.
+Khi thay đổi nội dung thông báo API khác, kiểm tra mapping tại `frontend/src/api/errors.js`
+và các bản dịch tương ứng. HTTP status vẫn được quyết định tại nơi phát sinh lỗi.
 
 ## Cấu hình và chạy độc lập
 

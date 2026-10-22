@@ -45,14 +45,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "Data conflicts with an existing record or a referenced record has changed");
+                ExceptionMessages.DATA_CONFLICT);
     }
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException exception, HttpHeaders headers,
             HttpStatusCode status, WebRequest request) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "Request validation failed");
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ExceptionMessages.REQUEST_VALIDATION_FAILED);
         Map<String, String> errors = new LinkedHashMap<>();
         exception.getBindingResult().getFieldErrors()
                 .forEach(error -> errors.putIfAbsent(error.getField(), error.getDefaultMessage()));

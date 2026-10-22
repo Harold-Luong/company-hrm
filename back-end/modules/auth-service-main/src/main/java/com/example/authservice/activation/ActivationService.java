@@ -1,5 +1,6 @@
 package com.example.authservice.activation;
 
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.entity.User;
 import com.example.authservice.exception.GlobalException;
 import com.example.authservice.exception.LoginThrottledException;
@@ -39,12 +40,12 @@ public class ActivationService {
     public Invitation resend(UUID employeeId) {
         requireEnabled();
         var users = jdbc.queryForList("SELECT id, email, activation_pending, administratively_locked FROM users WHERE employee_id = ? FOR UPDATE", employeeId);
-        if (users.isEmpty()) throw new GlobalException("Account not found", HttpStatus.NOT_FOUND);
+        if (users.isEmpty()) throw new GlobalException(ExceptionMessages.ACCOUNT_NOT_FOUND, HttpStatus.NOT_FOUND);
         var user = users.getFirst();
         if (!Boolean.TRUE.equals(user.get("activation_pending")))
-            throw new GlobalException("Account is not awaiting activation", HttpStatus.CONFLICT);
+            throw new GlobalException(ExceptionMessages.ACCOUNT_NOT_AWAITING_ACTIVATION, HttpStatus.CONFLICT);
         if (Boolean.TRUE.equals(user.get("administratively_locked")))
-            throw new GlobalException("User is inactive", HttpStatus.CONFLICT);
+            throw new GlobalException(ExceptionMessages.USER_INACTIVE, HttpStatus.CONFLICT);
         long userId = ((Number) user.get("id")).longValue();
         var recent = jdbc.queryForObject("SELECT COUNT(*) FROM account_activation_tokens WHERE user_id = ? AND created_at > ?",
                 Integer.class, userId, now().minus(settings.cooldown));
@@ -66,7 +67,7 @@ public class ActivationService {
                 ORDER BY t.created_at DESC LIMIT 1
                 """, (rs, row) -> new DeliveryStatus(rs.getObject(1, UUID.class), rs.getString(2),
                 rs.getObject(3, OffsetDateTime.class), rs.getObject(4, OffsetDateTime.class), rs.getInt(5), rs.getString(6)), employeeId);
-        if (results.isEmpty()) throw new GlobalException("Activation invitation not found", HttpStatus.NOT_FOUND);
+        if (results.isEmpty()) throw new GlobalException(ExceptionMessages.ACTIVATION_INVITATION_NOT_FOUND, HttpStatus.NOT_FOUND);
         return results.getFirst();
     }
 
@@ -90,7 +91,7 @@ public class ActivationService {
         requireEnabled();
         if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw invalidToken();
         if (password == null || password.length() < 12 || password.isBlank() || password.getBytes(StandardCharsets.UTF_8).length > 72)
-            throw new GlobalException("Password must contain at least 12 characters and at most 72 UTF-8 bytes", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.INVALID_ACTIVATION_PASSWORD, HttpStatus.BAD_REQUEST);
         String hash = tokens.hash(token);
         var owners = jdbc.queryForList("SELECT user_id FROM account_activation_tokens WHERE token_hash = ?", Long.class, hash);
         if (owners.isEmpty()) throw invalidToken();
@@ -114,8 +115,8 @@ public class ActivationService {
     }
 
     private void requireEnabled() {
-        if (!settings.enabled) throw new GlobalException("Account activation is disabled", HttpStatus.SERVICE_UNAVAILABLE);
+        if (!settings.enabled) throw new GlobalException(ExceptionMessages.ACTIVATION_DISABLED, HttpStatus.SERVICE_UNAVAILABLE);
     }
-    private GlobalException invalidToken() { return new GlobalException("Invalid or expired activation token", HttpStatus.BAD_REQUEST); }
+    private GlobalException invalidToken() { return new GlobalException(ExceptionMessages.INVALID_ACTIVATION_TOKEN, HttpStatus.BAD_REQUEST); }
     private OffsetDateTime now() { return OffsetDateTime.now(ZoneOffset.UTC); }
 }

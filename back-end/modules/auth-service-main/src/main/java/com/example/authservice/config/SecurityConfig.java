@@ -1,6 +1,9 @@
 package com.example.authservice.config;
 
+import com.example.authservice.exception.ErrorResponse;
+import com.example.authservice.exception.ExceptionMessages;
 import com.example.authservice.security.jwt.JwtAuthenticationFilter;
+import tools.jackson.databind.ObjectMapper;
 
 import lombok.AllArgsConstructor;
 import jakarta.servlet.http.HttpServletResponse;
@@ -44,7 +47,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, CookieCsrfTokenRepository csrfTokens)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, CookieCsrfTokenRepository csrfTokens,
+            ObjectMapper objectMapper)
             throws Exception {
 
         http.csrf(csrf -> csrf
@@ -59,11 +63,13 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.setContentType("application/json");
-                    response.getWriter().write("{\"code\":\"401\",\"message\":\"Authentication is required\"}");
+                    response.getWriter().write(objectMapper.writeValueAsString(
+                            new ErrorResponse("401", ExceptionMessages.AUTHENTICATION_REQUIRED)));
                 }).accessDeniedHandler((request, response, exception) -> {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json");
-                    response.getWriter().write("{\"code\":\"403\",\"message\":\"Access is denied\"}");
+                    response.getWriter().write(objectMapper.writeValueAsString(
+                            new ErrorResponse("403", ExceptionMessages.ACCESS_DENIED)));
                 }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/health-check", "/api/v1/auth/csrf", "/activate",

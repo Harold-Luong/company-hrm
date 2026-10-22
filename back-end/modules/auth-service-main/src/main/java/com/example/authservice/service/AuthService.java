@@ -1,5 +1,6 @@
 package com.example.authservice.service;
 
+import com.example.authservice.exception.ExceptionMessages;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -50,14 +51,14 @@ public class AuthService {
     @PreAuthorize("hasRole('ADMIN')")
     public void register(RegisterRequest request) {
         if (provisioningEnabled) {
-            throw new GlobalException("Request account provisioning through Employee", HttpStatus.CONFLICT);
+            throw new GlobalException(ExceptionMessages.EMPLOYEE_PROVISIONING_REQUIRED, HttpStatus.CONFLICT);
         }
         String email = request.email().toLowerCase(Locale.ROOT).trim();
         if (userRepository.existsByEmail(email)) {
-            throw new GlobalException("Email already exists", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.EMAIL_ALREADY_EXISTS, HttpStatus.BAD_REQUEST);
         }
         if (request.employeeId() != null && userRepository.existsByEmployeeId(request.employeeId())) {
-            throw new GlobalException("Employee already has an account", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.EMPLOYEE_ACCOUNT_ALREADY_EXISTS, HttpStatus.BAD_REQUEST);
         }
         User user = new User();
         user.setEmployeeId(request.employeeId());
@@ -81,12 +82,12 @@ public class AuthService {
         Optional<User> user = userRepository.findByEmailForUpdate(email);
         if (user.isEmpty()) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.UNKNOWN_ACCOUNT);
-            throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         }
 
         if (!user.get().isActive() || user.get().isActivationPending() || user.get().isAdministrativelyLocked()) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.INACTIVE_ACCOUNT);
-            throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
+            throw new GlobalException(ExceptionMessages.USER_INACTIVE, HttpStatus.FORBIDDEN);
         }
 
         boolean passwordMatched = passwordEncoder.matches(
@@ -94,7 +95,7 @@ public class AuthService {
 
         if (!passwordMatched) {
             loginAuditService.failed(email, clientIp, LoginAuditService.FailureReason.INVALID_PASSWORD);
-            throw new GlobalException("Invalid email or password", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         }
 
         // Serialize login/refresh/logout on the same account. Replacement and token
@@ -114,7 +115,7 @@ public class AuthService {
                     hashToken(refreshTokenResult.getToken()),
                     claims.getExpiration().toInstant());
         } catch (Exception e) {
-            throw new GlobalException("Failed to create refresh session", HttpStatus.INTERNAL_SERVER_ERROR);
+            throw new GlobalException(ExceptionMessages.REFRESH_SESSION_CREATION_FAILED, HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         // Commit only with the new refresh session; failures leave the prior login time
@@ -134,7 +135,7 @@ public class AuthService {
     @Transactional
     public AccessTokenResponse refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new GlobalException("Refresh token is required", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.REFRESH_TOKEN_REQUIRED, HttpStatus.BAD_REQUEST);
         }
 
         UUID sessionId;
@@ -146,19 +147,19 @@ public class AuthService {
                     || claims.get("sid", String.class) == null
                     || claims.getExpiration() == null
                     || !claims.getExpiration().toInstant().isAfter(Instant.now())) {
-                throw new IllegalArgumentException("Missing or expired refresh token claims");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_REFRESH_TOKEN_CLAIMS);
             }
             sessionId = UUID.fromString(claims.getId());
             activeSessionId = UUID.fromString(claims.get("sid", String.class));
             userId = Long.valueOf(claims.getSubject());
         } catch (JwtException | IllegalArgumentException e) {
-            throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_REFRESH_TOKEN, HttpStatus.UNAUTHORIZED);
         }
 
         User user = sessionsService.validateRefreshSession(sessionId, userId, hashToken(refreshToken));
         sessionsService.requireCurrentSession(userId, activeSessionId);
         if (!user.isActive() || user.isActivationPending() || user.isAdministrativelyLocked()) {
-            throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
+            throw new GlobalException(ExceptionMessages.USER_INACTIVE, HttpStatus.FORBIDDEN);
         }
         sessionsService.revokeRefreshSession(sessionId);
 
@@ -173,10 +174,10 @@ public class AuthService {
     public UserResponse me(String id) {
         Optional<User> user = userRepository.findById(Long.parseLong(id));
         if (user.isEmpty()) {
-            throw new GlobalException("User not found", HttpStatus.NOT_FOUND);
+            throw new GlobalException(ExceptionMessages.USER_NOT_FOUND, HttpStatus.NOT_FOUND);
         }
         if (!user.get().isActive() || user.get().isActivationPending() || user.get().isAdministrativelyLocked()) {
-            throw new GlobalException("User is inactive", HttpStatus.FORBIDDEN);
+            throw new GlobalException(ExceptionMessages.USER_INACTIVE, HttpStatus.FORBIDDEN);
         }
         return new UserResponse(user.get().getId(), user.get().getEmployeeId(), user.get().getEmail(),
                 user.get().isActive(),
@@ -187,7 +188,7 @@ public class AuthService {
     @Transactional
     public void logout(RefreshTokenRequest request) {
         if (request.refreshToken() == null || request.refreshToken().isBlank()) {
-            throw new GlobalException("Refresh token is required", HttpStatus.BAD_REQUEST);
+            throw new GlobalException(ExceptionMessages.REFRESH_TOKEN_REQUIRED, HttpStatus.BAD_REQUEST);
         }
         UUID sessionId;
         UUID activeSessionId;
@@ -198,13 +199,13 @@ public class AuthService {
                     || claims.get("sid", String.class) == null
                     || claims.getExpiration() == null
                     || !claims.getExpiration().toInstant().isAfter(Instant.now())) {
-                throw new IllegalArgumentException("Missing or expired refresh token claims");
+                throw new IllegalArgumentException(ExceptionMessages.INVALID_REFRESH_TOKEN_CLAIMS);
             }
             sessionId = UUID.fromString(claims.getId());
             activeSessionId = UUID.fromString(claims.get("sid", String.class));
             userId = Long.valueOf(claims.getSubject());
         } catch (JwtException | IllegalArgumentException e) {
-            throw new GlobalException("Invalid refresh token", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_REFRESH_TOKEN, HttpStatus.UNAUTHORIZED);
         }
         sessionsService.validateRefreshSession(sessionId, userId, hashToken(request.refreshToken()));
         sessionsService.requireCurrentSession(userId, activeSessionId);
@@ -214,14 +215,14 @@ public class AuthService {
     @Transactional
     public void logoutAll(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
-            throw new GlobalException("User is not authenticated", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.USER_NOT_AUTHENTICATED, HttpStatus.UNAUTHORIZED);
         }
         String userIdStr = authentication.getName();
         Long userId;
         try {
             userId = Long.valueOf(userIdStr);
         } catch (NumberFormatException e) {
-            throw new GlobalException("Invalid user ID in authentication", HttpStatus.UNAUTHORIZED);
+            throw new GlobalException(ExceptionMessages.INVALID_AUTHENTICATED_USER_ID, HttpStatus.UNAUTHORIZED);
         }
         UUID activeSessionId = authentication.getDetails() instanceof UUID id ? id : null;
         sessionsService.requireCurrentSession(userId, activeSessionId);

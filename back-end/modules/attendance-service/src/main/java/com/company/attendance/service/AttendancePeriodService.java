@@ -1,5 +1,6 @@
 package com.company.attendance.service;
 
+import com.company.attendance.exception.ExceptionMessages;
 import com.company.attendance.entity.*;
 import com.company.attendance.repository.*;
 import com.company.attendance.dto.AttendanceResponse;
@@ -31,7 +32,7 @@ public class AttendancePeriodService {
             var month = YearMonth.parse(value);
             if (month.getYear() < 2000 || month.getYear() > 9998) throw new IllegalArgumentException();
             return month;
-        } catch (RuntimeException e) { throw error(HttpStatus.BAD_REQUEST, "Month must be YYYY-MM between 2000 and 9998"); }
+        } catch (RuntimeException e) { throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_PERIOD_MONTH); }
     }
     public Status get(String value, JwtAuthenticationToken actor) {
         requireReviewer(actor); month(value);
@@ -46,7 +47,7 @@ public class AttendancePeriodService {
     public SourceCheck checkSources(String value, JwtAuthenticationToken actor) {
         requireReviewer(actor); var month = month(value);
         var period = periods.findById(value).filter(AttendancePeriod::isClosed)
-            .orElseThrow(() -> error(HttpStatus.CONFLICT, "Period must be closed before checking sources"));
+            .orElseThrow(() -> error(HttpStatus.CONFLICT, ExceptionMessages.PERIOD_NOT_CLOSED));
         return new SourceCheck(!period.getSourceJson().equals(sourceSnapshot(month, actor)), clock.instant());
     }
     private String sourceSnapshot(YearMonth month, JwtAuthenticationToken actor) {
@@ -61,35 +62,35 @@ public class AttendancePeriodService {
         requireReviewer(actor);
         var month = month(value);
         if (reason == null || reason.isBlank() || reason.length() > 2000)
-            throw error(HttpStatus.BAD_REQUEST, "A reason of at most 2000 characters is required");
+            throw error(HttpStatus.BAD_REQUEST, ExceptionMessages.INVALID_PERIOD_REASON);
         state.lockState();
         var current = periods.findById(value);
         requireVersion(match, current.map(AttendancePeriod::getVersion).orElse(-1L));
         if (current.map(AttendancePeriod::isClosed).orElse(false) == close)
-            throw error(HttpStatus.CONFLICT, close ? "Period is already closed" : "Period is already open");
+            throw error(HttpStatus.CONFLICT, close ? ExceptionMessages.PERIOD_ALREADY_CLOSED : ExceptionMessages.PERIOD_ALREADY_OPEN);
         var row = current.orElseGet(() -> { var p = new AttendancePeriod(); p.setMonth(value); return p; });
         if (close) {
             if (!month.atEndOfMonth().isBefore(LocalDate.now(clock)))
-                throw error(HttpStatus.CONFLICT, "Only completed months can be closed");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.PERIOD_MONTH_NOT_COMPLETED);
             LocalDate from = month.atDay(1), until = month.atEndOfMonth();
             // Include employees absent from the current directory and pending workflow rows without a daily record.
             for (String table : List.of("attendance_requests", "attendance_corrections", "attendance_overtime_requests")) {
                 long count = jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE status = 'PENDING' AND work_date BETWEEN ? AND ?", Long.class, from, until);
-                if (count > 0) throw error(HttpStatus.CONFLICT, "Resolve pending attendance, correction and OT requests before closing");
+                if (count > 0) throw error(HttpStatus.CONFLICT, ExceptionMessages.PENDING_ATTENDANCE_REQUESTS);
             }
             long incompleteOt = jdbc.queryForObject("SELECT count(*) FROM attendance_overtime_requests WHERE status = 'APPROVED' AND work_date BETWEEN ? AND ? AND (check_in IS NULL OR check_out IS NULL)", Long.class, from, until);
-            if (incompleteOt > 0) throw error(HttpStatus.CONFLICT, "Complete approved OT recordings before closing");
+            if (incompleteOt > 0) throw error(HttpStatus.CONFLICT, ExceptionMessages.OT_RECORDINGS_INCOMPLETE);
             if (source.leaves(null, from, until, actor).stream().anyMatch(l -> "PENDING".equals(l.status()) || l.adjustmentPending()))
-                throw error(HttpStatus.CONFLICT, "Resolve pending leave and leave adjustments before closing");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.PENDING_LEAVE_REQUESTS);
             String observedSources = sourceSnapshot(month, actor);
             var rows = attendance.report(null, null, from, until, actor);
-            if (rows.isEmpty()) throw error(HttpStatus.CONFLICT, "There are no employees to close");
+            if (rows.isEmpty()) throw error(HttpStatus.CONFLICT, ExceptionMessages.NO_EMPLOYEES_TO_CLOSE);
             if (rows.stream().anyMatch(r -> !Set.of("CLOSED", "ON_LEAVE", "HOLIDAY", "NO_SCHEDULE").contains(r.status())
                     || (r.remainingRequiredMinutes() > 0 && r.workMinutesCounted() == null)
                     || !r.permissionCoverage().conflictingRequestIds().isEmpty()))
-                throw error(HttpStatus.CONFLICT, "Resolve missing punches and source conflicts before closing");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.UNRESOLVED_ATTENDANCE_CONFLICTS);
             if (!observedSources.equals(sourceSnapshot(month, actor)))
-                throw error(HttpStatus.CONFLICT, "Leave or holidays changed during closing; reload and retry");
+                throw error(HttpStatus.CONFLICT, ExceptionMessages.PERIOD_SOURCES_CHANGED);
             row.setSourceJson(observedSources);
             row.setReportJson(mapper.writeValueAsString(rows.stream().map(r -> r.withReportState("FINAL")).toList()));
         }
