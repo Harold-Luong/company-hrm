@@ -6,6 +6,7 @@
 - [Kiến trúc và quyền sở hữu dữ liệu](#kiến-trúc-và-quyền-sở-hữu-dữ-liệu)
 - [Phụ thuộc khi chạy độc lập](#phụ-thuộc-khi-chạy-độc-lập)
 - [Các luồng nghiệp vụ chính](#các-luồng-nghiệp-vụ-chính)
+- [Flowchart và bản đồ endpoint](docs/endpoint-flows.md)
 - [Xác thực, quyền và tính nhất quán](#xác-thực-quyền-và-tính-nhất-quán)
 - [Hiện trạng và lộ trình](#hiện-trạng-và-lộ-trình)
 - [Quy ước phát triển và triển khai](#quy-ước-phát-triển-và-triển-khai)
@@ -116,6 +117,12 @@ Auth phải sẵn sàng khi dùng API nghiệp vụ, kể cả gọi thẳng ser
 đã sẵn sàng. API Attendance không coi lỗi nguồn là không có phép/ngày nghỉ.
 
 ## Các luồng nghiệp vụ chính
+
+Xem [10 flowchart liên kết endpoint](docs/endpoint-flows.md) hoặc mở
+[bản HTML tương tác](frontend/public/docs/endpoint-map.html) để chọn luồng, phóng to sơ đồ,
+lọc 112 mapping controller theo service/method và tải sơ đồ SVG.
+Trong frontend, mở **Trợ giúp → Sơ đồ endpoint** (`/help/endpoints`).
+Bản HTML hoạt động offline; tải file về để mở nếu đang xem repository trên GitHub.
 
 ### Cấp và kích hoạt tài khoản
 
