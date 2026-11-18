@@ -212,7 +212,8 @@ watch(year, load, { immediate: true })
                 <h1>{{ copy.title }}</h1>
                 <p class="muted">{{ copy.description }}</p>
             </div>
-            <RouterLink v-if="auth.hasRole(calendarManagementRoles)" to="/calendar-events"
+            <RouterLink
+v-if="auth.hasRole(calendarManagementRoles)" to="/calendar-events"
                 class="button button-primary">{{ copy.manage }}</RouterLink>
             <span v-else class="calendar-readonly">
                 <AppIcon name="eye" :size="16" /> {{ copy.privacyHint }}
@@ -245,7 +246,8 @@ watch(year, load, { immediate: true })
             </header>
             <div class="calendar-controls">
                 <div class="calendar-month-controls">
-                    <button class="icon-button" :aria-label="copy.previousMonth" :disabled="month === 1"
+                    <button
+class="icon-button" :aria-label="copy.previousMonth" :disabled="month === 1"
                         @click="changeMonth(month - 1)">
                         ‹
                     </button>
@@ -255,11 +257,13 @@ watch(year, load, { immediate: true })
                             {{ copy.monthLabel({ month: value }) }}
                         </option>
                     </select>
-                    <button class="icon-button" :aria-label="copy.nextMonth" :disabled="month === 12"
+                    <button
+class="icon-button" :aria-label="copy.nextMonth" :disabled="month === 12"
                         @click="changeMonth(month + 1)">
                         ›
                     </button>
-                    <button v-if="calendar.availableYears.includes(Number(today.slice(0, 4)))"
+                    <button
+v-if="calendar.availableYears.includes(Number(today.slice(0, 4)))"
                         class="button button-secondary" @click="goToday">
                         {{ copy.today }}
                     </button>
@@ -295,7 +299,8 @@ watch(year, load, { immediate: true })
                     </div>
                     <div class="calendar-days">
                         <template v-for="(cell, index) in cells" :key="index">
-                            <button v-if="cell" class="calendar-day" :class="[
+                            <button
+v-if="cell" class="calendar-day" :class="[
                                 cell.entries.length ? kind(cell.entries[0].type) : '',
                                 {
                                     'has-events': cell.entries.length,
@@ -308,7 +313,8 @@ watch(year, load, { immediate: true })
                                 :aria-label="`${displayDate(cell.date)}${cell.weekend ? copy.weekendSuffix : ''}${cell.entries.map((entry) => `, ${entry.event.title}, ${typeLabel(entry.type)}`).join('')}`"
                                 @click="chooseDay(cell.date)">
                                 <span class="calendar-day-number">{{ cell.day }}</span>
-                                <span v-for="entry in cell.entries" :key="entry.event.id" class="calendar-day-event"
+                                <span
+v-for="entry in cell.entries" :key="entry.event.id" class="calendar-day-event"
                                     :class="kind(entry.type)"><span class="calendar-dot" aria-hidden="true"></span><span
                                         class="calendar-day-name">{{ entry.event.title
                                         }}{{ entry.event.status === 'CANCELLED' ? copy.cancelledSuffix : ''
@@ -322,13 +328,15 @@ watch(year, load, { immediate: true })
                     </div>
                     <p class="calendar-board-footnote">{{ copy.calendarHint }}</p>
                 </section>
-                <aside ref="detailPanel" tabindex="-1" class="panel calendar-detail" aria-labelledby="day-title"
+                <aside
+ref="detailPanel" tabindex="-1" class="panel calendar-detail" aria-labelledby="day-title"
                     aria-live="polite">
                     <p class="eyebrow">{{ copy.dayDetail }}</p>
                     <h2 id="day-title">{{ displayDate(selectedDate) }}</h2>
                     <template v-if="selectedEvent">
                         <div v-if="selectedEntries.length > 1" class="calendar-event-switch">
-                            <button v-for="entry in selectedEntries" :key="entry.event.id"
+                            <button
+v-for="entry in selectedEntries" :key="entry.event.id"
                                 class="button button-secondary" :aria-pressed="selectedEvent.id === entry.event.id"
                                 @click="selectedEventId = entry.event.id">
                                 {{ entry.event.title }}
@@ -347,7 +355,8 @@ watch(year, load, { immediate: true })
                         </p>
                         <p v-if="selectedEvent.type === 'PERSONAL_LEAVE'">
                             {{ leaveStatuses[selectedEvent.status] }} · {{ leavePeriods[selectedEvent.period] }}
-                            <RouterLink :to="`/leave/requests/${selectedEvent.requestId}`"
+                            <RouterLink
+:to="`/leave/requests/${selectedEvent.requestId}`"
                                 class="button button-secondary">{{ copy.viewLeave }}</RouterLink>
                         </p>
                         <p v-if="selectedEvent.holidayKind">
@@ -383,7 +392,8 @@ watch(year, load, { immediate: true })
                     {{ copy.emptyYear({ year: year }) }}
                 </p>
                 <div v-else class="calendar-event-list">
-                    <button v-for="event in visibleEvents" :key="event.id" class="panel calendar-event-card"
+                    <button
+v-for="event in visibleEvents" :key="event.id" class="panel calendar-event-card"
                         :class="kind(event.type)" :aria-pressed="selectedEvent?.id === event.id"
                         @click="chooseEvent(event)">
                         <span class="calendar-event-date"><strong>{{ Number(event.startDay.slice(8, 10))

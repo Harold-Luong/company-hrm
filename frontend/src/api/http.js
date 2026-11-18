@@ -2,6 +2,8 @@ import { requestTimeouts } from '../config/runtime.js'
 import { ApiError } from './errors.js'
 
 export async function apiRequest(path, init = {}) {
+  if (import.meta.env.MODE === 'demo')
+    return (await import('../demo/api.js')).demoRequest(path, init)
   const { responseType = 'json', ...requestInit } = init
   let response
   try {

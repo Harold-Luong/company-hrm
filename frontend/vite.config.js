@@ -5,6 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
     plugins: [vue()],
+    ...(mode === 'demo' ? { base: './', build: { outDir: 'dist-demo' } } : {}),
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },

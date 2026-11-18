@@ -13,7 +13,11 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:demo": "vite --mode demo --port 5175",
+    "build:demo": "vite build --mode demo",
+    "preview:demo": "vite preview --mode demo --port 4175",
+    "test:demo": "playwright test --config playwright.demo.config.js"
   },
   "dependencies": {
     "vue": "^3.5.42",

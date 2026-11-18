@@ -1,9 +1,10 @@
+import { demoEnabled } from '../demo/config.js'
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, authRequest, apiRequest } from './api.js'
 import { cookieAuthRequest, csrfSession } from './cookies.js'
-const storageKey = 'company-hrm.session'
-const signedOutKey = 'company-hrm.signed-out'
-const lockName = 'company-hrm.session-mutation'
+const storageKey = demoEnabled ? 'company-hrm.demo.session' : 'company-hrm.session'
+const signedOutKey = demoEnabled ? 'company-hrm.demo.signed-out' : 'company-hrm.signed-out'
+const lockName = demoEnabled ? 'company-hrm.demo.session-mutation' : 'company-hrm.session-mutation'
 const state = reactive({ user: null, initialized: false, signingOut: false, sessionEnded: false })
 let accessToken = null
 let session = readSession()
@@ -11,7 +12,7 @@ let revision = 0
 let refreshing = null
 let initializing = null
 // Old per-tab tokens cannot safely be reused after another tab has rotated them.
-sessionStorage.removeItem('company-hrm.refresh-token')
+if (!demoEnabled) sessionStorage.removeItem('company-hrm.refresh-token')
 function readSession() {
     const value = localStorage.getItem(storageKey)
     if (!value) return null
@@ -46,6 +47,7 @@ function assertRevision(expected) {
     if (revision !== expected) throw new ApiError(401, 'Session changed')
 }
 async function withSessionLock(callback) {
+    if (demoEnabled && !navigator.locks?.request) return callback()
     if (!navigator.locks?.request)
         throw new ApiError(503, 'Shared session requires HTTPS and Web Locks support')
     return navigator.locks.request(lockName, callback)

@@ -1,5 +1,9 @@
 # Company HRM — Frontend
 
+**Demo cho khách hàng không cần backend:** chạy `npm run dev:demo` (cổng 5175),
+hoặc `npm run build:demo` để xuất website tĩnh vào `dist-demo/`. Xem
+[hướng dẫn demo](DEMO.md) về dữ liệu mẫu, đổi vai trò và triển khai.
+
 Chạy bằng container riêng: dùng `Dockerfile`, `compose.yaml` và
 `.env.docker.example` tại thư mục này. Xem [hướng dẫn Docker độc lập](../README.md#docker-independent)
 để chuẩn bị network, cấu hình kết nối, build/start/stop riêng hoặc phát hành image.

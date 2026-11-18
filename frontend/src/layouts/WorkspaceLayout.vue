@@ -1,4 +1,5 @@
 <script setup>
+import { demoEnabled } from '@/demo/config.js'
 import { getRouteTitle } from '@/router/title.js'
 import { refreshIntervals } from '@/config/runtime.js'
 import { workspaceLayout as copy } from '@/content/workspace.js'
@@ -259,7 +260,7 @@ v-if="auth.hasRole(accountCreationRoles)" to="/accounts/new" class="nav-item"
                 </section>
                 <section class="nav-group" aria-labelledby="nav-help">
                     <h2 id="nav-help" class="nav-section">{{ t('workspaceLayout.helpSection') }}</h2>
-                    <RouterLink to="/help/endpoints" class="nav-item" active-class="is-active">
+                    <RouterLink v-if="!demoEnabled" to="/help/endpoints" class="nav-item" active-class="is-active">
                         <AppIcon name="book" />{{ t('common.endpointMap') }}
                     </RouterLink>
                     <RouterLink to="/help/guide" class="nav-item" active-class="is-active">

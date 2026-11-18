@@ -1,7 +1,8 @@
+import { demoEnabled } from '../demo/config.js'
 import { watchEffect } from 'vue'
 import { getRouteTitle } from './title.js'
 import { common } from '../content/common.js'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, createWebHashHistory } from 'vue-router'
 import { auth } from '@/auth/session.js'
 import { ApiError } from '@/api/errors.js'
 import { safeDestination } from '@/auth/navigation.js'
@@ -10,12 +11,13 @@ import { routes } from './routes.js'
 export { routes } from './routes.js'
 
 export const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: (demoEnabled ? createWebHashHistory : createWebHistory)(import.meta.env.BASE_URL),
   routes,
   scrollBehavior: (to) =>
     to.path.startsWith('/help/') && to.hash ? { el: to.hash, top: 24 } : { top: 0 },
 })
 router.beforeEach(async (to) => {
+  if (demoEnabled && to.name === 'help-endpoints') return { name: 'help-guide' }
   if (to.name === 'connection-error' || to.name === 'activate') return true
   try {
     const wasInitialized = auth.state.initialized

@@ -1917,5 +1917,18 @@
       "reasonRequired": "Nhập lý do thay đổi.",
       "conflict": "Trạng thái tài khoản đã thay đổi hoặc không phù hợp với thao tác. Hãy tải lại."
     }
+  },
+  "demo": {
+    "title": "HRM DEMO",
+    "description": "Dữ liệu minh họa · Chọn vai trò để trải nghiệm",
+    "roles": {
+      "ADMIN": "Quản trị viên",
+      "HR": "Nhân sự",
+      "EMPLOYEE": "Nhân viên"
+    },
+    "reset": "Khôi phục dữ liệu mẫu",
+    "confirmReset": "Xóa các thay đổi demo?",
+    "confirm": "Khôi phục",
+    "cancel": "Giữ lại"
   }
 }

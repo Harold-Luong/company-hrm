@@ -8,6 +8,8 @@ export default [
     {
         ignores: [
             'dist/**',
+            'dist-demo/**',
+            'test-results-demo/**',
             'node_modules/**',
             'coverage/**',
             'playwright-report/**',

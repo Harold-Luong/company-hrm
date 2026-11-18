@@ -252,11 +252,13 @@ onUnmounted(() => {
                 </p>
                 <fieldset class="form-fields form-grid" :disabled="locked || !allowed.edit">
                     <div class="field span-all">
-                        <label for="event-title">{{ copy.eventTitle }}</label><input id="event-title"
+                        <label for="event-title">{{ copy.eventTitle }}</label><input
+id="event-title"
                             v-model="form.title" required :maxlength="fieldLimits.eventTitle" pattern=".*\S.*" />
                     </div>
                     <div class="field">
-                        <label for="event-type">{{ copy.eventType }}</label><select id="event-type" v-model="form.type"
+                        <label for="event-type">{{ copy.eventType }}</label><select
+id="event-type" v-model="form.type"
                             :disabled="published">
                             <option v-for="(label, value) in eventTypes" :key="value" :value="value">
                                 {{ label }}
@@ -264,7 +266,8 @@ onUnmounted(() => {
                         </select>
                     </div>
                     <div v-if="form.type === 'HOLIDAY'" class="field">
-                        <label for="event-holiday-kind">{{ copy.holidayType }}</label><select id="event-holiday-kind"
+                        <label for="event-holiday-kind">{{ copy.holidayType }}</label><select
+id="event-holiday-kind"
                             v-model="form.holidayKind" required :disabled="published">
                             <option v-for="(label, value) in holidayKinds" :key="value" :value="value">
                                 {{ label }}
@@ -272,44 +275,52 @@ onUnmounted(() => {
                         </select>
                     </div>
                     <div class="field span-all">
-                        <label class="calendar-checkbox" for="event-all-day"><input id="event-all-day"
+                        <label class="calendar-checkbox" for="event-all-day"><input
+id="event-all-day"
                                 v-model="form.allDay" type="checkbox"
                                 :disabled="published || form.type === 'HOLIDAY'" />{{ copy.allDay }}</label>
                         <p class="field-help">{{ copy.timezoneHint }}</p>
                     </div>
                     <template v-if="form.allDay">
                         <div class="field">
-                            <label for="event-start-date">{{ copy.startsOn }}</label><input id="event-start-date"
+                            <label for="event-start-date">{{ copy.startsOn }}</label><input
+id="event-start-date"
                                 v-model="form.startDate" type="date" required />
                         </div>
                         <div class="field">
-                            <label for="event-end-date">{{ copy.endsOn }}</label><input id="event-end-date"
+                            <label for="event-end-date">{{ copy.endsOn }}</label><input
+id="event-end-date"
                                 v-model="form.endDate" type="date" :min="form.startDate" required />
                             <p class="field-help">{{ copy.inclusiveEnd }}</p>
                         </div>
                     </template>
                     <template v-else>
                         <div class="field">
-                            <label for="event-start-time">{{ copy.startsAt }}</label><input id="event-start-time"
+                            <label for="event-start-time">{{ copy.startsAt }}</label><input
+id="event-start-time"
                                 v-model="form.startTime" type="datetime-local" step="0.001" required />
                         </div>
                         <div class="field">
-                            <label for="event-end-time">{{ copy.endsAt }}</label><input id="event-end-time"
+                            <label for="event-end-time">{{ copy.endsAt }}</label><input
+id="event-end-time"
                                 v-model="form.endTime" type="datetime-local" step="0.001" :min="form.startTime"
                                 required />
                         </div>
                     </template>
                     <div class="field span-all">
-                        <label for="event-location">{{ copy.location }}</label><input id="event-location"
+                        <label for="event-location">{{ copy.location }}</label><input
+id="event-location"
                             v-model="form.location" :maxlength="fieldLimits.eventLocation" />
                         <GoogleMapsLink :location="form.location" />
                     </div>
                     <div class="field span-all">
-                        <label for="event-description">{{ copy.description }}</label><textarea id="event-description"
+                        <label for="event-description">{{ copy.description }}</label><textarea
+id="event-description"
                             v-model="form.description" rows="5" :maxlength="fieldLimits.eventDescription"></textarea>
                     </div>
                     <div v-if="published && allowed.edit" class="field span-all">
-                        <label for="event-reason">{{ copy.changeReason }}</label><textarea id="event-reason"
+                        <label for="event-reason">{{ copy.changeReason }}</label><textarea
+id="event-reason"
                             v-model="form.reason" required :maxlength="fieldLimits.eventReason" rows="3"></textarea>
                         <p class="field-help">{{ copy.changeReasonHint }}</p>
                     </div>
@@ -338,18 +349,21 @@ onUnmounted(() => {
                     <template v-if="event">
                         <p v-if="dirty" class="field-help">{{ copy.saveBeforeAction }}</p>
                         <div class="calendar-lifecycle-actions">
-                            <button v-if="event.status === 'DRAFT'" class="button button-primary"
+                            <button
+v-if="event.status === 'DRAFT'" class="button button-primary"
                                 :disabled="locked || dirty || !allowed.publish" @click="openAction('publish')">
                                 {{ copy.publishAction }}
                             </button>
                             <p v-if="event.status === 'DRAFT' && !allowed.publish" class="field-help">
                                 {{ copy.pastEventHint }}
                             </p>
-                            <button v-if="allowed.cancel" class="button button-danger-outline"
+                            <button
+v-if="allowed.cancel" class="button button-danger-outline"
                                 :disabled="locked || dirty" @click="openAction('cancel')">
                                 {{ copy.cancel }}
                             </button>
-                            <button v-if="allowed.remove" class="button button-danger-outline"
+                            <button
+v-if="allowed.remove" class="button button-danger-outline"
                                 :disabled="locked || dirty" @click="openAction('remove')">
                                 {{ copy.deleteDraft }}
                             </button>
@@ -361,7 +375,8 @@ onUnmounted(() => {
                 </section>
             </aside>
         </div>
-        <dialog ref="dialog" class="calendar-action-dialog" aria-labelledby="calendar-action-title"
+        <dialog
+ref="dialog" class="calendar-action-dialog" aria-labelledby="calendar-action-title"
             @cancel="busy ? $event.preventDefault() : (action = '')">
             <form @submit.prevent="performAction">
                 <h2 id="calendar-action-title">{{ actionLabel }}</h2>
@@ -375,12 +390,14 @@ onUnmounted(() => {
                 <p v-else>{{ copy.cancelConfirmation }}</p>
                 <fieldset class="form-fields" :disabled="busy">
                     <div v-if="action === 'cancel'" class="field">
-                        <label for="cancel-reason">{{ copy.cancellationReason }}</label><textarea id="cancel-reason"
+                        <label for="cancel-reason">{{ copy.cancellationReason }}</label><textarea
+id="cancel-reason"
                             v-model="cancelReason" required :maxlength="fieldLimits.eventReason" rows="3"></textarea>
                     </div>
                     <div class="form-footer">
                         <button type="button" class="button button-secondary" @click="closeDialog">
-                            {{ common.back }}</button><button type="submit" class="button"
+                            {{ common.back }}</button><button
+type="submit" class="button"
                             :class="action === 'publish' ? 'button-primary' : 'button-danger'">
                             {{ busy ? copy.processing : actionLabel }}
                         </button>

@@ -1917,5 +1917,18 @@
       "reasonRequired": "Enter a reason for the change.",
       "conflict": "The account status has changed or does not allow this action. Please reload."
     }
+  },
+  "demo": {
+    "title": "HRM DEMO",
+    "description": "Sample data · Choose a role to explore",
+    "roles": {
+      "ADMIN": "Administrator",
+      "HR": "Human resources",
+      "EMPLOYEE": "Employee"
+    },
+    "reset": "Reset sample data",
+    "confirmReset": "Discard demo changes?",
+    "confirm": "Reset",
+    "cancel": "Keep changes"
   }
 }

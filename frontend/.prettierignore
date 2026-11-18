@@ -1,6 +1,8 @@
 node_modules/
 dist/
+dist-demo/
 package-lock.json
 coverage/
 playwright-report/
 test-results/
+test-results-demo/

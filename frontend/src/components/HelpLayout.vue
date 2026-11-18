@@ -1,4 +1,5 @@
 <script setup>
+import { demoEnabled } from '@/demo/config.js'
 import { helpLayout as copy } from '@/content/workspace.js'
 import { common } from '@/content/common.js'
 
@@ -22,7 +23,7 @@ defineProps({
       <span class="help-heading-icon"><AppIcon name="book" :size="28" /></span>
     </div>
     <nav class="help-tabs" :aria-label="copy.title">
-      <RouterLink to="/help/endpoints" active-class="is-active">{{ common.endpointMap }}</RouterLink>
+      <RouterLink v-if="!demoEnabled" to="/help/endpoints" active-class="is-active">{{ common.endpointMap }}</RouterLink>
       <RouterLink to="/help/guide" active-class="is-active">{{ copy.userGuide }}</RouterLink>
       <RouterLink to="/help/features" active-class="is-active">{{
         copy.featureReference

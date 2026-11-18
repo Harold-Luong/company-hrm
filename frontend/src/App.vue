@@ -1,4 +1,6 @@
 <script setup>
+import { defineAsyncComponent } from 'vue'
+import { demoEnabled } from './demo/config.js'
 import { refreshIntervals } from '@/config/runtime.js'
 import { app as copy } from '@/content/workspace.js'
 import { common } from '@/content/common.js'
@@ -7,6 +9,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { auth } from '@/auth/session.js'
 import { safeDestination } from '@/auth/navigation.js'
 
+const DemoToolbar =
+    import.meta.env.MODE === 'demo'
+        ? defineAsyncComponent(() => import('./demo/DemoToolbar.vue'))
+        : null
 const route = useRoute()
 const router = useRouter()
 let sessionTimer
@@ -43,7 +49,8 @@ watch(
 </script>
 
 <template>
-    <RouterView v-if="route.matched.length" />
+    <DemoToolbar v-if="demoEnabled" />
+    <RouterView v-if="route.matched.length" :key="demoEnabled ? auth.state.user?.id : undefined" />
     <div v-else class="loading-screen" role="status">
         <span class="brand-icon">{{ common.monogramFirst }}<span>{{ common.monogramSecond }}</span></span>
         <p>{{ copy.openingWorkspace }}</p>

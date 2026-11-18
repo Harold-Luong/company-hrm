@@ -31,3 +31,7 @@ dist-ssr
 coverage/
 playwright-report/
 test-results/
+test-results-demo/
+
+# Standalone demo build
+dist-demo/
